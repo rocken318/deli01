@@ -1,0 +1,44 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+build/
+dist/
+
+# env — 絶対にコミットしない（spec 1-1）
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# testing
+coverage/
+playwright-report/
+test-results/
+.playwright/
+
+# drizzle
+drizzle/meta/_journal.json.bak
+
+# misc
+.DS_Store
+*.pem
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# 元仕様書（docs/spec.md を正とする。ルートの原本はコミットしない）
+/salon-spec-v9.md
+/salon-spec-v11.md
+
+# scratch
+/scratch/
