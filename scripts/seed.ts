@@ -68,7 +68,7 @@ const fieldDefinitions = [
 ] as const;
 
 async function main() {
-  const sql = postgres(url as string, { max: 1 });
+  const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
     for (const t of terminology) {
       await sql`

@@ -19,8 +19,13 @@ if (!url) {
 }
 
 async function main() {
-  const sql = postgres(url as string, { max: 1 });
+  // onnotice を無音化（"extension already exists, skipping" 等の NOTICE でログを汚さない）
+  const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
+    // 並行適用（CI と手元、複数プロセス）の競合を防ぐ session advisory lock。
+    // キーは定数（利用者入力ではない）なのでインラインで渡す。接続終了で自動解放。
+    await sql`select pg_advisory_lock(4823710192837465)`;
+
     await sql`
       create table if not exists schema_migrations (
         filename    text primary key,

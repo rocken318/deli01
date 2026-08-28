@@ -18,9 +18,9 @@ export async function GET() {
       postgis: row?.postgis ?? null,
     });
   } catch (e) {
-    return Response.json(
-      { ok: false, db: "down", error: (e as Error).message },
-      { status: 503 },
-    );
+    // 詳細（接続先ホスト等を含みうる）はサーバーログにのみ出し、外向きは固定文言
+    // （spec 4章「生の Postgres エラーを画面に出さない」の趣旨）。
+    console.error("[health] db check failed:", e);
+    return Response.json({ ok: false, db: "down" }, { status: 503 });
   }
 }
