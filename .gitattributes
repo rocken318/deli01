@@ -1,0 +1,11 @@
+# 改行はリポジトリ内で LF に正規化（Windows/CI 間の差分ノイズを防ぐ）
+* text=auto eol=lf
+
+# バイナリは変換しない
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ico binary
