@@ -1,29 +1,42 @@
-import { z } from "zod";
-
 /**
- * 環境変数の検証（spec: 型だけで通さない）。
- * サーバー専用。クライアントに秘匿値を出さない（spec 19-4）。
+ * 環境変数アクセス（ビルド時に落ちない・遅延検証）。
+ *
+ * 方針: import した瞬間に throw しない。`next build` のページデータ収集で
+ * 本モジュールが芋づる式に読み込まれても、必須値が未設定なだけでビルドを壊さない。
+ * 必須値（DATABASE_URL）は「実際に接続する瞬間」にだけ検証する。
+ * 発注者提供の任意値（Supabase/OpenAI/Maps）は未設定なら undefined を返すだけ。
+ *
+ * Server Action の入力検証は Zod で別途行う（spec 1-2）。ここは env なので簡素に保つ。
  */
-const serverSchema = z.object({
-  DATABASE_URL: z.string().url().or(z.string().startsWith("postgres")),
-  TZ: z.string().default("Asia/Tokyo"),
-  // 発注者が用意するもの（未設定でも開発は進む / spec 停止条件②）
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional().or(z.literal("")),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional().or(z.literal("")),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional().or(z.literal("")),
-  GOOGLE_MAPS_API_KEY: z.string().optional().or(z.literal("")),
-  ANTHROPIC_API_KEY: z.string().optional().or(z.literal("")),
-});
 
-function loadEnv() {
-  const parsed = serverSchema.safeParse(process.env);
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((i) => `  ${i.path.join(".")}: ${i.message}`)
-      .join("\n");
-    throw new Error(`環境変数が不正です:\n${issues}`);
-  }
-  return parsed.data;
+/** 空文字は未設定として扱う */
+function read(name: string): string | undefined {
+  const v = process.env[name];
+  return v && v.length > 0 ? v : undefined;
 }
 
-export const env = loadEnv();
+/** 実際に使う瞬間に必須検証する（未設定なら分かりやすく落とす） */
+function requireEnv(name: string): string {
+  const v = read(name);
+  if (!v) {
+    throw new Error(
+      `環境変数 ${name} が未設定です。ローカルは .env（.env.example 参照）、` +
+        `本番/プレビューは各ホスティングの環境変数に設定してください。`,
+    );
+  }
+  return v;
+}
+
+export const env = {
+  /** DB 接続文字列。接続する瞬間にだけ検証する（ビルドでは呼ばれない） */
+  databaseUrl: (): string => requireEnv("DATABASE_URL"),
+  /** アプリのタイムゾーン（全処理 Asia/Tokyo） */
+  appTz: read("APP_TZ") ?? "Asia/Tokyo",
+
+  // 発注者が用意するもの（未設定でも開発・ビルドは通る / 停止条件②）
+  supabaseUrl: read("NEXT_PUBLIC_SUPABASE_URL"),
+  supabaseAnonKey: read("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+  supabaseServiceRoleKey: read("SUPABASE_SERVICE_ROLE_KEY"),
+  googleMapsApiKey: read("GOOGLE_MAPS_API_KEY"),
+  openaiApiKey: read("OPENAI_API_KEY"),
+} as const;

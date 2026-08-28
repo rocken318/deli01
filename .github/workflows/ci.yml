@@ -26,7 +26,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/deli01
-      TZ: Asia/Tokyo
+      APP_TZ: Asia/Tokyo
 
     steps:
       - uses: actions/checkout@v4
