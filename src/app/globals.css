@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 公開側は暗い画面が既定（spec 12-1）。管理側レイアウトで上書きする。 */
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: theme("colors.pub.bg");
+  color: theme("colors.pub.text");
+  font-family: theme("fontFamily.body");
+}
+
+/* prefers-reduced-motion を尊重（spec 12-2） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

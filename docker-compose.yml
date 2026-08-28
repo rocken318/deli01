@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    container_name: deli01-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: deli01
+      TZ: Asia/Tokyo
+    ports:
+      # ホスト側ポートは DB_PORT で切替可（ローカルに別の Postgres がいる場合の回避）。
+      # 既定は 5432。CI は service container なので競合しない。
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - deli01-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d deli01"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  deli01-db-data:

@@ -22,8 +22,8 @@ playwright-report/
 test-results/
 .playwright/
 
-# drizzle
-drizzle/meta/_journal.json.bak
+# drizzle-kit の生成物はスクラッチ（正は migrations/）。コミットしない。
+/drizzle/generated/
 
 # misc
 .DS_Store

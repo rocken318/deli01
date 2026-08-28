@@ -48,15 +48,16 @@ Next.js 15 App Router + TypeScript strict / PostgreSQL(Supabase) + PostGIS / Dri
 ```bash
 pnpm install              # 依存インストール
 pnpm dev                  # 開発サーバ（http://localhost:3000）
-pnpm db:up                # ローカル Postgres+PostGIS を docker で起動
+pnpm db:up                # ローカル Postgres+PostGIS を docker で起動（衝突時は .env の DB_PORT を変更）
 pnpm db:down              # 停止
-pnpm db:generate          # Drizzle マイグレーション生成
-pnpm db:migrate           # マイグレーション適用
-pnpm db:seed              # シード投入（spec 18章のダミー値）
+pnpm db:generate          # drizzle-kit で SQL 生成（drizzle/generated/。補助。正は migrations/）
+pnpm db:migrate           # 手書き SQL マイグレーション適用（scripts/migrate.ts）
+pnpm db:seed              # シード投入（spec 18章のダミー値。段階投入）
+pnpm db:reset             # DB を作り直して migrate + seed
 pnpm typecheck            # tsc --noEmit
-pnpm lint                 # ESLint
+pnpm lint                 # ESLint（no-explicit-any: error）
 pnpm test                 # Vitest（統合は実Postgres）
-pnpm test:e2e             # Playwright
+# pnpm test:e2e           # Playwright（E2Eを書くフェーズ5/11で導入予定。未導入）
 ```
 
 ## 開発DBの安全ルール（spec 権限）
