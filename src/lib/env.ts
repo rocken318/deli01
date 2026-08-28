@@ -6,13 +6,14 @@ import { z } from "zod";
  */
 const serverSchema = z.object({
   DATABASE_URL: z.string().url().or(z.string().startsWith("postgres")),
-  TZ: z.string().default("Asia/Tokyo"),
+  APP_TZ: z.string().default("Asia/Tokyo"),
   // 発注者が用意するもの（未設定でも開発は進む / spec 停止条件②）
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional().or(z.literal("")),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional().or(z.literal("")),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().or(z.literal("")),
   GOOGLE_MAPS_API_KEY: z.string().optional().or(z.literal("")),
-  ANTHROPIC_API_KEY: z.string().optional().or(z.literal("")),
+  // CMS内AI（spec 19章。発注者判断で Anthropic→OpenAI に変更 / README 判断ログ #6）
+  OPENAI_API_KEY: z.string().optional().or(z.literal("")),
 });
 
 function loadEnv() {
