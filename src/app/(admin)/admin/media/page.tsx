@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
+
 import { listMedia, upsertMediaMeta } from "@/lib/cms/media-actions";
 
 export const metadata: Metadata = { title: "メディア" };

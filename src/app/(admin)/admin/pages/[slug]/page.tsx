@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
+
 import { notFound } from "next/navigation";
 import { getPage, savePageFields, savePageBlocks, publishPage } from "@/lib/cms/pages-actions";
 import type { HeroBlock } from "@/domain/cms/blocks";

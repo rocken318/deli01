@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { listPages } from "@/lib/cms/pages-actions";
 

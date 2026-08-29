@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
+
 import { getAllSiteSettings, saveSiteSetting } from "@/lib/cms/site-settings-actions";
 import { getAllTerminology, saveTerminology } from "@/lib/cms/terminology-actions";
 
