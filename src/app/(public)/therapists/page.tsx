@@ -10,7 +10,7 @@ import { TherapistFilter } from "./therapist-filter";
  *
  * キャッシュ（spec 2-7）: プロフィール本文・写真は ISR。60秒 revalidate。
  */
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const ctx = await getSiteContext();

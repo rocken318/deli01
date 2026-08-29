@@ -4,7 +4,7 @@ import { CmsPage, cmsPageMetadata } from "../_components/cms-page";
 /**
  * 利用の流れ（spec 2-1）。pages(guide) published 駆動。無ければ空状態。
  */
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   return cmsPageMetadata("guide");
