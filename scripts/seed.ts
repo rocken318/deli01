@@ -1521,8 +1521,60 @@ async function main() {
       }
     }
 
+    // -----------------------------------------------------------------------
+    // フェーズ13: 送信テンプレート（spec 8-3 ★）。CMS 編集可の既定2行。
+    //   打診用: エリア・時間・コース・バック額のみ。{{場所}}{{部屋番号}}{{顧客名}}
+    //           {{電話番号}}{{お好み}} は本文に置かない（受入 L1108）。
+    //           万一 CMS で混入しても buildDispatchMessage が構造的に除去する。
+    //   確定用: 住所・部屋番号・顧客名・お好みを含む出発直前用（spec 8-3 L788）。
+    //           **既定文面に {{電話番号}} は入れない**（spec 7-3 L709: 顧客電話番号を
+    //           セラピスト個人端末に残さない。8-3 L788 の確定用列挙にも電話番号は無い）。
+    //           発信はマイページのアプリ内発信/転送番号で担う。CMS で明示追加は owner 判断。
+    // 冪等: on conflict (kind) do nothing = CMS での編集を上書きしない
+    // （初期投入のみ。CMS から変更できることをもって完成 / spec 18章）。
+    // -----------------------------------------------------------------------
+    const messageTemplateSeeds: { kind: "inquiry" | "confirmed"; name: string; body: string }[] = [
+      {
+        kind: "inquiry",
+        name: "打診用（個人情報なし）",
+        body: [
+          "【打診】{{日時}}〜",
+          "エリア: {{エリア}}",
+          "コース: {{コース}}",
+          "オプション: {{オプション}}",
+          "移動: {{移動手段}}（出発目安 {{出発目安}}）",
+          "バック: {{バック額}}",
+          "対応可否のご返信をお願いします。",
+        ].join("\n"),
+      },
+      {
+        kind: "confirmed",
+        name: "確定用（出発直前）",
+        body: [
+          "【確定】{{日時}}〜 {{セラピスト}}さん",
+          "出発目安: {{出発目安}}（{{移動手段}}）",
+          "コース: {{コース}}",
+          "オプション: {{オプション}}",
+          "場所: {{場所}}",
+          "部屋番号: {{部屋番号}}",
+          "お客様: {{顧客名}}様",
+          "お好み: {{お好み}}",
+          "合計金額: {{合計金額}}（現地決済）",
+          "到着・終了のステータス更新をお願いします。",
+        ].join("\n"),
+      },
+    ];
+
+    for (const t of messageTemplateSeeds) {
+      await sql`
+        insert into message_templates (kind, name, body)
+        values (${t.kind}::template_kind, ${t.name}, ${t.body})
+        on conflict (kind) do nothing
+      `;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）/ phase12_customers ${phase12Customers.length} / phase12_reservations ${phase12Reservations.length} / lost_orders ${lostOrderSeeds.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）/ phase12_customers ${phase12Customers.length} / phase12_reservations ${phase12Reservations.length} / lost_orders ${lostOrderSeeds.length} / message_templates ${messageTemplateSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });
