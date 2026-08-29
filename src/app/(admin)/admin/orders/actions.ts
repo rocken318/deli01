@@ -11,16 +11,36 @@ import { getTherapistSlots } from '@/lib/availability/public-slots';
 import type { PublicSlotView } from '@/lib/availability/public-slots';
 import {
   createHold,
+  isOccupancyCheckError,
   isSlotTakenError,
   loadBookingFees,
+  loadOptionSnapshots,
 } from '@/lib/booking/holds';
 import { feeBreakdown } from '@/domain/booking';
+import { arrivalBuffers } from '@/domain/availability';
+import type { BufferSettings } from '@/domain/availability';
+import { totalServiceMinutes } from '@/domain/catalog';
 
 export interface ActionResult<T = void> {
   ok: boolean;
   data?: T;
   error?: string;
 }
+
+/**
+ * 枠外（override）で engine の近傍枠が無いときの暫定移動時間（分・片道）。
+ * 暫定は**保守的に長く**取る（占有を過小に見積もると exclusion をすり抜けて
+ * 二重予約になるため / spec 4章・5-3。実移動が短ければ空白が出るだけで安全側）。
+ */
+const PROVISIONAL_OVERRIDE_TRAVEL_MIN = 30;
+
+/** travel_buffers が未投入でも動く既定（spec 5-2。public-slots の FALLBACK と同値） */
+const FALLBACK_OVERRIDE_BUFFERS: BufferSettings = {
+  arriveMin: 10,
+  parkingMin: 15,
+  beforeMin: 5,
+  afterMin: 10,
+};
 
 // Customer search result
 export interface CustomerSearchResult {
@@ -483,42 +503,107 @@ export async function createPhoneOrder(
       if (!therapistRows[0]) return { ok: false, error: 'セラピストが見つかりません' };
 
       const startAt = new Date(d.startAtISO);
-      const durationMin = course.duration_min;
-      const serviceEndAt = new Date(startAt.getTime() + durationMin * 60_000);
 
-      // depart_at/free_at: engine の rawSlots から近い枠を探す（なければ固定バッファ）
-      let departAt: Date;
-      let freeAt: Date;
-      let travelInMin = 15;
-      let travelOutMin = 15;
-      let bufferMin = 30;
-      let travelInMode: 'walk' | 'car' = 'walk';
+      // オプションは engine と同じ絞り込み（is_active・is_public・option_availability の
+      // セラピスト対応 / 重大A-4）。L・金額・スナップショットの材料を一度に取る
+      const optionRows = await loadOptionSnapshots(sql, {
+        optionIds: d.optionIds ?? [],
+        therapistId: d.therapistId,
+      });
 
+      // L = コース + 選択オプション duration 合計（spec 3-4・5-3 / 重大A-1）。
+      // 延長分を end_at / free_at に反映しないと exclusion をすり抜けて二重予約になる
+      const serviceMinutes = totalServiceMinutes(
+        course.duration_min,
+        optionRows.map((o) => ({ durationMin: o.duration_min })),
+      );
+
+      // 占有区間の導出（engine の写像 = docs/booking-holds.md §4 / 重大A）:
+      //   end_at  = s + buffer_before + L
+      //   free_at = end_at + buffer_after
+      //   depart_at = s − (到着バッファ + travel_in)
+      // 近傍枠がある場合はその**相対オフセット**で写す（絶対時刻のコピーは
+      // reservations_occupy_order_check 違反や意味ズレになる / 重大A-2）
       const nearbySlot = engineResult?.rawSlots.find(
         (s) =>
           Math.abs(s.startAt.getTime() - startAt.getTime()) < 60 * 60_000,
       );
 
+      let serviceEndAt: Date;
+      let departAt: Date;
+      let freeAt: Date;
+      let travelInMin: number;
+      let travelOutMin: number;
+      let bufferMin: number;
+      let travelInMode: 'walk' | 'car';
+
       if (nearbySlot) {
-        departAt = nearbySlot.departAt;
-        freeAt = nearbySlot.freeAt;
+        // 相対オフセット: departOffset = 到着バッファ + travel_in / freeOffset = buffer_after
+        const departOffsetMin =
+          (nearbySlot.startAt.getTime() - nearbySlot.departAt.getTime()) / 60_000;
+        const freeOffsetMin =
+          (nearbySlot.freeAt.getTime() - nearbySlot.serviceEndAt.getTime()) / 60_000;
+        serviceEndAt = new Date(
+          startAt.getTime() + (nearbySlot.buffers.beforeMin + serviceMinutes) * 60_000,
+        );
+        departAt = new Date(startAt.getTime() - departOffsetMin * 60_000);
+        freeAt = new Date(serviceEndAt.getTime() + freeOffsetMin * 60_000);
         travelInMin = nearbySlot.travelInMin;
         travelOutMin = nearbySlot.travelOutMin;
         bufferMin = nearbySlot.bufferTotalMin;
         travelInMode = nearbySlot.travelInMode;
       } else {
-        // engine で枠なし → 固定バッファ（25分前出発、10分後解放）
-        departAt = new Date(startAt.getTime() - 25 * 60_000);
-        freeAt = new Date(serviceEndAt.getTime() + 10 * 60_000);
+        // 近傍枠なし（シフト外深夜等）の最終手段（重大A-3）: 暫定バッファも
+        // end_at には必ず L を反映し、free_at = end_at + after を守る。
+        // 移動手段は walk 固定にせず car を明示（駐車バッファ込み・片道30分の
+        // 保守的な暫定値。過小見積もりで exclusion をすり抜けない / 推奨4）
+        const bufferRows = await sql<{
+          arrive_min: number;
+          parking_min: number;
+          before_min: number;
+          after_min: number;
+        }[]>`
+          select arrive_min, parking_min, before_min, after_min
+          from travel_buffers where scope = 'default' limit 1
+        `;
+        const defaults: BufferSettings = bufferRows[0]
+          ? {
+              arriveMin: bufferRows[0].arrive_min,
+              parkingMin: bufferRows[0].parking_min,
+              beforeMin: bufferRows[0].before_min,
+              afterMin: bufferRows[0].after_min,
+            }
+          : FALLBACK_OVERRIDE_BUFFERS;
+        let hotelExtraMinutes = 0;
+        if (d.hotelId) {
+          const hotelRows = await sql<{ extra_minutes: number }[]>`
+            select extra_minutes from hotels where id = ${d.hotelId}::uuid limit 1
+          `;
+          hotelExtraMinutes = hotelRows[0]?.extra_minutes ?? 0;
+        }
+        const buffers = arrivalBuffers({
+          mode: 'car',
+          defaults,
+          destination: {
+            kind: d.destinationType === 'hotel' ? 'hotel' : 'residence',
+            hotelExtraMinutes,
+          },
+        });
+        travelInMode = 'car';
+        travelInMin = PROVISIONAL_OVERRIDE_TRAVEL_MIN;
+        travelOutMin = PROVISIONAL_OVERRIDE_TRAVEL_MIN;
+        serviceEndAt = new Date(
+          startAt.getTime() + (buffers.beforeMin + serviceMinutes) * 60_000,
+        );
+        departAt = new Date(
+          startAt.getTime() - (buffers.arrivalTotalMin + travelInMin) * 60_000,
+        );
+        freeAt = new Date(serviceEndAt.getTime() + buffers.afterMin * 60_000);
+        bufferMin = buffers.arrivalTotalMin + buffers.beforeMin + buffers.afterMin;
       }
 
       // 料金計算（サーバ側で計算 / クライアント値無視）
       const bookingFees = await loadBookingFees();
-      const optionRows = await sql<{ id: string; price: number }[]>`
-        select id, price from options
-        where id = any(${(d.optionIds ?? []).filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))}::uuid[])
-          and is_active = true and is_public = true
-      `;
       const breakdown = feeBreakdown({
         coursePrice: course.price,
         optionPrices: optionRows.map((o) => o.price),
@@ -593,17 +678,16 @@ export async function createPhoneOrder(
         const reservationId = reservations[0]?.id;
         if (!reservationId) throw new Error('予約の作成に失敗しました');
 
-        // オプションのスナップショット
+        // オプションのスナップショット（L の計算に使った内容と必ず一致 / spec 3-4）
         for (const opt of optionRows) {
           await tx`
             insert into reservation_options (
               reservation_id, option_id, price_snapshot, duration_snapshot,
               back_type_snapshot, back_value_snapshot
+            ) values (
+              ${reservationId}::uuid, ${opt.id}::uuid, ${opt.price}, ${opt.duration_min},
+              ${opt.back_type}::option_back_type, ${opt.back_value}
             )
-            select
-              ${reservationId}::uuid, o.id, o.price, o.duration_min,
-              o.back_type, o.back_value
-            from options o where o.id = ${opt.id}::uuid
           `;
         }
 
@@ -628,10 +712,17 @@ export async function createPhoneOrder(
     // invalid
     return { ok: false, error: '無効なパラメータです' };
   } catch (e) {
+    // 生の Postgres エラーを画面に出さない（spec 4章。override の手動 insert 経路も含む）
     if (isSlotTakenError(e)) {
       return {
         ok: false,
         error: '他のお客様の予約と重なりました。別の時間帯をお選びください',
+      };
+    }
+    if (isOccupancyCheckError(e)) {
+      return {
+        ok: false,
+        error: '予約の占有時間の前後関係が不正です。開始時刻を見直してください',
       };
     }
     const msg = e instanceof Error ? e.message : '不明なエラー';
@@ -703,10 +794,11 @@ export async function listUnconfirmedReservations(): Promise<
 }
 
 /**
- * 電話確認を記録する（重大6 / confirmPhoneCall 強化）。
- * - call_result パラメータ追加
- * - version チェック（楽観ロック）
- * - call_logs に result を記録
+ * 電話確認を記録する（spec 6章★ / 重大B 対応）。
+ * - phone_confirmed_at / phone_confirmed_by は **callResult='confirmed' のときだけ**設定
+ *   （不通を確認済みにすると住所入り配車テキストが解禁されてしまう）
+ * - no_answer / other は call_logs 追記のみ（未確認のまま再架電可・version 不変）
+ * - confirmed の重複実行は「既に電話確認済み」で拒否（楽観ロック相当のガード）
  */
 export async function confirmPhoneCall(
   reservationId: string,
@@ -723,25 +815,42 @@ export async function confirmPhoneCall(
 
   try {
     await withUser(sql, session, async (tx) => {
-      // 楽観ロック: status='confirmed' で phone_confirmed_at is null の行のみ更新
-      const updated = await tx<{ version: number }[]>`
-        update reservations
-        set phone_confirmed_at = now(),
-            phone_confirmed_by = ${session.userId}::uuid,
-            version = version + 1,
-            updated_at = now()
-        where id = ${parsedId.data}::uuid
-          and status = 'confirmed'
-          and phone_confirmed_at is null
-        returning version
-      `;
+      if (callResult === 'confirmed') {
+        // 確認が取れたときだけ phone_confirmed_at / phone_confirmed_by を設定する
+        // （spec 6章★ / 重大B。不通を確認済みにすると canGenerateDispatch=true になり
+        // 住所入り配車テキストが解禁されてしまう）。
+        // 楽観ロック: status='confirmed' で phone_confirmed_at is null の行のみ更新
+        const updated = await tx<{ version: number }[]>`
+          update reservations
+          set phone_confirmed_at = now(),
+              phone_confirmed_by = ${session.userId}::uuid,
+              version = version + 1,
+              updated_at = now()
+          where id = ${parsedId.data}::uuid
+            and status = 'confirmed'
+            and phone_confirmed_at is null
+          returning version
+        `;
 
-      if (!updated[0]) {
-        // 既に確認済み or 存在しないはエラー
-        throw new Error('予約が見つからないか、既に電話確認済みです');
+        if (!updated[0]) {
+          // 既に確認済み or 存在しないはエラー
+          throw new Error('予約が見つからないか、既に電話確認済みです');
+        }
+      } else {
+        // 不通（no_answer）/ その他は**確認済みにしない**。call_logs の追記のみ行い、
+        // 未確認のまま再架電を許す（spec 6章「3回不通で自動キャンセル」の運用が
+        // 成立するように。version の増分も confirmed 時のみ）
+        const rows = await tx<{ id: string }[]>`
+          select id from reservations
+          where id = ${parsedId.data}::uuid and status = 'confirmed'
+          limit 1
+        `;
+        if (!rows[0]) {
+          throw new Error('予約が見つかりません');
+        }
       }
 
-      // call_logs に記録
+      // call_logs に記録（confirmed / no_answer / other すべて）
       await tx`
         insert into call_logs (reservation_id, result, note, called_by)
         values (
