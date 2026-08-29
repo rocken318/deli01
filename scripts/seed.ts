@@ -205,7 +205,12 @@ const appUsers: {
   {
     id: "aaaaaaaa-0000-4000-8000-000000000004",
     role: "therapist",
-    display_name: "（ダミー）セラピスト",
+    display_name: "（ダミー）セラピスト あおい",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000005",
+    role: "therapist",
+    display_name: "（ダミー）セラピスト れん",
   },
 ];
 
@@ -1050,6 +1055,22 @@ async function main() {
           status        = excluded.status,
           display_order = excluded.display_order,
           retired_at    = excluded.retired_at
+      `;
+    }
+
+    // app_users の therapist_id を therapists.id に紐付け（マイページ dev なりすまし用）。
+    // therapist ロールの app_user が既に upsert 済みであること・therapists の upsert が先行すること。
+    // therapist_id is null の行のみ更新（冪等）。
+    for (const [appUserId, therapistSlug] of [
+      ["aaaaaaaa-0000-4000-8000-000000000004", "aoi"],
+      ["aaaaaaaa-0000-4000-8000-000000000005", "ren"],
+    ] as const) {
+      await sql`
+        update app_users
+        set therapist_id = (select id from therapists where slug = ${therapistSlug}),
+            updated_at   = now()
+        where id = ${appUserId}::uuid
+          and therapist_id is null
       `;
     }
 

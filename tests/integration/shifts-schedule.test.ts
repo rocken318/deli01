@@ -98,11 +98,16 @@ describe("シードの検証（spec 3-3・18章 / フェーズ8）", () => {
     expect(bySlug.get("aoi")?.walk_cap_meters).toBeNull();
   });
 
-  it("ダミー therapist アカウントが aoi に紐付いている（RLS 前提）", async () => {
-    const rows = await sql<{ therapist_id: string | null }[]>`
-      select therapist_id from app_users where role = 'therapist' and display_name like '（ダミー）%'
+  it("ダミー therapist アカウントが aoi / ren にそれぞれ紐付いている（RLS 前提）", async () => {
+    // フェーズ14 でマイページ用に ren の therapist アカウントも追加したため、
+    // 「role=therapist の先頭行」ではなく **アカウントごとに** 紐付けを検証する。
+    const rows = await sql<{ display_name: string | null; therapist_id: string | null }[]>`
+      select display_name, therapist_id from app_users
+      where role = 'therapist' and display_name like '（ダミー）%'
     `;
-    expect(rows[0]?.therapist_id).toBe(therapistOf("aoi"));
+    const byName = new Map(rows.map((r) => [r.display_name, r.therapist_id]));
+    expect(byName.get("（ダミー）セラピスト あおい")).toBe(therapistOf("aoi"));
+    expect(byName.get("（ダミー）セラピスト れん")).toBe(therapistOf("ren"));
   });
 });
 

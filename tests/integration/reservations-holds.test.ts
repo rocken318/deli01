@@ -602,6 +602,7 @@ describe("RLS（spec 15章「セラピストが他人の顧客住所を取得で
   async function makeConfirmedFor(
     therapistId: string,
     phone: string,
+    startOverride?: Date,
   ): Promise<{ reservationId: string; addressId: string }> {
     const customer = await sql<{ id: string }[]>`
       insert into customers (phone, name) values (${phone}, 'RLS テスト顧客')
@@ -613,7 +614,7 @@ describe("RLS（spec 15章「セラピストが他人の顧客住所を取得で
       values (${customer[0]!.id}::uuid, 'home', 'RLS テスト住所', ${shibuyaId}::uuid)
       returning id
     `;
-    const start = new Date(`${tomorrow}T10:00:00.000Z`);
+    const start = startOverride ?? new Date(`${tomorrow}T10:00:00.000Z`);
     const rid = await sql<{ id: string }[]>`
       insert into reservations (
         therapist_id, customer_id, address_id, area_id, course_id,
@@ -647,20 +648,31 @@ describe("RLS（spec 15章「セラピストが他人の顧客住所を取得で
     expect(customers.length).toBe(0);
   });
 
-  it("therapist は自分の担当予約とその住所・顧客だけ見える", async () => {
+  it("therapist は自分の担当予約だけ見え、住所は開始180分前から（spec 13-3 / 0012 で精緻化）", async () => {
     await makeConfirmedFor(renId, `${TEST_PHONE_PREFIX}102`);
-    const own = await makeConfirmedFor(aoiId, `${TEST_PHONE_PREFIX}103`);
+    // 明日 10:00 = 180分ゲート外（予約自体は見えるが住所はまだ見えない）
+    await makeConfirmedFor(aoiId, `${TEST_PHONE_PREFIX}103`);
+    // 開始60分後 = ゲート内（住所が見える）
+    const soon = await makeConfirmedFor(
+      aoiId,
+      `${TEST_PHONE_PREFIX}106`,
+      new Date(Date.now() + 60 * 60_000),
+    );
     const me = sessionOf("therapist");
-    const { reservations, addresses } = await withUser(sql, me, async (tx) => {
+    const { reservations, addresses, customers } = await withUser(sql, me, async (tx) => {
       const reservations = await tx<{ id: string; therapist_id: string }[]>`
         select id, therapist_id from reservations
       `;
       const addresses = await tx<{ id: string }[]>`select id from addresses`;
-      return { reservations, addresses };
+      // 電話番号の列制御（spec 7-3）: customers 直接 select は 0 行。
+      // 顧客情報は phone 列を持たない customers_therapist_view 経由のみ
+      const customers = await tx<{ id: string }[]>`select id from customers`;
+      return { reservations, addresses, customers };
     });
-    expect(reservations.length).toBe(1);
-    expect(reservations[0]?.therapist_id).toBe(aoiId);
-    expect(addresses.map((a) => a.id)).toEqual([own.addressId]);
+    expect(reservations.length).toBe(2);
+    expect(reservations.every((r) => r.therapist_id === aoiId)).toBe(true);
+    expect(addresses.map((a) => a.id)).toEqual([soon.addressId]);
+    expect(customers.length).toBe(0);
   });
 
   it("reception は予約・顧客・住所を全件参照できる（電話受付）", async () => {
@@ -671,21 +683,18 @@ describe("RLS（spec 15章「セラピストが他人の顧客住所を取得で
     expect(rows.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("therapist は予約を作成・更新できない（RLS 拒否）", async () => {
+  it("therapist は自分の予約でも金額は更新できない（0012 トリガが 42501 で拒否）", async () => {
     const own = await makeConfirmedFor(aoiId, `${TEST_PHONE_PREFIX}105`);
+    // フェーズ14 で status 前進用の update ポリシーが付いたため、行スコープは通るが
+    // 列 allow-list トリガ（reservations_therapist_guard）が金額変更を拒否する
     await expect(
       withUser(sql, sessionOf("therapist"), async (tx) => {
         await tx`
           update reservations set total_amount = 0
           where id = ${own.reservationId}::uuid
         `;
-        const after = await tx<{ total_amount: number }[]>`
-          select total_amount from reservations where id = ${own.reservationId}::uuid
-        `;
-        // update ポリシーが無いので 0 行更新（値が変わらない）
-        expect(after[0]?.total_amount).toBe(10000);
       }),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({ code: "42501" });
   });
 
   it("funnel_events は owner/admin だけが読める（therapist は 0 件）", async () => {
