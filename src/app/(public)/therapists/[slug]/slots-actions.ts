@@ -36,8 +36,9 @@ export interface RecomputeSlotsResult {
 }
 
 /**
- * 指定条件で候補枠を返す。対応エリア外・出勤なしは ok:true・slots:[] で返し
- * （画面は空状態を出す）、入力不正・非公開セラピストのみ ok:false。
+ * 指定条件で候補枠を返す。対応エリア外・出勤なし・非公開セラピストは
+ * ok:true・slots:[] で返す（画面は空状態を出す）。
+ * ok:false を返すのは入力不正（Zod 失敗）のみ。
  */
 export async function recomputeSlots(
   raw: unknown,

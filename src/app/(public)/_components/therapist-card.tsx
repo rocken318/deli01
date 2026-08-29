@@ -13,16 +13,28 @@ export function TherapistCard({
   card,
   detailLabel,
   earliestTemplate,
+  earliestTemplateFuture,
   earliestPending,
+  weekdays = "",
   earliestTime = null,
+  earliestDateISO = null,
+  today = null,
   conditionNote = "",
 }: {
   card: TherapistCardView;
   detailLabel: string;
   earliestTemplate: string;
+  /** 当日以外のとき用テンプレート（CMS labels.earliest_slot_template_future） */
+  earliestTemplateFuture?: string | null;
   earliestPending: string;
+  /** 曜日ラベル（カンマ区切り） */
+  weekdays?: string;
   /** 空き枠エンジンの最短案内時刻 "HH:mm"（無ければ null=placeholder / spec 5-4） */
   earliestTime?: string | null;
+  /** 最短枠の営業日 "YYYY-MM-DD"（重大1: 当日以外のとき日付を明記） */
+  earliestDateISO?: string | null;
+  /** 比較用当日 ISO "YYYY-MM-DD" */
+  today?: string | null;
   /** 「〇〇区の場合」等の前提注記（代表エリア概算 / spec 2-3）。無ければ非表示 */
   conditionNote?: string;
 }) {
@@ -90,8 +102,12 @@ export function TherapistCard({
         )}
         <EarliestSlot
           template={earliestTemplate}
+          templateFuture={earliestTemplateFuture}
           placeholder={earliestPending}
+          weekdays={weekdays}
           time={earliestTime}
+          dateISO={earliestDateISO}
+          today={today}
           size="sm"
         />
         {conditionNote && <p className="text-xs text-pub-subtext/80">{conditionNote}</p>}

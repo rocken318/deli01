@@ -168,15 +168,29 @@ export async function getTherapistSlots(params: {
   }
 
   // 未指定: 今日から前方に、最初に枠が出る日を返す（無ければ最終日の空結果）
+  // 推奨3: 明示エリアでも「その日は対応外」なら次の日へ継続（earliest.ts と同じ方針）。
+  // ただし「エリアを指定したが7日間どの日にも対応エリアに入っていない」場合は null を返す
+  // （嘘の枠を出さない / spec 2-3 の精神を維持）。
   const today = localDateISO(now);
   let lastResult: TherapistSlotsResult | null = null;
+  // エリア明示指定時: 少なくとも1日でもそのエリアを含むシフトが見つかったか
+  let areaFoundOnAnyDay = false;
   for (let d = 0; d < DEFAULT_SEARCH_DAYS; d += 1) {
     const dateISO = addDaysISO(today, d);
     const res = await slotsForDate({ ...params, dateISO, now });
-    if (res === null) return null; // 非公開/不在/エリア外の明示指定
+    if (res === null) {
+      // null = その日は非公開 or 明示エリアが対応外 → 翌日以降を探す（推奨3）
+      continue;
+    }
+    // エリアが明示指定されていて、かつ areaName が入った（対応エリア内）なら発見済み
+    if (params.areaId && res.areaName) {
+      areaFoundOnAnyDay = true;
+    }
     lastResult = res;
     if (res.slots.length > 0) return res;
   }
+  // エリア明示指定でどの日も対応エリアに入らなかった → null（嘘の枠を出さない）
+  if (params.areaId && !areaFoundOnAnyDay) return null;
   return lastResult;
 }
 

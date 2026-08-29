@@ -96,6 +96,11 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       slots_loading: "計算中…",
       slots_error: "時間の取得に失敗しました。時間をおいてお試しください。",
       slots_select_aria: "この時間で予約に進む",
+      // 枠の日付表示（当日以外のとき。{date} を M/d(曜) で差し替え）
+      slots_date_note: "{date} の空き枠",
+      slots_date_today: "本日の空き枠",
+      // 最短案内の日付付きテンプレート（当日以外のとき。{date}{time} を差し替え）
+      earliest_slot_template_future: "最短 {date} {time} から案内可能",
       // 空状態
       empty_therapists_title: "該当するセラピストがいません",
       empty_therapists_body: "絞り込み条件を変えてお試しください。",

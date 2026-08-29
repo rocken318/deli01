@@ -11,6 +11,7 @@ import {
   listPublicCourses,
   listPublicOptions,
 } from "@/lib/availability/public-slots";
+import { localDateISO } from "@/domain/availability";
 import { PublicImage } from "../../_components/public-image";
 import { EarliestSlot } from "../../_components/earliest-slot";
 import { AvailabilityPanel } from "./availability-panel";
@@ -76,6 +77,8 @@ export default async function TherapistDetailPage({
     getTherapistSlots({ slug, courseId: courses[0]?.id ?? null }).catch(() => null),
   ]);
 
+  const today = localDateISO(new Date());
+
   const availabilityLabels: AvailabilityLabels = {
     areaHeading: label(ctx, "slots_area_heading"),
     areaAll: label(ctx, "slots_area_all"),
@@ -89,6 +92,9 @@ export default async function TherapistDetailPage({
     loading: label(ctx, "slots_loading"),
     error: label(ctx, "slots_error"),
     slotAria: label(ctx, "slots_select_aria"),
+    dateNote: label(ctx, "slots_date_note"),
+    dateTodayLabel: label(ctx, "slots_date_today"),
+    weekdays: label(ctx, "schedule_weekdays"),
   };
 
   // JSON-LD (Person / spec 12-1)
@@ -184,11 +190,16 @@ export default async function TherapistDetailPage({
         )}
         <div className="rounded border border-pub-border bg-pub-surface p-4">
           {/* time は空き枠エンジンの最短案内（spec 5-4）。枠なしは placeholder のまま。
-              代表エリア概算（assumed=true）のときは「〇〇区の場合」を明記（reviewer R-4）。 */}
+              代表エリア概算（assumed=true）のときは「〇〇区の場合」を明記（reviewer R-4）。
+              重大1: 当日以外の枠は日付を明記して誤認を防ぐ。 */}
           <EarliestSlot
             template={earliestTemplate}
+            templateFuture={label(ctx, "earliest_slot_template_future")}
             placeholder={earliestPending}
+            weekdays={label(ctx, "schedule_weekdays")}
             time={earliest?.time ?? null}
+            dateISO={earliest?.dateISO ?? null}
+            today={today}
             size="lg"
           />
           {earliest?.assumed && earliest.areaName && label(ctx, "slots_condition_template") && (
@@ -208,6 +219,7 @@ export default async function TherapistDetailPage({
         <AvailabilityPanel
           slug={slug}
           dateISO={initialSlots?.dateISO ?? ""}
+          today={today}
           areas={initialSlots?.areas ?? []}
           courses={courses}
           options={options}

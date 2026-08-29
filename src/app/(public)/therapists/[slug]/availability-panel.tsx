@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { formatInTimeZone } from "date-fns-tz";
+import { parseISO } from "date-fns";
 import type {
   PublicArea,
   PublicCourse,
@@ -8,6 +10,8 @@ import type {
   PublicSlotView,
 } from "@/lib/availability/public-slots";
 import { recomputeSlots } from "./slots-actions";
+
+const APP_TZ = "Asia/Tokyo";
 
 /**
  * 空き枠パネル（spec 2-3 ★）。エリア・コース・オプションを選ぶと**都度再計算**し、
@@ -45,6 +49,12 @@ export interface AvailabilityLabels {
   error: string;
   /** 枠を押すと予約導線へ（現状は導線ラベルのみ） */
   slotAria: string;
+  /** 未来日の枠日付注記（{date} を M/d(曜) で差し替え / 例: "{date} の空き枠"） */
+  dateNote: string;
+  /** 当日の枠日付注記（例: "本日の空き枠"） */
+  dateTodayLabel: string;
+  /** 曜日ラベル（カンマ区切り "日,月,火,水,木,金,土"） */
+  weekdays: string;
 }
 
 interface SlotsState {
@@ -52,11 +62,13 @@ interface SlotsState {
   areaName: string;
   assumed: boolean;
   ok: boolean;
+  dateISO: string;
 }
 
 export function AvailabilityPanel({
   slug,
-  dateISO,
+  dateISO: initialDateISO,
+  today,
   areas,
   courses,
   options,
@@ -68,7 +80,10 @@ export function AvailabilityPanel({
   labels,
 }: {
   slug: string;
+  /** 初期枠の営業日 "YYYY-MM-DD"。空文字時は today をフォールバックに使う（任意10） */
   dateISO: string;
+  /** 当日の ISO "YYYY-MM-DD"（未来日かどうかの判定基準） */
+  today: string;
   areas: PublicArea[];
   courses: PublicCourse[];
   options: PublicOption[];
@@ -79,6 +94,10 @@ export function AvailabilityPanel({
   bookingHref: string;
   labels: AvailabilityLabels;
 }) {
+  // 任意10: initialDateISO が空（DB 障害等）のときは today をフォールバックにして
+  // セレクタ変更後の Zod バリデーション失敗を防ぐ
+  const resolvedInitialDateISO = initialDateISO || today;
+
   const [areaId, setAreaId] = useState<string | null>(initialAreaId);
   const [courseId, setCourseId] = useState<string | null>(courses[0]?.id ?? null);
   const [optionIds, setOptionIds] = useState<string[]>([]);
@@ -87,6 +106,7 @@ export function AvailabilityPanel({
     areaName: initialAreaName,
     assumed: initialAssumed,
     ok: true,
+    dateISO: resolvedInitialDateISO,
   });
   const [pending, startTransition] = useTransition();
   const [failed, setFailed] = useState(false);
@@ -101,7 +121,8 @@ export function AvailabilityPanel({
       try {
         const res = await recomputeSlots({
           slug,
-          dateISO,
+          // dateISO 未指定で前方探索する（セレクタ変更で最初の枠がある日を再探索）
+          dateISO: null,
           areaId: next.areaId,
           courseId: next.courseId,
           optionIds: next.optionIds,
@@ -115,6 +136,7 @@ export function AvailabilityPanel({
           areaName: res.areaName,
           assumed: res.assumed,
           ok: res.ok,
+          dateISO: res.dateISO || today,
         });
       } catch {
         setFailed(true);
@@ -142,6 +164,29 @@ export function AvailabilityPanel({
     state.areaName && labels.conditionTemplate
       ? labels.conditionTemplate.replace("{area}", state.areaName)
       : "";
+
+  // 枠の日付注記（当日以外のとき。重大1 対応）
+  const slotDateNote = (() => {
+    const d = state.dateISO;
+    if (!d) return "";
+    if (d === today) {
+      return labels.dateTodayLabel || "";
+    }
+    if (!labels.dateNote) return "";
+    try {
+      const parsed = parseISO(d);
+      const md = formatInTimeZone(parsed, APP_TZ, "M/d");
+      const wds = labels.weekdays ? labels.weekdays.split(",") : [];
+      // date-fns formatInTimeZone "e" = 1=Mon…7=Sun
+      const eNum = Number(formatInTimeZone(parsed, APP_TZ, "e"));
+      const idx = eNum % 7; // 7=Sun→0, others stay
+      const wd = wds[idx] ?? "";
+      const dateLabel = wd ? `${md}(${wd})` : md;
+      return labels.dateNote.replace("{date}", dateLabel);
+    } catch {
+      return labels.dateNote.replace("{date}", d);
+    }
+  })();
 
   return (
     <div className="space-y-6">
@@ -267,6 +312,13 @@ export function AvailabilityPanel({
             {state.assumed && labels.assumedNote && (
               <span className="ml-1 text-xs text-pub-subtext/80">{labels.assumedNote}</span>
             )}
+          </p>
+        )}
+
+        {/* 日付注記（重大1: 未来日の枠が今日に見える誤認を防ぐ） */}
+        {slotDateNote && (
+          <p className="mb-2 text-xs font-medium text-pub-primary">
+            {slotDateNote}
           </p>
         )}
 
