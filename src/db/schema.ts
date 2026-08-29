@@ -507,6 +507,51 @@ export const shiftAreas = pgTable(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// フェーズ13: 送信テンプレート・送信ログ（spec 8-3 ★ / 0011_message_templates.sql）
+// ---------------------------------------------------------------------------
+
+/** テンプレート種別（spec 8-3: 'inquiry'=打診用 / 'confirmed'=確定用） */
+export const templateKind = pgEnum("template_kind", ["inquiry", "confirmed"]);
+
+/**
+ * セラピストへの送信テンプレート（spec 8-3）。CMS 編集可・kind ごとに1行。
+ * 差し込み変数は {{日時}} 形式（src/domain/dispatch）。編集は owner/admin のみ、
+ * reception は select のみ（RLS は SQL 側が正）。
+ */
+export const messageTemplates = pgTable("message_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  kind: templateKind("kind").notNull().unique(),
+  name: text("name").notNull(),
+  body: text("body").notNull(),
+  locale: text("locale").notNull().default("ja"),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedBy: uuid("updated_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 送信ログ（spec 8-3「誰の情報を、いつ、誰に渡したか」。監査対象・追記専用）。
+ * update/delete は grant もポリシーも無し（0011）。id は audit_logs と同様
+ * bigint identity で追記順を保つ。body_snapshot に実際にコピーした本文を控える。
+ */
+export const dispatchLogs = pgTable("dispatch_logs", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  reservationId: uuid("reservation_id").notNull(),
+  therapistId: uuid("therapist_id")
+    .notNull()
+    .references(() => therapists.id, { onDelete: "restrict" }),
+  kind: templateKind("kind").notNull(),
+  bodySnapshot: text("body_snapshot").notNull(),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => appUsers.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const hotels = pgTable("hotels", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
