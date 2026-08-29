@@ -572,6 +572,196 @@ const walkOverrideSeeds: { from: string; to: string; added_minutes: number; note
   },
 ];
 
+// ---------------------------------------------------------------------------
+// フェーズ7: コース・オプション・ホテル（spec 18-1・18-2・8-2 / 冪等）
+// すべて仮の値（DB への初期投入）。CMS から変更できることをもって完成とする
+// （spec 18章: コードにハードコードで埋め込んだら不合格）。
+// ---------------------------------------------------------------------------
+
+/** コース（spec 18-1）。金額は整数（円）。指名料既定は spec 18-3 の通常指名 ¥1,000 */
+const courseSeeds: {
+  id: string;
+  name: string;
+  duration_min: number;
+  price: number;
+  nomination_fee_default: number;
+  sort_order: number;
+}[] = [
+  { id: "99999999-0000-4000-8000-000000000001", name: "ショート", duration_min: 60, price: 12000, nomination_fee_default: 1000, sort_order: 10 },
+  { id: "99999999-0000-4000-8000-000000000002", name: "スタンダード", duration_min: 90, price: 17000, nomination_fee_default: 1000, sort_order: 20 },
+  { id: "99999999-0000-4000-8000-000000000003", name: "ロング", duration_min: 120, price: 22000, nomination_fee_default: 1000, sort_order: 30 },
+  { id: "99999999-0000-4000-8000-000000000004", name: "スペシャル", duration_min: 150, price: 27000, nomination_fee_default: 1000, sort_order: 40 },
+];
+
+/**
+ * オプション（spec 18-2）。duration_min が空き枠計算の L に効く（spec 3-4・5-3）。
+ * バックは spec 18-4 のオプション既定 50% を rate で。延長はランク別レート（フェーズ18）
+ * の対象なのでここでは 55% を仮置き。アロマは固定額バックの例（fixed ¥1,000）として
+ * back_type の両値をシードでデモする。
+ */
+const optionSeeds: {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  duration_min: number;
+  back_type: "fixed" | "rate";
+  back_value: number;
+  sort_order: number;
+}[] = [
+  {
+    id: "88888888-0000-4000-8000-000000000001",
+    name: "延長30分",
+    description: "コース終了後に30分延長します。",
+    price: 6000,
+    duration_min: 30,
+    back_type: "rate",
+    back_value: 55,
+    sort_order: 10,
+  },
+  {
+    id: "88888888-0000-4000-8000-000000000002",
+    name: "延長60分",
+    description: "コース終了後に60分延長します。",
+    price: 11000,
+    duration_min: 60,
+    back_type: "rate",
+    back_value: 55,
+    sort_order: 20,
+  },
+  {
+    id: "88888888-0000-4000-8000-000000000003",
+    name: "アロマオイル",
+    description: "お好みの香りのアロマオイルを使用します（時間は変わりません）。",
+    price: 2000,
+    duration_min: 0,
+    back_type: "fixed",
+    back_value: 1000,
+    sort_order: 30,
+  },
+  {
+    id: "88888888-0000-4000-8000-000000000004",
+    name: "ヘッドケア",
+    description: "頭部の重点ケアを15分追加します。",
+    price: 2500,
+    duration_min: 15,
+    back_type: "rate",
+    back_value: 50,
+    sort_order: 40,
+  },
+  {
+    id: "88888888-0000-4000-8000-000000000005",
+    name: "フットケア",
+    description: "足元の重点ケアを15分追加します。",
+    price: 2500,
+    duration_min: 15,
+    back_type: "rate",
+    back_value: 50,
+    sort_order: 50,
+  },
+];
+
+/**
+ * オプションの対応セラピスト（spec 3-4: 行が無ければ全員対応）。
+ * フットケアだけ「あおい」限定にして、絞り込みの仕組みをシードでデモする。
+ * 他のオプションは行なし = 全員対応。
+ */
+const optionAvailabilitySeeds: { option: string; therapistSlug: string }[] = [
+  { option: "フットケア", therapistSlug: "aoi" },
+];
+
+/**
+ * ホテルマスタ（spec 8-2）。extra_minutes = 到着から部屋までの追加時間（分）。
+ * - 大型ホテル（extra 12分）: 完了条件「館内移動時間が加算される」の実データ
+ * - is_blocked の例: 予約を作らせない・公開側で選べない施設
+ * - 仮登録の例: 電話中に名前だけ登録し後から補完する運用（area/location null）
+ */
+const hotelSeeds: {
+  id: string;
+  name: string;
+  name_kana: string | null;
+  address: string | null;
+  area: string | null;
+  lon: number | null;
+  lat: number | null;
+  entry_note: string | null;
+  parking_note: string | null;
+  extra_minutes: number;
+  is_blocked: boolean;
+  note: string | null;
+}[] = [
+  {
+    id: "77777777-0000-4000-8000-000000000001",
+    name: "グランドタワーホテル東京",
+    name_kana: "ぐらんどたわーほてるとうきょう",
+    address: "東京都港区台場0-0-0",
+    area: "港区",
+    lon: 139.7516,
+    lat: 35.6585,
+    entry_note: "フロント経由が必要。内線で来訪者確認あり",
+    parking_note: "地下駐車場あり（30分無料・以降有料）。入口からエレベーターまで遠い",
+    extra_minutes: 12,
+    is_blocked: false,
+    note: "大型ホテル。エントランスから部屋まで時間がかかる",
+  },
+  {
+    id: "77777777-0000-4000-8000-000000000002",
+    name: "渋谷ステイイン",
+    name_kana: "しぶやすているん",
+    address: "東京都渋谷区道玄坂0-0-0",
+    area: "渋谷区",
+    lon: 139.6985,
+    lat: 35.6578,
+    entry_note: "直接部屋へ可",
+    parking_note: "駐車場なし。近隣コインパーキング利用",
+    extra_minutes: 3,
+    is_blocked: false,
+    note: null,
+  },
+  {
+    id: "77777777-0000-4000-8000-000000000003",
+    name: "エビスパークホテル",
+    name_kana: "えびすぱーくほてる",
+    address: "東京都渋谷区恵比寿0-0-0",
+    area: "恵比寿駅",
+    lon: 139.7098,
+    lat: 35.6472,
+    entry_note: "フロント経由が必要",
+    parking_note: "提携駐車場あり（徒歩2分）",
+    extra_minutes: 5,
+    is_blocked: false,
+    note: null,
+  },
+  {
+    id: "77777777-0000-4000-8000-000000000004",
+    name: "ホテルノワール新宿",
+    name_kana: "ほてるのわーるしんじゅく",
+    address: "東京都新宿区歌舞伎町0-0-0",
+    area: "新宿区",
+    lon: 139.7025,
+    lat: 35.695,
+    entry_note: null,
+    parking_note: null,
+    extra_minutes: 5,
+    is_blocked: true,
+    note: "過去のトラブルにより入館お断り（spec 8-2 is_blocked のデモ）",
+  },
+  {
+    id: "77777777-0000-4000-8000-000000000005",
+    name: "（仮登録）中野ビジネスホテル",
+    name_kana: null,
+    address: null,
+    area: null,
+    lon: null,
+    lat: null,
+    entry_note: null,
+    parking_note: null,
+    extra_minutes: 0,
+    is_blocked: false,
+    note: "電話中の仮登録デモ。後から住所・エリア・館内移動時間を補完する（spec 8-2）",
+  },
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -866,8 +1056,92 @@ async function main() {
       `;
     }
 
+    // -----------------------------------------------------------------------
+    // フェーズ7: コース・オプション・ホテル（冪等）
+    // -----------------------------------------------------------------------
+
+    for (const c of courseSeeds) {
+      await sql`
+        insert into courses (id, name, duration_min, price, nomination_fee_default, sort_order, is_active)
+        values (
+          ${c.id}::uuid, ${c.name}, ${c.duration_min}, ${c.price},
+          ${c.nomination_fee_default}, ${c.sort_order}, true
+        )
+        on conflict (id) do update set
+          name                   = excluded.name,
+          duration_min           = excluded.duration_min,
+          price                  = excluded.price,
+          nomination_fee_default = excluded.nomination_fee_default,
+          sort_order             = excluded.sort_order
+      `;
+    }
+
+    for (const o of optionSeeds) {
+      await sql`
+        insert into options
+          (id, name, description, price, duration_min, back_type, back_value, is_public, sort_order, is_active)
+        values (
+          ${o.id}::uuid, ${o.name}, ${o.description}, ${o.price}, ${o.duration_min},
+          ${o.back_type}::option_back_type, ${o.back_value}, true, ${o.sort_order}, true
+        )
+        on conflict (id) do update set
+          name         = excluded.name,
+          description  = excluded.description,
+          price        = excluded.price,
+          duration_min = excluded.duration_min,
+          back_type    = excluded.back_type,
+          back_value   = excluded.back_value,
+          sort_order   = excluded.sort_order
+      `;
+    }
+
+    // オプション対応セラピスト（therapists.slug で引く。行が無ければ全員対応）
+    const optionIdByName = new Map(optionSeeds.map((o) => [o.name, o.id]));
+    for (const oa of optionAvailabilitySeeds) {
+      const optionId = optionIdByName.get(oa.option);
+      if (!optionId) throw new Error(`オプション名が不正: ${oa.option}`);
+      await sql`
+        insert into option_availability (option_id, therapist_id)
+        select ${optionId}::uuid, t.id from therapists t where t.slug = ${oa.therapistSlug}
+        on conflict (option_id, therapist_id) do nothing
+      `;
+    }
+
+    for (const h of hotelSeeds) {
+      const hotelAreaId = h.area === null ? null : (areaId.get(h.area) ?? null);
+      if (h.area !== null && hotelAreaId === null) {
+        throw new Error(`ホテルのエリア名が不正: ${h.area}`);
+      }
+      await sql`
+        insert into hotels
+          (id, name, name_kana, address, location, area_id,
+           entry_note, parking_note, extra_minutes, is_blocked, note)
+        values (
+          ${h.id}::uuid, ${h.name}, ${h.name_kana}, ${h.address},
+          ${
+            h.lon !== null && h.lat !== null
+              ? sql`st_setsrid(st_makepoint(${h.lon}::float8, ${h.lat}::float8), 4326)::geography`
+              : null
+          },
+          ${hotelAreaId}::uuid,
+          ${h.entry_note}, ${h.parking_note}, ${h.extra_minutes}, ${h.is_blocked}, ${h.note}
+        )
+        on conflict (id) do update set
+          name          = excluded.name,
+          name_kana     = excluded.name_kana,
+          address       = excluded.address,
+          location      = excluded.location,
+          area_id       = excluded.area_id,
+          entry_note    = excluded.entry_note,
+          parking_note  = excluded.parking_note,
+          extra_minutes = excluded.extra_minutes,
+          is_blocked    = excluded.is_blocked,
+          note          = excluded.note
+      `;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });

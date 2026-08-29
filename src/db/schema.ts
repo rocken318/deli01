@@ -384,3 +384,87 @@ export const travelBuffers = pgTable("travel_buffers", {
   afterMin: integer("after_min").notNull().default(10),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// フェーズ7: コース・オプション・ホテルマスタ（spec 3-4・8-2・18章 /
+// 0006_courses_options_hotels.sql）
+// ---------------------------------------------------------------------------
+
+/**
+ * コース（spec 4章・18-1）。金額はすべて整数（円）。小数禁止。
+ * nomination_fee_default は通常指名料の既定値（個人別特例は後続フェーズ）。
+ */
+export const courses = pgTable("courses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  durationMin: integer("duration_min").notNull(),
+  price: integer("price").notNull(),
+  nominationFeeDefault: integer("nomination_fee_default").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** オプションのバック種別（spec 3-4: 'fixed'=固定額（円） / 'rate'=率（%）） */
+export const optionBackType = pgEnum("option_back_type", ["fixed", "rate"]);
+
+/**
+ * オプション（spec 3-4・18-2）。コースとは別の実体。
+ * duration_min が空き枠計算の施術時間 L に効く（L = コース + オプション合計 / spec 5-3）。
+ * 予約時には価格・時間・バックを reservation_options（フェーズ11）へスナップショットする。
+ */
+export const options = pgTable("options", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  price: integer("price").notNull(),
+  durationMin: integer("duration_min").notNull().default(0),
+  backType: optionBackType("back_type").notNull().default("rate"),
+  backValue: integer("back_value").notNull().default(0),
+  isPublic: boolean("is_public").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** オプションの対応セラピスト（spec 3-4）。**行が無ければ全員対応** */
+export const optionAvailability = pgTable(
+  "option_availability",
+  {
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => options.id, { onDelete: "cascade" }),
+    therapistId: uuid("therapist_id")
+      .notNull()
+      .references(() => therapists.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.optionId, t.therapistId] }),
+  }),
+);
+
+/**
+ * ホテルマスタ（spec 8-2 ★）。
+ * extra_minutes = 到着から部屋までの追加時間（分）。到着バッファに加算する
+ * （domain の arrivalBuffers / フェーズ7 完了条件）。
+ * is_blocked のホテルは予約を作らせない（isHotelBookable）。
+ * area_id / location は仮登録（電話を止めない運用）のため null 可。
+ */
+export const hotels = pgTable("hotels", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  nameKana: text("name_kana"),
+  address: text("address"),
+  location: geographyPoint("location"),
+  areaId: uuid("area_id").references(() => areas.id, { onDelete: "set null" }),
+  entryNote: text("entry_note"),
+  parkingNote: text("parking_note"),
+  extraMinutes: integer("extra_minutes").notNull().default(0),
+  isBlocked: boolean("is_blocked").notNull().default(false),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

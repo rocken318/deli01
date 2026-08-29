@@ -14,3 +14,13 @@ export type {
   TravelMode,
   WalkSettings,
 } from "./travel";
+export {
+  arrivalBuffers,
+  arrivalExtraMinutes,
+  isHotelBookable,
+} from "./hotel";
+export type {
+  ArrivalBuffers,
+  DestinationKind,
+  HotelForBooking,
+} from "./hotel";
