@@ -15,7 +15,12 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-const TARGET_DIRS = [join(ROOT, "src", "app", "(public)"), join(ROOT, "src", "lib", "public")];
+const TARGET_DIRS = [
+  join(ROOT, "src", "app", "(public)"),
+  join(ROOT, "src", "lib", "public"),
+  // 出勤表の公開読み取り層（フェーズ8）も公開側として走査する
+  join(ROOT, "src", "lib", "schedule"),
+];
 
 // かな・カナ・漢字（CJK 統合漢字 + 拡張A）・全角句読点/記号（。、「」・々〜！？ 等）
 const JAPANESE =

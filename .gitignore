@@ -45,3 +45,4 @@ next-env.d.ts
 
 # 迷子のAI生成画像等（メディアはSupabase Storage経由 / spec 3-7）
 /preimage/
+/preimages/
