@@ -2,6 +2,7 @@ import {
   bigint,
   boolean,
   customType,
+  date,
   integer,
   jsonb,
   numeric,
@@ -262,6 +263,10 @@ export const therapists = pgTable("therapists", {
   status: therapistStatus("status").notNull().default("active"),
   displayOrder: integer("display_order").notNull().default(0),
   retiredAt: timestamp("retired_at", { withTimezone: true }),
+  /** 車を使えるか（免許・車両 / spec 5-1）。false なら徒歩圏の予約のみ */
+  canUseCar: boolean("can_use_car").notNull().default(true),
+  /** 徒歩上限の個人差（m）。null = walk_settings.cap_meters の既定（spec 5-1） */
+  walkCapMeters: integer("walk_cap_meters"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -453,6 +458,55 @@ export const optionAvailability = pgTable(
  * is_blocked のホテルは予約を作らせない（isHotelBookable）。
  * area_id / location は仮登録（電話を止めない運用）のため null 可。
  */
+// ---------------------------------------------------------------------------
+// フェーズ8: 出勤予定（spec 3-3・4章 / 0007_shifts.sql）
+// ---------------------------------------------------------------------------
+
+/**
+ * 出勤予定（spec 3-3・4章）。実績（attendances / spec 3-5）とは分ける。
+ * 1セラピスト×1日に1行（unique）。is_day_off は当日欠勤ワンタップ（行は消さない）。
+ * base_start/end は待機開始/終了場所。フェーズ9の gap0 / gap_n（帰れること）に使う。
+ */
+export const shifts = pgTable(
+  "shifts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    therapistId: uuid("therapist_id")
+      .notNull()
+      .references(() => therapists.id, { onDelete: "cascade" }),
+    workDate: date("work_date").notNull(),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    baseStartId: uuid("base_start_id").references(() => bases.id, { onDelete: "set null" }),
+    baseEndId: uuid("base_end_id").references(() => bases.id, { onDelete: "set null" }),
+    /** 1日の最大施術本数（spec 3-3 / 5-3 手順3）。null = 上限なし */
+    maxBookings: integer("max_bookings"),
+    note: text("note"),
+    isDayOff: boolean("is_day_off").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    therapistDayUnique: unique("shifts_therapist_day_unique").on(t.therapistId, t.workDate),
+  }),
+);
+
+/** その日に対応できるエリア（spec 3-3「全域とは限らない」）。出勤表とフェーズ9が参照 */
+export const shiftAreas = pgTable(
+  "shift_areas",
+  {
+    shiftId: uuid("shift_id")
+      .notNull()
+      .references(() => shifts.id, { onDelete: "cascade" }),
+    areaId: uuid("area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.shiftId, t.areaId] }),
+  }),
+);
+
 export const hotels = pgTable("hotels", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),

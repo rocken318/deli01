@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { addDaysISO, localDateISO, shiftInstants } from "../src/domain/availability/shift";
 
 /**
  * シード（冪等）。フェーズ0では phase-0 スキーマ（用語辞書・サイト設定・
@@ -88,10 +89,18 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       empty_page_title: "準備中です",
       empty_page_body: "この内容は管理画面から公開できます。",
       back_home: "トップへ戻る",
-      // スタブ（フェーズ8/11）
+      // 出勤表（フェーズ8 / spec 2-3・3-3）
       schedule_page_title: "出勤表",
-      schedule_pending_title: "出勤表は準備中です",
-      schedule_pending_body: "日別の派遣可能一覧は近日公開します。",
+      schedule_page_lead: "日別の出勤予定と、その日ご案内できるエリアです。",
+      schedule_date_nav_aria: "日付を選ぶ",
+      schedule_area_filter_heading: "エリアで絞り込む",
+      schedule_available_badge: "対応可能",
+      schedule_disclaimer:
+        "出勤中でも、お伺い先のご住所・移動時間によって実際にご案内できる時間は変わります。確定のご案内はご予約時にお伝えします。",
+      schedule_empty_title: "この日にご案内できるセラピストがいません",
+      schedule_empty_body: "日付やエリアを変えてお試しください。",
+      schedule_weekdays: "日,月,火,水,木,金,土",
+      // スタブ（フェーズ11）
       booking_page_title: "予約",
       booking_pending_title: "オンライン予約は準備中です",
       booking_pending_body: "お電話でのご予約を承っています。",
@@ -368,13 +377,25 @@ const therapistMediaSeeds = [
     face_visibility: "none",
     is_placeholder: true,
   },
+  // れん: 同意あり（フェーズ8: 出勤表で「全域対応」のデモに使う公開セラピスト）
+  {
+    id: "bbbbbbbb-0001-4000-8000-000000000004",
+    url: therapistSvgDataUri("蓮", "#7e9ead", "#8a5e8f"),
+    alt: "セラピスト「れん」プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "therapist", "ren"],
+    consent_flag: true,
+    consent_date: "2026-01-01",
+    face_visibility: "none",
+    is_placeholder: true,
+  },
 ] as const;
 
-/** セラピストマスタシード（spec 18-5） */
+/** セラピストマスタシード（spec 18-5 + フェーズ8 の出勤表デモ要員 ren） */
 const therapistSeeds = [
   { slug: "aoi",    status: "active",   display_order: 1, retired_at: null },
   { slug: "minato", status: "active",   display_order: 2, retired_at: null },
   { slug: "hinata", status: "retired",  display_order: 3, retired_at: new Date("2026-04-01") },
+  { slug: "ren",    status: "active",   display_order: 4, retired_at: null },
 ] as const;
 
 /** セラピストの entity_records シード（draft のみ。公開は管理画面から手動） */
@@ -416,6 +437,17 @@ const therapistRecordSeeds: {
       intro: "<p>足つぼを専門とするセラピストです。</p>",
       good_at: ["足つぼ"],
       years_of_experience: 2,
+    },
+  },
+  {
+    slug: "ren",
+    draft: {
+      photo: ["bbbbbbbb-0001-4000-8000-000000000004"],
+      name: "れん",
+      catch_copy: "都内全域、深めの指圧が持ち味です",
+      intro: "<p>広いエリアに車で伺えるセラピストです。</p>",
+      good_at: ["指圧", "オイル"],
+      years_of_experience: 7,
     },
   },
 ];
@@ -762,6 +794,76 @@ const hotelSeeds: {
   },
 ];
 
+// ---------------------------------------------------------------------------
+// フェーズ8: 出勤予定（spec 3-3・4章・14章 #8 / 冪等）
+//
+// 完了条件「エリアで絞れる」を実データで再現する配置:
+// - aoi（published・徒歩派）: 渋谷区・恵比寿駅・目黒区だけ対応。
+//   **渋谷は対応するが八王子は対応しない** → /schedule?area=八王子市 で消える
+// - ren（published・車で全域）: 全エリア対応。八王子で絞っても出る。
+//   +2日目は当日欠勤（is_day_off）の例 → その日は一覧から消える
+// - minato（active だが未公開）: 出勤していても published が無いので公開出勤表に出ない
+// 日付は常に「シード実行日（Asia/Tokyo）から5日分」の相対で入れる（いつ流してもデモが生きる）。
+// ---------------------------------------------------------------------------
+
+/** シードの基準日（Asia/Tokyo の今日） */
+const seedToday = localDateISO(new Date());
+
+const shiftSeeds: {
+  slug: string;
+  dayOffset: number;
+  start: string;
+  end: string;
+  /** bases.name（null なら未設定） */
+  baseStart: string | null;
+  baseEnd: string | null;
+  maxBookings: number | null;
+  /** areas.name の配列。"all" は全エリア */
+  areas: string[] | "all";
+  isDayOff: boolean;
+  note: string | null;
+}[] = [
+  // aoi: 徒歩圏に濃く（渋谷・恵比寿・目黒のみ / spec 5-1「狭い範囲に濃く」）
+  ...[0, 1, 2, 3, 4].map((dayOffset) => ({
+    slug: "aoi",
+    dayOffset,
+    start: "10:00",
+    end: "19:00",
+    baseStart: "事務所（渋谷）",
+    baseEnd: "事務所（渋谷）",
+    maxBookings: 3,
+    areas: ["渋谷区", "恵比寿駅", "目黒区"] as string[] | "all",
+    isDayOff: false,
+    note: null,
+  })),
+  // ren: 車で全域・上限なし。+2日目は当日欠勤の例
+  ...[0, 1, 2, 3, 4].map((dayOffset) => ({
+    slug: "ren",
+    dayOffset,
+    start: "12:00",
+    end: "22:00",
+    baseStart: "新宿駅 待機",
+    baseEnd: "新宿駅 待機",
+    maxBookings: null,
+    areas: "all" as string[] | "all",
+    isDayOff: dayOffset === 2,
+    note: dayOffset === 2 ? "当日欠勤の例（ワンタップ「本日休み」/ spec 3-3）" : null,
+  })),
+  // minato: 出勤はあるが published が無い → 公開出勤表に出ないデモ
+  ...[0, 1, 2].map((dayOffset) => ({
+    slug: "minato",
+    dayOffset,
+    start: "17:00",
+    end: "23:30",
+    baseStart: "自宅待機（中野）",
+    baseEnd: "自宅待機（中野）",
+    maxBookings: 2,
+    areas: ["新宿区", "中野区"] as string[] | "all",
+    isDayOff: false,
+    note: null,
+  })),
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -917,7 +1019,7 @@ async function main() {
     //   ＝ listPublicTherapists / getPublicTherapist に出ない（spec 2-2 / 3-7）。
     // hinata は published にするが therapists.status='retired' のため一覧・個人ページには
     //   出ない（退職除外のデモ。listPublicTherapists は status='active' で絞る）。
-    for (const slug of ["aoi", "hinata"]) {
+    for (const slug of ["aoi", "hinata", "ren"]) {
       await sql`
         update entity_records
         set published = draft, published_at = now()
@@ -1140,8 +1242,70 @@ async function main() {
       `;
     }
 
+    // -----------------------------------------------------------------------
+    // フェーズ8: 出勤予定（shifts + shift_areas）と個人の移動設定（冪等）
+    // -----------------------------------------------------------------------
+
+    // セラピスト個人の移動設定（spec 5-1「セラピストごとの設定」）:
+    // aoi は車を使えない（徒歩圏の予約のみ / chooseMode → unreachable のデモ）。
+    // ren は車可（既定 true のまま）。walk_cap_meters は null = walk_settings の既定。
+    await sql`update therapists set can_use_car = false where slug = 'aoi'`;
+
+    // ダミー therapist アカウントを aoi に紐付ける（RLS「自分の shift のみ」の実証用。
+    // spec 17章のテストアカウント / 0007 の shifts_self_* ポリシーが参照する）。
+    await sql`
+      update app_users
+      set therapist_id = (select id from therapists where slug = 'aoi')
+      where id = ${"aaaaaaaa-0000-4000-8000-000000000004"}::uuid
+        and role = 'therapist'
+    `;
+
+    for (const s of shiftSeeds) {
+      const workDate = addDaysISO(seedToday, s.dayOffset);
+      const { startAt, endAt } = shiftInstants(workDate, s.start, s.end);
+      const baseStartId = s.baseStart === null ? null : baseSeeds.find((b) => b.name === s.baseStart)?.id;
+      const baseEndId = s.baseEnd === null ? null : baseSeeds.find((b) => b.name === s.baseEnd)?.id;
+      if (baseStartId === undefined || baseEndId === undefined) {
+        throw new Error(`シフトの待機場所名が不正: ${s.baseStart} / ${s.baseEnd}`);
+      }
+
+      const rows = await sql<{ id: string }[]>`
+        insert into shifts
+          (therapist_id, work_date, start_at, end_at,
+           base_start_id, base_end_id, max_bookings, note, is_day_off)
+        select t.id, ${workDate}, ${startAt}, ${endAt},
+               ${baseStartId}::uuid, ${baseEndId}::uuid,
+               ${s.maxBookings}, ${s.note}, ${s.isDayOff}
+        from therapists t where t.slug = ${s.slug}
+        on conflict (therapist_id, work_date) do update set
+          start_at      = excluded.start_at,
+          end_at        = excluded.end_at,
+          base_start_id = excluded.base_start_id,
+          base_end_id   = excluded.base_end_id,
+          max_bookings  = excluded.max_bookings,
+          note          = excluded.note,
+          is_day_off    = excluded.is_day_off
+        returning id
+      `;
+      const shiftId = rows[0]?.id;
+      if (!shiftId) throw new Error(`シフトの投入に失敗: ${s.slug} ${workDate}`);
+
+      // 対応エリアは全置換（冪等。エリア構成を変えたシードの再実行でも一致する）
+      await sql`delete from shift_areas where shift_id = ${shiftId}::uuid`;
+      const areaNames = s.areas === "all" ? areaSeeds.map((a) => a.name) : s.areas;
+      for (const name of areaNames) {
+        const id = areaId.get(name);
+        if (!id) throw new Error(`シフト対応エリア名が不正: ${name}`);
+        await sql`
+          insert into shift_areas (shift_id, area_id)
+          values (${shiftId}::uuid, ${id}::uuid)
+          on conflict do nothing
+        `;
+      }
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）`,
     );
   } finally {
     await sql.end({ timeout: 5 });
