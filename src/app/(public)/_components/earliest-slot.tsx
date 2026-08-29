@@ -13,35 +13,27 @@
  * - today: 比較用当日 ISO（"YYYY-MM-DD"）。省略時は表示側で当日扱い
  */
 
-import { formatInTimeZone } from "date-fns-tz";
-import { parseISO } from "date-fns";
+import { weekdayIndex } from "@/domain/availability/shift";
 
-const APP_TZ = "Asia/Tokyo";
-
-/** 曜日インデックス配列（0=日〜6=土）。文字列は ui_labels の weekdays キー（カンマ区切り）から解決 */
-function weekdayChar(dateISO: string, weekdays: string): string {
-  try {
-    const d = parseISO(dateISO);
-    const idx = Number(formatInTimeZone(d, APP_TZ, "e")) % 7; // date-fns "e" = 1=月〜7=日
-    // "e" returns 1=Mon … 7=Sun → map to 0=Sun … 6=Sat
-    const corrected = idx === 7 ? 0 : idx; // 7=Sun→0
-    const days = weekdays.split(",");
-    return days[corrected] ?? "";
-  } catch {
-    return "";
-  }
-}
-
-/** dateISO を "M/d(曜)" 形式に整形（weekdays が空なら "M/d" のみ） */
+/**
+ * dateISO("YYYY-MM-DD") を "M/d(曜)" 形式に整形。
+ * - M/d は文字列 split の数値整形（Date を使わない＝閲覧者端末の TZ に依存しない）
+ * - 曜日は ドメインの weekdayIndex（ISO "i" トークン・Asia/Tokyo 基準・0=日〜6=土）を再利用。
+ *   date-fns の "e" はロケール依存（en-US で日曜=1）で曜日が1日ズレるため使わない。
+ *   曜日文字は ui_labels.weekdays（カンマ区切り "日,月,火,水,木,金,土"）から引く。
+ */
 function formatDateLabel(dateISO: string, weekdays: string): string {
+  const parts = dateISO.split("-");
+  if (parts.length !== 3) return dateISO;
+  const md = `${Number(parts[1])}/${Number(parts[2])}`;
+  const days = weekdays ? weekdays.split(",") : [];
+  let wd = "";
   try {
-    const d = parseISO(dateISO);
-    const md = formatInTimeZone(d, APP_TZ, "M/d");
-    const wd = weekdayChar(dateISO, weekdays);
-    return wd ? `${md}(${wd})` : md;
+    wd = days[weekdayIndex(dateISO)] ?? "";
   } catch {
-    return dateISO;
+    wd = "";
   }
+  return wd ? `${md}(${wd})` : md;
 }
 
 export function EarliestSlot({

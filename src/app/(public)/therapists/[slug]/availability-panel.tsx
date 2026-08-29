@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { formatInTimeZone } from "date-fns-tz";
-import { parseISO } from "date-fns";
+import { weekdayIndex } from "@/domain/availability/shift";
 import type {
   PublicArea,
   PublicCourse,
@@ -10,8 +9,6 @@ import type {
   PublicSlotView,
 } from "@/lib/availability/public-slots";
 import { recomputeSlots } from "./slots-actions";
-
-const APP_TZ = "Asia/Tokyo";
 
 /**
  * 空き枠パネル（spec 2-3 ★）。エリア・コース・オプションを選ぶと**都度再計算**し、
@@ -173,19 +170,20 @@ export function AvailabilityPanel({
       return labels.dateTodayLabel || "";
     }
     if (!labels.dateNote) return "";
+    // M/d は文字列 split（Date を使わない＝端末TZ非依存）、曜日はドメインの weekdayIndex
+    // （ISO "i"・0=日〜6=土）。date-fns "e" はロケール依存で曜日が1日ズレるため使わない。
+    const parts = d.split("-");
+    if (parts.length !== 3) return labels.dateNote.replace("{date}", d);
+    const md = `${Number(parts[1])}/${Number(parts[2])}`;
+    const wds = labels.weekdays ? labels.weekdays.split(",") : [];
+    let wd = "";
     try {
-      const parsed = parseISO(d);
-      const md = formatInTimeZone(parsed, APP_TZ, "M/d");
-      const wds = labels.weekdays ? labels.weekdays.split(",") : [];
-      // date-fns formatInTimeZone "e" = 1=Mon…7=Sun
-      const eNum = Number(formatInTimeZone(parsed, APP_TZ, "e"));
-      const idx = eNum % 7; // 7=Sun→0, others stay
-      const wd = wds[idx] ?? "";
-      const dateLabel = wd ? `${md}(${wd})` : md;
-      return labels.dateNote.replace("{date}", dateLabel);
+      wd = wds[weekdayIndex(d)] ?? "";
     } catch {
-      return labels.dateNote.replace("{date}", d);
+      wd = "";
     }
+    const dateLabel = wd ? `${md}(${wd})` : md;
+    return labels.dateNote.replace("{date}", dateLabel);
   })();
 
   return (
