@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -26,6 +27,10 @@ function loadDotEnv(): Record<string, string> {
 }
 
 export default defineConfig({
+  resolve: {
+    // tsconfig の paths（"@/*" → "./src/*"）と揃える
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   test: {
     environment: "node",
     env: loadDotEnv(),
