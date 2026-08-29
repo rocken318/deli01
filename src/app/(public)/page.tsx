@@ -3,6 +3,7 @@ import { getSiteContext, getPublishedPage, getPublicTherapistFields, label } fro
 import { listPublicTherapists } from "@/lib/public/queries";
 import { buildTherapistCards } from "@/lib/public/therapist-view";
 import { getPublicMediaMap } from "@/lib/public/queries";
+import { earliestSlotForTherapist } from "@/lib/availability/earliest";
 import Link from "next/link";
 import { renderBlock, collectBlockImageIds } from "./_components/block-renderer";
 import { EmptyState } from "./_components/empty-state";
@@ -13,10 +14,10 @@ import { EarliestSlot } from "./_components/earliest-slot";
  * 公開トップ（spec 2-1）。
  * - pages(home) の published ブロックを描画（未公開なら空状態）
  * - いま出勤中のセラピスト（published therapists）をカードで
- * - 最短案内時間はフェーズ9（空き枠エンジン）未実装のため placeholder（CMS labels 経由）
+ * - 最短案内時間は空き枠エンジン（spec 5-4）で代表エリア概算し、前提を明記する
  *
  * キャッシュ（spec 2-7）: プロフィール・本文は ISR、空き枠はキャッシュしない。
- * 本フェーズは空き枠値なしのため、都度描画（dynamic）にとどめ古い枠を出さない。
+ * 空き枠を都度計算するため force-dynamic（古い枠を出さない）。
  */
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,28 @@ export default async function HomePage() {
   const mediaMap = await getPublicMediaMap(collectBlockImageIds(page.blocks), {
     requireConsent: false,
   });
+
+  // 各セラピストの最短案内時刻（代表エリア概算 / spec 5-4）。都度計算・キャッシュしない。
+  // 失敗しても null に倒し、カードは placeholder のまま出す（公開ページを落とさない）。
+  const earliestBySlug = new Map(
+    await Promise.all(
+      cards.map(
+        async (c) =>
+          [c.slug, await earliestSlotForTherapist(c.slug).catch(() => null)] as const,
+      ),
+    ),
+  );
+  // 署名要素（セクション見出し）は、いま案内できる中で最も早い枠を代表として出す
+  const sectionEarliest = [...earliestBySlug.values()]
+    .filter((e): e is NonNullable<typeof e> => e !== null)
+    .sort((a, b) => `${a.dateISO} ${a.time}`.localeCompare(`${b.dateISO} ${b.time}`))[0];
+
+  const conditionTemplate = label(ctx, "slots_condition_template");
+  const assumedNote = label(ctx, "slots_assumed_note");
+  const conditionNote = (e: { assumed: boolean; areaName: string } | null): string =>
+    e && e.assumed && e.areaName && conditionTemplate
+      ? `${conditionTemplate.replace("{area}", e.areaName)}${assumedNote}`
+      : "";
 
   const earliestTemplate = label(ctx, "earliest_slot_template");
   const earliestPending = label(ctx, "earliest_slot_pending");
@@ -69,7 +92,7 @@ export default async function HomePage() {
             <EarliestSlot
               template={earliestTemplate}
               placeholder={earliestPending}
-              time={null}
+              time={sectionEarliest?.time ?? null}
               size="sm"
             />
           </div>
@@ -89,6 +112,8 @@ export default async function HomePage() {
                   detailLabel={label(ctx, "therapist_detail_cta")}
                   earliestTemplate={earliestTemplate}
                   earliestPending={earliestPending}
+                  earliestTime={earliestBySlug.get(card.slug)?.time ?? null}
+                  conditionNote={conditionNote(earliestBySlug.get(card.slug) ?? null)}
                 />
               </li>
             ))}
@@ -111,7 +136,12 @@ export default async function HomePage() {
       {earliestTemplate && (
         <section className="mx-auto max-w-3xl px-5 pb-12 text-center">
           <Link href={bookingHref} className="inline-block">
-            <EarliestSlot template={earliestTemplate} placeholder={earliestPending} time={null} size="lg" />
+            <EarliestSlot
+              template={earliestTemplate}
+              placeholder={earliestPending}
+              time={sectionEarliest?.time ?? null}
+              size="lg"
+            />
           </Link>
         </section>
       )}

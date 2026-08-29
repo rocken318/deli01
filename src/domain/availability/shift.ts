@@ -128,3 +128,17 @@ export function parseDateISO(value: string | undefined | null): string | null {
   if (typeof value !== "string" || !DATE_RE.test(value)) return null;
   return value;
 }
+
+/**
+ * "YYYY-MM-DD" が実在する暦日か（2026-02-31 等を弾く）。
+ * Postgres の date キャスト前に細工 URL を弾くため、公開側の読取層で使う。
+ */
+export function isRealDateISO(iso: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}

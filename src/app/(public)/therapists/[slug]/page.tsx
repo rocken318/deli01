@@ -5,8 +5,16 @@ import { getSiteContext, getPublicTherapistFields, label } from "@/lib/public/co
 import { getPublicTherapist } from "@/lib/public/queries";
 import { buildTherapistView } from "@/lib/public/therapist-view";
 import { earliestSlotForTherapist } from "@/lib/availability/earliest";
+import {
+  getTherapistSlots,
+  getPublicTherapistId,
+  listPublicCourses,
+  listPublicOptions,
+} from "@/lib/availability/public-slots";
 import { PublicImage } from "../../_components/public-image";
 import { EarliestSlot } from "../../_components/earliest-slot";
+import { AvailabilityPanel } from "./availability-panel";
+import type { AvailabilityLabels } from "./availability-panel";
 import { FieldValue } from "./field-value";
 
 /**
@@ -47,17 +55,41 @@ export default async function TherapistDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [ctx, therapist, fields, earliest] = await Promise.all([
+  const [ctx, therapist, fields, earliest, therapistId, courses] = await Promise.all([
     getSiteContext(),
     getPublicTherapist(slug),
     getPublicTherapistFields(),
-    // 最短案内時間（spec 5-4 / フェーズ9）。失敗しても公開ページは落とさない
+    // 最短案内時間（spec 5-4）。失敗しても公開ページは落とさない
     earliestSlotForTherapist(slug).catch(() => null),
+    getPublicTherapistId(slug).catch(() => null),
+    listPublicCourses().catch(() => []),
   ]);
 
   if (!therapist) notFound();
 
   const view = await buildTherapistView(therapist, fields);
+
+  // コース/オプション + 初期空き枠（今日・代表エリア概算）。失敗しても本文は落とさない。
+  // 変更時の再計算は Server Action（都度計算・キャッシュしない / spec 2-7）。
+  const [options, initialSlots] = await Promise.all([
+    listPublicOptions(therapistId).catch(() => []),
+    getTherapistSlots({ slug, courseId: courses[0]?.id ?? null }).catch(() => null),
+  ]);
+
+  const availabilityLabels: AvailabilityLabels = {
+    areaHeading: label(ctx, "slots_area_heading"),
+    areaAll: label(ctx, "slots_area_all"),
+    courseHeading: label(ctx, "slots_course_heading"),
+    optionHeading: label(ctx, "slots_option_heading"),
+    slotsHeading: label(ctx, "slots_heading"),
+    conditionTemplate: label(ctx, "slots_condition_template"),
+    assumedNote: label(ctx, "slots_assumed_note"),
+    emptyTitle: label(ctx, "slots_empty_title"),
+    emptyBody: label(ctx, "slots_empty_body"),
+    loading: label(ctx, "slots_loading"),
+    error: label(ctx, "slots_error"),
+    slotAria: label(ctx, "slots_select_aria"),
+  };
 
   // JSON-LD (Person / spec 12-1)
   const visiblePhotos = view.photos.filter((p) => p.faceVisibility !== "none");
@@ -152,15 +184,41 @@ export default async function TherapistDetailPage({
         )}
         <div className="rounded border border-pub-border bg-pub-surface p-4">
           {/* time は空き枠エンジンの最短案内（spec 5-4）。枠なしは placeholder のまま。
-              「〇〇区の場合」の条件表示（earliest.assumed / areaName）はフェーズ10 */}
+              代表エリア概算（assumed=true）のときは「〇〇区の場合」を明記（reviewer R-4）。 */}
           <EarliestSlot
             template={earliestTemplate}
             placeholder={earliestPending}
             time={earliest?.time ?? null}
             size="lg"
           />
+          {earliest?.assumed && earliest.areaName && label(ctx, "slots_condition_template") && (
+            <p className="mt-1 text-xs text-pub-subtext">
+              {label(ctx, "slots_condition_template").replace("{area}", earliest.areaName)}
+              {label(ctx, "slots_assumed_note") && (
+                <span className="ml-1 opacity-80">{label(ctx, "slots_assumed_note")}</span>
+              )}
+            </p>
+          )}
         </div>
       </header>
+
+      {/* 空き枠パネル（spec 2-3 ★）: エリア/コース/オプションで都度再計算。
+          初期枠はサーバ計算済み、変更時は Server Action（キャッシュしない / spec 2-7）。 */}
+      <section className="mb-8 rounded border border-pub-border bg-pub-surface/50 p-4">
+        <AvailabilityPanel
+          slug={slug}
+          dateISO={initialSlots?.dateISO ?? ""}
+          areas={initialSlots?.areas ?? []}
+          courses={courses}
+          options={options}
+          initialSlots={initialSlots?.slots ?? []}
+          initialAreaId={null}
+          initialAreaName={initialSlots?.areaName ?? ""}
+          initialAssumed={initialSlots?.assumed ?? true}
+          bookingHref={bookingHref}
+          labels={availabilityLabels}
+        />
+      </section>
 
       {/* is_public フィールド（sort_order 順） */}
       {view.fields.length > 0 && (

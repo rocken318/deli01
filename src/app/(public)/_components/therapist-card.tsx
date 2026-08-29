@@ -14,11 +14,17 @@ export function TherapistCard({
   detailLabel,
   earliestTemplate,
   earliestPending,
+  earliestTime = null,
+  conditionNote = "",
 }: {
   card: TherapistCardView;
   detailLabel: string;
   earliestTemplate: string;
   earliestPending: string;
+  /** 空き枠エンジンの最短案内時刻 "HH:mm"（無ければ null=placeholder / spec 5-4） */
+  earliestTime?: string | null;
+  /** 「〇〇区の場合」等の前提注記（代表エリア概算 / spec 2-3）。無ければ非表示 */
+  conditionNote?: string;
 }) {
   const photo = card.photo;
   const showPhoto = photo !== null && photo.faceVisibility !== "none";
@@ -82,7 +88,13 @@ export function TherapistCard({
             ))}
           </ul>
         )}
-        <EarliestSlot template={earliestTemplate} placeholder={earliestPending} time={null} size="sm" />
+        <EarliestSlot
+          template={earliestTemplate}
+          placeholder={earliestPending}
+          time={earliestTime}
+          size="sm"
+        />
+        {conditionNote && <p className="text-xs text-pub-subtext/80">{conditionNote}</p>}
         {detailLabel && (
           <span className="mt-1 inline-block text-sm text-pub-primary">{detailLabel}</span>
         )}
