@@ -394,11 +394,15 @@ export async function confirmReservation(params: {
         throw new ConfirmAbort("hold_expired");
       }
 
-      // 顧客: 電話番号で名寄せ（spec 9章）
+      // 顧客: 電話番号で名寄せ（spec 9章）。
+      // 既存顧客の氏名は**上書きしない**（未検証のWeb入力が、電話受付の自動補完(フェーズ12)が
+      // 頼る既存氏名を壊さないため / reviewer 推奨2）。既存が空のときだけ補完する。
       const customers = await tx<{ id: string }[]>`
         insert into customers (phone, name)
         values (${params.customerPhone}, ${params.customerName.trim()})
-        on conflict (phone) do update set name = excluded.name, updated_at = now()
+        on conflict (phone) do update
+          set name = coalesce(nullif(customers.name, ''), excluded.name),
+              updated_at = now()
         returning id
       `;
       const customerId = customers[0]?.id;

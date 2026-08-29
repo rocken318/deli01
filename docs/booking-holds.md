@@ -143,3 +143,9 @@ where id = $1 and version = $2 and status = 'held'
 - 個人ページの枠 → `/booking?t={slug}` でセラピスト事前選択
 - E2E（Playwright）は未導入のまま（統合テストが Server Action の実体
   `createHold`/`confirmReservation` を実 Postgres で直接叩いて完了条件を検証している）
+
+## 後続への申し送り（reviewer 推奨 / 必須条件）
+
+- **【フェーズ14着手前に必須】addresses/customers の therapist RLS を精緻化（spec 13-3・7-3）**: 現状は「担当予約が1件でもあれば（cancelled/noshow 含む）住所・電話番号を何日前でも select 可」。spec 13-3 は「担当セラピストにのみ、予約の**3時間前から**表示・閲覧は監査ログ」、7-3 は「顧客の電話番号をセラピスト端末に残さない（列制御）」。**セラピスト向けマイページ（フェーズ14）を載せる前に、`now() >= start_at - interval '180 minutes'` ゲート＋ status 絞り＋電話番号列の制御＋閲覧監査を必ず実装する。** capability の `view_customer_address`（180分）は domain 層に既にある。
+- **顧客氏名の上書き防止（対応済み）**: 既存顧客の name は上書きせず、空のときだけ補完（未検証Web入力で自動補完データを汚さない / 推奨2）。
+- **【公開前チェックリスト】公開 Server Action のレート制御（推奨3）**: `holdSlot`/`trackFunnel` は匿名で叩けるため、セッション量産で全枠を10分ホールドし続ける営業妨害・funnel_events 肥大が可能。公開前に「セッションあたり同時ホールド数上限／簡易レート制限」を入れる。
