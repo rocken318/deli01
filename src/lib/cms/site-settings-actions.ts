@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import type postgres from "postgres";
 import { can } from "@/domain/auth";
 import { toActor } from "@/lib/auth/session";
 import { withUser } from "@/lib/auth/with-user";
@@ -29,14 +30,14 @@ export async function saveSiteSetting(key: string, value: unknown): Promise<Acti
       const before = existing[0]?.value ?? null;
       await tx`
         insert into site_settings (key, value)
-        values (${parsed.data.key}, ${JSON.stringify(parsed.data.value)}::jsonb)
+        values (${parsed.data.key}, ${tx.json(parsed.data.value as postgres.JSONValue)})
         on conflict (key) do update set value = excluded.value, updated_at = now()
       `;
       await tx`
         insert into audit_logs (actor_user_id, action, entity, before, after)
         values (${session.userId}::uuid, 'update', 'site_setting',
-          ${JSON.stringify({ key: parsed.data.key, value: before })}::jsonb,
-          ${JSON.stringify({ key: parsed.data.key, value: parsed.data.value })}::jsonb)
+          ${tx.json({ key: parsed.data.key, value: before } as postgres.JSONValue)},
+          ${tx.json({ key: parsed.data.key, value: parsed.data.value } as postgres.JSONValue)})
       `;
     });
     return { ok: true };

@@ -37,7 +37,7 @@ export async function savePageFields(slug: string, fields: PageFields, locale = 
     const result = await withUser(sql, session, async (tx) => {
       const rows = await tx<{ id: string }[]>`
         insert into pages (slug, locale, draft_fields)
-        values (${slug}, ${locale}, ${JSON.stringify(parsedFields.data)}::jsonb)
+        values (${slug}, ${locale}, ${tx.json(parsedFields.data)})
         on conflict (slug, locale) do update set draft_fields = excluded.draft_fields, updated_at = now()
         returning id
       `;
@@ -45,7 +45,7 @@ export async function savePageFields(slug: string, fields: PageFields, locale = 
       if (!row) throw new Error("upsert failed");
       await tx`
         insert into audit_logs (actor_user_id, action, entity, entity_id, after)
-        values (${session.userId}::uuid, 'update', 'page', ${row.id}::uuid, ${JSON.stringify({ slug, locale })}::jsonb)
+        values (${session.userId}::uuid, 'update', 'page', ${row.id}::uuid, ${tx.json({ slug, locale })})
       `;
       return { id: row.id };
     });
@@ -69,12 +69,12 @@ export async function savePageBlocks(slug: string, blocks: Block[], locale = "ja
     await withUser(sql, session, async (tx) => {
       await tx`
         insert into pages (slug, locale, draft_blocks)
-        values (${slug}, ${locale}, ${JSON.stringify(parsedBlocks.data)}::jsonb)
+        values (${slug}, ${locale}, ${tx.json(parsedBlocks.data)})
         on conflict (slug, locale) do update set draft_blocks = excluded.draft_blocks, updated_at = now()
       `;
       await tx`
         insert into audit_logs (actor_user_id, action, entity, after)
-        values (${session.userId}::uuid, 'update', 'page_blocks', ${JSON.stringify({ slug, locale, count: parsedBlocks.data.length })}::jsonb)
+        values (${session.userId}::uuid, 'update', 'page_blocks', ${tx.json({ slug, locale, count: parsedBlocks.data.length })})
       `;
     });
     return { ok: true };
@@ -151,8 +151,12 @@ export async function getPage(slug: string, locale = "ja"): Promise<{
   const row = rows[0];
   if (!row) return null;
 
-  const draftBlocks = blocksArraySchema.parse(row.draft_blocks ?? []);
-  const publishedBlocks = row.published_blocks ? blocksArraySchema.parse(row.published_blocks) : null;
+  const draftBlocksParsed = blocksArraySchema.safeParse(row.draft_blocks ?? []);
+  const draftBlocks = draftBlocksParsed.success ? draftBlocksParsed.data : [];
+  const publishedBlocksParsed = row.published_blocks
+    ? blocksArraySchema.safeParse(row.published_blocks)
+    : null;
+  const publishedBlocks = publishedBlocksParsed?.success ? publishedBlocksParsed.data : null;
 
   return {
     id: row.id, slug: row.slug,

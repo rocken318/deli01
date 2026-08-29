@@ -52,7 +52,7 @@ export async function upsertMediaMeta(input: UpsertMediaInput): Promise<ActionRe
         `;
         await tx`
           insert into audit_logs (actor_user_id, action, entity, entity_id, after)
-          values (${session.userId}::uuid, 'update', 'media', ${data.id}::uuid, ${JSON.stringify({ alt: data.alt, tags: data.tags })}::jsonb)
+          values (${session.userId}::uuid, 'update', 'media', ${data.id}::uuid, ${tx.json({ alt: data.alt, tags: data.tags })})
         `;
         return { id: data.id };
       } else {
@@ -67,7 +67,7 @@ export async function upsertMediaMeta(input: UpsertMediaInput): Promise<ActionRe
         if (!row) throw new Error("insert failed");
         await tx`
           insert into audit_logs (actor_user_id, action, entity, entity_id, after)
-          values (${session.userId}::uuid, 'create', 'media', ${row.id}::uuid, ${JSON.stringify({ alt: data.alt, tags: data.tags })}::jsonb)
+          values (${session.userId}::uuid, 'create', 'media', ${row.id}::uuid, ${tx.json({ alt: data.alt, tags: data.tags })})
         `;
         return { id: row.id };
       }

@@ -33,7 +33,7 @@ export async function saveTerminology(key: string, value: string, locale = "ja")
       `;
       await tx`
         insert into audit_logs (actor_user_id, action, entity, after)
-        values (${session.userId}::uuid, 'update', 'terminology', ${JSON.stringify(parsed.data)}::jsonb)
+        values (${session.userId}::uuid, 'update', 'terminology', ${tx.json(parsed.data)})
       `;
     });
     return { ok: true };

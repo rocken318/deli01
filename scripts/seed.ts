@@ -199,7 +199,7 @@ async function main() {
     for (const s of siteSettings) {
       await sql`
         insert into site_settings (key, value)
-        values (${s.key}, ${JSON.stringify(s.value)}::jsonb)
+        values (${s.key}, ${sql.json(s.value as postgres.JSONValue)})
         on conflict (key) do nothing
       `;
     }
@@ -210,7 +210,7 @@ async function main() {
           (entity, key, label, type, options, sort_order, is_public, is_filterable)
         values (
           ${f.entity}, ${f.key}, ${f.label}, ${f.type}::field_type,
-          ${"options" in f ? JSON.stringify(f.options) : null}::jsonb,
+          ${"options" in f ? sql.json(f.options as postgres.JSONValue) : null},
           ${f.sort_order}, ${f.is_public}, ${"is_filterable" in f ? f.is_filterable : false}
         )
         on conflict (entity, key) do nothing
@@ -231,7 +231,7 @@ async function main() {
     for (const r of entityRecordSamples) {
       await sql`
         insert into entity_records (entity, slug, draft)
-        values (${r.entity}, ${r.slug}, ${JSON.stringify(r.draft)}::jsonb)
+        values (${r.entity}, ${r.slug}, ${sql.json(r.draft as postgres.JSONValue)})
         on conflict (entity, slug) do nothing
       `;
     }
@@ -239,7 +239,7 @@ async function main() {
     for (const p of pageSeeds) {
       await sql`
         insert into pages (slug, locale, draft_fields, draft_blocks)
-        values (${p.slug}, ${p.locale}, ${JSON.stringify(p.draft_fields)}::jsonb, ${JSON.stringify(p.draft_blocks)}::jsonb)
+        values (${p.slug}, ${p.locale}, ${sql.json(p.draft_fields as postgres.JSONValue)}, ${sql.json(p.draft_blocks as postgres.JSONValue)})
         on conflict (slug, locale) do update set draft_fields = excluded.draft_fields, draft_blocks = excluded.draft_blocks
       `;
     }
