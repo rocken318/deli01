@@ -141,7 +141,7 @@ const fieldDefinitions = [
     label: "氏名・芸名",
     type: "text",
     sort_order: 2,
-    is_public: false,
+    is_public: true,
   },
   {
     entity: "therapist",
@@ -342,7 +342,8 @@ const therapistMediaSeeds = [
     tags: ["placeholder", "therapist", "aoi"],
     consent_flag: true,
     consent_date: "2026-01-01",
-    face_visibility: "none",
+    // 目線入り（spec 3-7）の表示デモ。公開ページで .eye-overlay の帯が乗る。
+    face_visibility: "eyes",
     is_placeholder: true,
   },
   // みなと: 同意なし（publishTherapistProfile のゲートデモ用）
@@ -386,6 +387,7 @@ const therapistRecordSeeds: {
     draft: {
       // photo（image_gallery）: 同意ありのメディアを参照（publishTherapistProfile で公開可能）
       photo: ["bbbbbbbb-0001-4000-8000-000000000001"],
+      name: "あおい",
       catch_copy: "心地よい圧で、あなたの体をほぐします",
       intro: "<p>オイルとリンパを得意とするセラピストです。</p>",
       good_at: ["オイル", "リンパ"],
@@ -397,6 +399,7 @@ const therapistRecordSeeds: {
     draft: {
       // photo（image_gallery）: 同意なしのメディアを参照（publishTherapistProfile がブロックされるデモ用）
       photo: ["bbbbbbbb-0001-4000-8000-000000000002"],
+      name: "みなと",
       catch_copy: "丁寧な施術で、日々の疲れをリセット",
       intro: "<p>指圧とストレッチを中心に、幅広いコースに対応します。</p>",
       good_at: ["指圧", "ストレッチ"],
@@ -408,6 +411,7 @@ const therapistRecordSeeds: {
     draft: {
       // photo（image_gallery）: 同意ありのメディア（退職処理で is_hidden 化されるデモ用）
       photo: ["bbbbbbbb-0001-4000-8000-000000000003"],
+      name: "ひなた",
       catch_copy: "足つぼで体の芯から癒します",
       intro: "<p>足つぼを専門とするセラピストです。</p>",
       good_at: ["足つぼ"],

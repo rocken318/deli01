@@ -121,10 +121,19 @@ export default async function TherapistDetailPage({
         </div>
       )}
 
-      {/* キャッチコピー + 署名要素 */}
+      {/* 名前（あれば主見出し）+ キャッチコピー + 署名要素 */}
       <header className="mb-6 space-y-3">
-        {view.catchCopy && (
-          <h1 className="font-heading text-2xl leading-snug text-pub-text">{view.catchCopy}</h1>
+        {view.name ? (
+          <>
+            <h1 className="font-heading text-2xl leading-snug text-pub-text">{view.name}</h1>
+            {view.catchCopy && (
+              <p className="text-sm leading-relaxed text-pub-subtext">{view.catchCopy}</p>
+            )}
+          </>
+        ) : (
+          view.catchCopy && (
+            <h1 className="font-heading text-2xl leading-snug text-pub-text">{view.catchCopy}</h1>
+          )
         )}
         {view.goodAtTags.length > 0 && (
           <ul className="flex flex-wrap gap-1.5">

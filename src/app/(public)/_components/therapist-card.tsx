@@ -51,7 +51,6 @@ export function TherapistCard({
         ) : (
           <div
             className="flex h-full w-full items-center justify-center"
-            aria-hidden="true"
             role="img"
             aria-label="silhouette"
           >
