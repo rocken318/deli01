@@ -9,11 +9,14 @@ import {
 import type {
   AvailabilityInput,
   BufferSettings,
-  PlaceRef,
   TimeModifier,
-  TravelDataSource,
   WalkSettings,
 } from "@/domain/availability";
+import {
+  areaPlace,
+  buildTravelDataSource,
+  loadActiveReservations,
+} from "./reservation-data";
 
 /**
  * 「最短で案内できる時間」の公開側読み取り（フェーズ9 / spec 5-4）。
@@ -214,40 +217,31 @@ async function earliestForDate(
   const destArea = requested ?? areas[0]!;
   const assumed = !requested;
 
-  // 待機場所 → エリア代表点の直線距離（PostGIS）。base/座標未設定はエリア内待機
-  // とみなし 0m（概算。要設定の警告表示はフェーズ10 の管理画面で扱う）
-  const distances = await sql<{ start_meters: number | null; end_meters: number | null }[]>`
-    select
-      st_distance(bs.location, a.center)::float8 as start_meters,
-      st_distance(be.location, a.center)::float8 as end_meters
-    from areas a
-    left join bases bs on bs.id = ${shift.base_start_id}::uuid
-    left join bases be on be.id = ${shift.base_end_id}::uuid
-    where a.id = ${destArea.id}::uuid
-  `;
-  const startMeters = distances[0]?.start_meters ?? 0;
-  const endMeters = distances[0]?.end_meters ?? 0;
+  // 既存予約・仮押さえ（フェーズ11〜。期限切れホールドは除外済み）
+  const engineReservations = await loadActiveReservations(sql, {
+    therapistId: params.therapist.id,
+    windowStartAt: shift.start_at,
+    windowEndAt: shift.end_at,
+  });
+
+  const destination = areaPlace(destArea.id);
+
+  // 距離（待機場所・既存予約エリア ↔ 目的地）と車マトリクスを一括で解決
+  const travel = await buildTravelDataSource(sql, {
+    destAreaId: destArea.id,
+    destPlaceId: destination.id,
+    baseStartId: shift.base_start_id,
+    baseEndId: shift.base_end_id,
+    reservationAreaIds: engineReservations
+      .map((r) => r.place.areaId)
+      .filter((id): id is string => id !== null),
+  });
 
   const overrideRows = await sql<BufferRow[]>`
     select arrive_min, parking_min, before_min, after_min
     from travel_buffers where scope = 'area' and area_id = ${destArea.id}::uuid
     limit 1
   `;
-
-  const baseStart: PlaceRef = { id: `base:${shift.base_start_id ?? "start"}`, areaId: null };
-  const baseEnd: PlaceRef = { id: `base:${shift.base_end_id ?? "end"}`, areaId: null };
-  const destination: PlaceRef = { id: `area:${destArea.id}`, areaId: destArea.id };
-
-  const distanceMap = new Map<string, number>([
-    [`${baseStart.id}|${destination.id}`, startMeters],
-    [`${baseEnd.id}|${destination.id}`, endMeters],
-  ]);
-  const travel: TravelDataSource = {
-    distanceMeters: (from, to) =>
-      distanceMap.get(`${from.id}|${to.id}`) ?? distanceMap.get(`${to.id}|${from.id}`) ?? null,
-    // bases はエリアを持たないためマトリクスは引かず、距離×係数の暫定値に落とす（概算）
-    carMatrixMinutes: () => null,
-  };
 
   const input: AvailabilityInput = {
     therapist: {
@@ -259,13 +253,13 @@ async function earliestForDate(
     shift: {
       startAt: shift.start_at,
       endAt: shift.end_at,
-      baseStart,
-      baseEnd,
+      baseStart: { id: `base:${shift.base_start_id ?? "start"}`, areaId: null },
+      baseEnd: { id: `base:${shift.base_end_id ?? "end"}`, areaId: null },
       areaIds: areas.map((a) => a.id),
       maxBookings: shift.max_bookings,
     },
-    // 既存予約・仮押さえの反映はフェーズ11（reservations / slot_holds 導入後）
-    reservations: [],
+    // 場所つきで reservations に渡す（engine の R-3 契約）
+    reservations: engineReservations,
     now: params.now,
     walkSettings: params.walkSettings,
     timeModifiers: params.timeModifiers,

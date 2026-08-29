@@ -28,6 +28,17 @@ const siteSettings: { key: string; value: unknown }[] = [
   { key: "reception_phone", value: "" },
   { key: "reception_hours", value: "" },
   { key: "footer_note", value: "" },
+  // 予約フローの料金設定（spec 18-3 のダミー初期値 / フェーズ11。CMS から変更が正）
+  {
+    key: "booking_fees",
+    value: {
+      transport_walk: 0,
+      transport_car: 1000,
+      midnight_surcharge: 3000,
+      midnight_from_hour: 0,
+      midnight_to_hour: 5,
+    },
+  },
 ];
 
 /**
@@ -118,10 +129,48 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       schedule_empty_title: "この日にご案内できるセラピストがいません",
       schedule_empty_body: "日付やエリアを変えてお試しください。",
       schedule_weekdays: "日,月,火,水,木,金,土",
-      // スタブ（フェーズ11）
+      // 注文フロー（フェーズ11 / spec 5-5・6章）
       booking_page_title: "予約",
       booking_pending_title: "オンライン予約は準備中です",
       booking_pending_body: "お電話でのご予約を承っています。",
+      booking_step_therapist: "セラピストを選ぶ",
+      booking_step_destination: "お伺い先を選ぶ",
+      booking_dest_home: "ご自宅・ご滞在先",
+      booking_dest_hotel: "ホテル",
+      booking_hotel_select: "ホテルを選ぶ",
+      booking_step_slot: "時間を選ぶ",
+      booking_step_details: "お客様情報",
+      booking_name_label: "お名前",
+      booking_phone_label: "お電話番号（ハイフンなし）",
+      booking_address_label: "ご住所（建物名・部屋番号まで）",
+      booking_address_hotel_label: "ホテル名・部屋番号",
+      booking_price_heading: "料金",
+      booking_price_course: "コース",
+      booking_price_options: "オプション",
+      booking_price_nomination: "指名料",
+      booking_price_transport: "交通費",
+      booking_price_midnight: "深夜加算",
+      booking_price_total: "合計",
+      booking_price_provisional_note: "（交通費・深夜加算は時間確定時に加算されます）",
+      booking_hold_remaining: "仮押さえの残り時間",
+      booking_hold_note:
+        "この時間はお客様のために確保しています。時間内にご入力ください。",
+      booking_choose_another: "別の時間を選び直す",
+      booking_confirm_cta: "この内容で予約を確定する",
+      booking_confirming: "確定処理中…",
+      booking_done_title: "ご予約を承りました",
+      booking_done_body:
+        "内容確認のお電話を差し上げる場合があります。ご不明点はお電話でお問い合わせください。",
+      booking_done_number: "予約番号",
+      booking_error_generic: "処理に失敗しました。時間をおいてお試しください。",
+      booking_error_slot_taken:
+        "他のお客様の予約が先に確定しました。別の時間をお選びください。",
+      booking_error_slot_gone:
+        "この時間はご案内できなくなりました。別の時間をお選びください。",
+      booking_error_hold_expired:
+        "仮押さえの有効時間が切れました。もう一度時間をお選びください。",
+      booking_error_version: "内容が更新されています。もう一度お試しください。",
+      booking_error_invalid: "入力内容をご確認ください。",
     },
   },
 ];

@@ -14,6 +14,7 @@ import {
 import { localDateISO } from "@/domain/availability";
 import { PublicImage } from "../../_components/public-image";
 import { EarliestSlot } from "../../_components/earliest-slot";
+import { FunnelPing } from "../../_components/funnel-ping";
 import { AvailabilityPanel } from "./availability-panel";
 import type { AvailabilityLabels } from "./availability-panel";
 import { FieldValue } from "./field-value";
@@ -113,10 +114,14 @@ export default async function TherapistDetailPage({
 
   const earliestTemplate = label(ctx, "earliest_slot_template");
   const earliestPending = label(ctx, "earliest_slot_pending");
-  const bookingHref = ctx.labels["booking_href"] || "/booking";
+  const bookingBase = ctx.labels["booking_href"] || "/booking";
+  // 個人ページからの予約導線はセラピストを事前選択して渡す（フェーズ11 注文フロー）
+  const bookingHref = `${bookingBase}?t=${encodeURIComponent(slug)}`;
 
   return (
     <article className="mx-auto max-w-2xl px-5 py-8">
+      {/* ファネル計測: セラピスト閲覧（付録B-2。描画なし） */}
+      <FunnelPing step="view_therapist" slug={slug} />
       <script
         type="application/ld+json"
         // JSON-LD: escape < to prevent script injection via closing tags.
