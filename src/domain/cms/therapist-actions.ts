@@ -11,10 +11,12 @@
 
 import { z } from "zod";
 import { can } from "@/domain/auth";
+import { buildZodSchema } from "@/domain/cms";
 import { toActor } from "@/lib/auth/session";
 import { withUser } from "@/lib/auth/with-user";
 import { getClient } from "@/lib/db-client";
 import { getDevSession } from "@/lib/cms/dev-session";
+import { getFieldDefinitions } from "@/lib/cms/get-field-definitions";
 import type { ActionResult } from "@/lib/cms/actions";
 
 // ---------------------------------------------------------------------------
@@ -114,13 +116,27 @@ export async function publishTherapistProfile(slug: string): Promise<ActionResul
         return { ok: false, error: "セラピストのレコードが見つかりません" };
       }
 
+      // 1.5 公開前に、定義から組んだ Zod で draft を検証する（fail-fast / spec 3-1・3-2）。
+      // 必須項目が欠けている等は同意チェックより前に弾き、不完全な内容を公開させない。
+      const defs = await getFieldDefinitions("therapist");
+      const check = buildZodSchema(defs).safeParse(rec.draft);
+      if (!check.success) {
+        return {
+          ok: false,
+          error:
+            "下書きに未入力/不正な項目があるため公開できません: " +
+            check.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", "),
+        };
+      }
+
       // 2. image / image_gallery フィールドのキーを取得
+      // Rec 1: deleted_at is null フィルタは付けない。論理削除された image フィールドでも
+      // draft に値が残っていれば published にコピーされうるため、同意チェックの対象に含める。
       const fieldRows = await tx<FieldDefRow[]>`
         select key, type
         from field_definitions
         where entity = 'therapist'
           and type in ('image', 'image_gallery')
-          and deleted_at is null
       `;
       const imageFieldKeys = fieldRows.map((f) => f.key);
 
@@ -219,23 +235,28 @@ export async function retireTherapist(slug: string): Promise<ActionResult> {
         return { ok: false, error: "セラピストが見つかりません" };
       }
 
-      // 2. entity_records.published を null に（プロフィール非公開）
-      await tx`
-        update entity_records
-        set published = null, published_at = null
-        where entity = 'therapist' and slug = ${slug}
-      `;
-
-      // 3. 関連 media を一括で is_hidden = true に
-      // draft から image/image_gallery フィールドのメディア ID を取得する
-      const recRows = await tx<{ draft: Record<string, unknown> }[]>`
-        select draft
+      // 2. media 非公開化のため、published を null 化する前に draft/published を読む。
+      // Rec 2: draft だけでなく published 側の画像参照も走査する。
+      // 公開後に draft から写真を外したケースでも、公開中の写真を確実に非公開化するため。
+      const recRows = await tx<{
+        draft: Record<string, unknown>;
+        published: Record<string, unknown> | null;
+      }[]>`
+        select draft, published
         from entity_records
         where entity = 'therapist' and slug = ${slug}
         limit 1
       `;
       const rec = recRows[0];
 
+      // 3. entity_records.published を null に（プロフィール非公開）
+      await tx`
+        update entity_records
+        set published = null, published_at = null
+        where entity = 'therapist' and slug = ${slug}
+      `;
+
+      // 4. 関連 media を一括で is_hidden = true に
       if (rec) {
         const fieldRows = await tx<FieldDefRow[]>`
           select key, type
@@ -244,7 +265,12 @@ export async function retireTherapist(slug: string): Promise<ActionResult> {
             and type in ('image', 'image_gallery')
         `;
         const imageFieldKeys = fieldRows.map((f) => f.key);
-        const mediaIds = extractMediaIds(rec.draft, imageFieldKeys);
+        const draftMediaIds = extractMediaIds(rec.draft, imageFieldKeys);
+        const publishedMediaIds = rec.published
+          ? extractMediaIds(rec.published, imageFieldKeys)
+          : [];
+        // draft・published 両側の参照を重複なくまとめる
+        const mediaIds = Array.from(new Set([...draftMediaIds, ...publishedMediaIds]));
 
         if (mediaIds.length > 0) {
           await tx`

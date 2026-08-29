@@ -461,6 +461,15 @@ export async function publishEntityRecord(
   entity: string,
   slug: string,
 ): Promise<ActionResult> {
+  // therapist は掲載同意ゲート付きの専用公開（publishTherapistProfile）のみ許可する。
+  // 汎用公開は同意チェックを行わないため、ここで塞いで公開経路を一本化する（spec 3-7）。
+  if (entity === "therapist") {
+    return {
+      ok: false,
+      error: "セラピストの公開は掲載同意チェックのある専用公開を使ってください",
+    };
+  }
+
   const session = await getDevSession();
   if (!session) return { ok: false, error: "認証が必要です" };
 

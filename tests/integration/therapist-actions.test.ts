@@ -1,6 +1,7 @@
 ﻿import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { publishTherapistProfile, retireTherapist } from "@/domain/cms/therapist-actions";
+import { publishEntityRecord } from "@/lib/cms/actions";
 
 /**
  * セラピスト管理 Server Actions の統合テスト（フェーズ4）。
@@ -134,6 +135,28 @@ afterAll(async () => {
   await sql.end({ timeout: 5 });
 });
 
+describe("publishEntityRecord: therapist は汎用公開を拒否する（Critical Fix 1 / spec 3-7）", () => {
+  it("entity='therapist' は掲載同意ゲート付きの専用公開へ誘導するエラーを返す", async () => {
+    const result = await publishEntityRecord("therapist", TEST_THERAPIST_SLUG_OK);
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe(
+      "セラピストの公開は掲載同意チェックのある専用公開を使ってください",
+    );
+  });
+
+  it("汎用公開が拒否されても entity_records.published は書き換わらない", async () => {
+    // このテストは他の describe より前に走る保証がないため、published の状態ではなく
+    // 「汎用公開経由では published を触らない」ことを、専用公開前の slug で確認する。
+    await publishEntityRecord("therapist", TEST_THERAPIST_SLUG_BLOCKED);
+    const rows = await sql<{ published: unknown }[]>`
+      select published from entity_records
+      where entity = 'therapist' and slug = ${TEST_THERAPIST_SLUG_BLOCKED}
+    `;
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.published).toBeNull();
+  });
+});
+
 describe("publishTherapistProfile: 未同意写真がある場合", () => {
   it("ok:false を返す", async () => {
     const result = await publishTherapistProfile(TEST_THERAPIST_SLUG_BLOCKED);
@@ -215,5 +238,34 @@ describe("retireTherapist", () => {
     `;
     expect(rows.length).toBe(1);
     expect(rows[0]!.is_hidden).toBe(true);
+  });
+});
+
+describe("シードのゲート発火（Critical Fix 2 / spec 3-7・2-2）", () => {
+  // seed.ts は therapist に image_gallery 型の photo フィールドを定義し、
+  // minato の draft.photo に consent_flag=false のメディアを入れる。
+  // これにより publishTherapistProfile の掲載同意ゲートが発火し、公開が拒否される。
+  it("field_definitions に image_gallery 型の photo フィールドが存在する", async () => {
+    const rows = await sql<{ type: string; is_public: boolean }[]>`
+      select type, is_public from field_definitions
+      where entity = 'therapist' and key = 'photo' and deleted_at is null
+    `;
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.type).toBe("image_gallery");
+    expect(rows[0]!.is_public).toBe(true);
+  });
+
+  it("minato（未同意写真）の専用公開はゲートで拒否される", async () => {
+    const result = await publishTherapistProfile("minato");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("掲載同意の無い写真が含まれるため公開できません");
+
+    // published は null のまま（公開されていない）
+    const rows = await sql<{ published: unknown }[]>`
+      select published from entity_records
+      where entity = 'therapist' and slug = 'minato'
+    `;
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.published).toBeNull();
   });
 });

@@ -147,6 +147,9 @@ async function TherapistDetailContent({ slug }: { slug: string }) {
             defs={defs}
             initialDraft={record?.draft ?? {}}
             publishedAt={record?.publishedAt ?? null}
+            // therapist は掲載同意ゲート付きの専用公開ボタン（下部 TherapistPublishButton）のみ許可。
+            // DynamicForm 内の汎用公開ボタンは隠す（spec 3-7 の公開経路一本化）。
+            showPublish={false}
           />
         )}
       </div>

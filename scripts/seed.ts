@@ -67,6 +67,14 @@ const appUsers: {
 const fieldDefinitions = [
   {
     entity: "therapist",
+    key: "photo",
+    label: "写真（複数枚）",
+    type: "image_gallery",
+    sort_order: 5,
+    is_public: true,
+  },
+  {
+    entity: "therapist",
     key: "catch_copy",
     label: "キャッチコピー",
     type: "text",
@@ -298,26 +306,30 @@ const therapistRecordSeeds: {
   {
     slug: "aoi",
     draft: {
+      // photo（image_gallery）: 同意ありのメディアを参照（publishTherapistProfile で公開可能）
+      photo: ["bbbbbbbb-0001-4000-8000-000000000001"],
       catch_copy: "心地よい圧で、あなたの体をほぐします",
       intro: "<p>オイルとリンパを得意とするセラピストです。</p>",
       good_at: ["オイル", "リンパ"],
       years_of_experience: 5,
-      // image フィールド: 同意ありのメディアを参照（publishTherapistProfile で公開可能）
     },
   },
   {
     slug: "minato",
     draft: {
+      // photo（image_gallery）: 同意なしのメディアを参照（publishTherapistProfile がブロックされるデモ用）
+      photo: ["bbbbbbbb-0001-4000-8000-000000000002"],
       catch_copy: "丁寧な施術で、日々の疲れをリセット",
       intro: "<p>指圧とストレッチを中心に、幅広いコースに対応します。</p>",
       good_at: ["指圧", "ストレッチ"],
       years_of_experience: 3,
-      // image フィールド: 同意なしのメディアを参照（publishTherapistProfile がブロックされるデモ用）
     },
   },
   {
     slug: "hinata",
     draft: {
+      // photo（image_gallery）: 同意ありのメディア（退職処理で is_hidden 化されるデモ用）
+      photo: ["bbbbbbbb-0001-4000-8000-000000000003"],
       catch_copy: "足つぼで体の芯から癒します",
       intro: "<p>足つぼを専門とするセラピストです。</p>",
       good_at: ["足つぼ"],
@@ -447,15 +459,16 @@ async function main() {
       `;
     }
 
-    // みなと: consent_flag=false のメディアを draft の image_gallery に追加して
-    //         publishTherapistProfile のゲートデモを示す
-    // (draft のみ更新。image_gallery の field_definitions が存在しない場合は影響なし)
+    // みなと: photo（image_gallery）が consent_flag=false のメディアを参照するため、
+    // publishTherapistProfile の掲載同意ゲートで公開がブロックされる（spec 3-7 / 2-2）。
+    // photo 値は therapistRecordSeeds の draft に image_gallery（string[]）として含める。
+    // 既存 draft に photo が無い場合の後方互換フォールバック（配列で補完）。
     await sql`
       update entity_records
       set draft = jsonb_set(
         draft,
         '{photo}',
-        to_jsonb(${"bbbbbbbb-0001-4000-8000-000000000002"}::text)
+        to_jsonb(array[${"bbbbbbbb-0001-4000-8000-000000000002"}]::text[])
       )
       where entity = 'therapist' and slug = 'minato'
         and not (draft ? 'photo')
