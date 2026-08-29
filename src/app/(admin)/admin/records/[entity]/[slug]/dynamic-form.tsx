@@ -22,6 +22,11 @@ interface Props {
   defs: FieldDefinition[];
   initialDraft: Record<string, unknown>;
   publishedAt: Date | null;
+  /**
+   * 汎用公開ボタン（PublishButton）を表示するか。既定は true。
+   * therapist 詳細画面では掲載同意ゲート付きの専用公開のみ許可するため false を渡す（spec 3-7）。
+   */
+  showPublish?: boolean;
 }
 
 const initialState: ActionResult<{ id: string }> = { ok: false };
@@ -257,6 +262,7 @@ export function DynamicForm({
   defs,
   initialDraft,
   publishedAt,
+  showPublish = true,
 }: Props) {
   const submitAction = makeSubmitAction(entity, slug, defs);
   const [state, formAction, isPending] = useActionState(submitAction, initialState);
@@ -363,7 +369,7 @@ export function DynamicForm({
       </div>
       </form>
       {/* 公開は別 Server Action・別 form。form のネストは不正なので兄弟要素に置く。 */}
-      <PublishButton entity={entity} slug={slug} />
+      {showPublish !== false && <PublishButton entity={entity} slug={slug} />}
     </div>
   );
 }
