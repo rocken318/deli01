@@ -1371,8 +1371,158 @@ async function main() {
       }
     }
 
+    // -----------------------------------------------------------------------
+    // フェーズ12: 不成立ログ・電話注文シード（冪等）
+    // -----------------------------------------------------------------------
+
+    // Phase 12 seed data: customers for auto-fill demo
+    const phase12Customers = [
+      {
+        phone: '09011111111',
+        name: 'デモ 鈴木',
+        note: 'お好み: 指圧強め、腰を重点的に',
+      },
+      {
+        phone: '09022222222',
+        name: 'デモ 佐藤',
+        note: '足つぼが好評でした',
+      },
+      {
+        phone: '09033333333',
+        name: 'デモ 田中',
+        note: null,
+      },
+    ];
+
+    for (const c of phase12Customers) {
+      const crows = await sql<{ id: string }[]>`
+        insert into customers (phone, name, note)
+        values (${c.phone}, ${c.name}, ${c.note})
+        on conflict (phone) do update
+          set name = excluded.name,
+              note = coalesce(excluded.note, customers.note)
+        returning id
+      `;
+      const customerId = crows[0]?.id;
+      if (!customerId) continue;
+
+      // Insert home address for auto-fill（冪等: 既に home 住所があれば追加しない）
+      await sql`
+        insert into addresses (customer_id, kind, detail, area_id)
+        select ${customerId}::uuid, 'home'::address_kind, '東京都渋谷区〇〇 1-2-3', a.id
+        from areas a
+        where a.name = '渋谷区'
+          and not exists (
+            select 1 from addresses ex
+            where ex.customer_id = ${customerId}::uuid and ex.kind = 'home'
+          )
+        limit 1
+      `;
+    }
+
+    // -----------------------------------------------------------------------
+    // フェーズ12: 予約シード（電話確認ゲートのデモ / 冪等）
+    //   - web 予約: phone_confirmed_at = null（未確認 → canGenerateDispatch = false）
+    //   - phone 予約: source='phone' + phone_confirmed_at 設定済み（保存時に自動確認）
+    // 占有区間（depart_at〜free_at）が exclusion 制約 no_therapist_overlap で重複しない
+    // よう、セラピストごとに十分離した時間帯に配置する。冪等性は固定 id で担保。
+    // ren（車で全域・上限なし）を予約先に使う。基準日から3日後の日中に置く。
+    // -----------------------------------------------------------------------
+    const phase12Reservations: {
+      id: string;
+      customerPhone: string;
+      therapistSlug: string;
+      source: "web" | "phone";
+      phoneConfirmed: boolean;
+      /** 基準日からの日数 */
+      dayOffset: number;
+      /** 施術開始（"HH:mm" / Asia/Tokyo） */
+      start: string;
+      courseId: string;
+    }[] = [
+      // web 予約（未確認）: 電話確認待ち = canGenerateDispatch は false
+      { id: "12120000-0000-4000-8000-000000000001", customerPhone: "09011111111", therapistSlug: "ren", source: "web", phoneConfirmed: false, dayOffset: 3, start: "13:00", courseId: "99999999-0000-4000-8000-000000000001" },
+      { id: "12120000-0000-4000-8000-000000000002", customerPhone: "09022222222", therapistSlug: "ren", source: "web", phoneConfirmed: false, dayOffset: 3, start: "16:00", courseId: "99999999-0000-4000-8000-000000000002" },
+      { id: "12120000-0000-4000-8000-000000000003", customerPhone: "09033333333", therapistSlug: "ren", source: "web", phoneConfirmed: false, dayOffset: 3, start: "19:00", courseId: "99999999-0000-4000-8000-000000000001" },
+      // phone 予約（確認済み）: source='phone' + phone_confirmed_at 設定済み
+      { id: "12120000-0000-4000-8000-000000000004", customerPhone: "09011111111", therapistSlug: "ren", source: "phone", phoneConfirmed: true, dayOffset: 4, start: "13:00", courseId: "99999999-0000-4000-8000-000000000001" },
+      { id: "12120000-0000-4000-8000-000000000005", customerPhone: "09022222222", therapistSlug: "ren", source: "phone", phoneConfirmed: true, dayOffset: 4, start: "16:00", courseId: "99999999-0000-4000-8000-000000000002" },
+      { id: "12120000-0000-4000-8000-000000000006", customerPhone: "09033333333", therapistSlug: "ren", source: "phone", phoneConfirmed: true, dayOffset: 4, start: "19:00", courseId: "99999999-0000-4000-8000-000000000001" },
+    ];
+
+    const shibuyaAreaId = areaId.get("渋谷区");
+    if (!shibuyaAreaId) throw new Error("渋谷区のエリアが見つかりません");
+
+    for (const r of phase12Reservations) {
+      const workDate = addDaysISO(seedToday, r.dayOffset);
+      const course = courseSeeds.find((c) => c.id === r.courseId);
+      if (!course) throw new Error(`予約シードのコースが不正: ${r.courseId}`);
+      const { startAt } = shiftInstants(workDate, r.start, r.start);
+      const startMs = startAt.getTime();
+      const serviceEndAt = new Date(startMs + course.duration_min * 60_000);
+      const departAt = new Date(startMs - 25 * 60_000); // 到着バッファ+移動の控え
+      const freeAt = new Date(serviceEndAt.getTime() + 10 * 60_000); // 施術後バッファ
+      const total = course.price + course.nomination_fee_default;
+
+      await sql`
+        insert into reservations (
+          id, therapist_id, customer_id, address_id, area_id, course_id,
+          start_at, end_at, depart_at, free_at,
+          travel_in_min, travel_out_min, buffer_min,
+          status, nomination_fee, transport_fee, total_amount,
+          source, phone_confirmed_at, phone_confirmed_by
+        )
+        select
+          ${r.id}::uuid, t.id, c.id, a.id, ${shibuyaAreaId}::uuid, ${r.courseId}::uuid,
+          ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt},
+          15, 15, 30,
+          'confirmed'::reservation_status, ${course.nomination_fee_default}, 0, ${total},
+          ${r.source}::reservation_source,
+          ${r.phoneConfirmed ? startAt : null},
+          ${r.phoneConfirmed ? "aaaaaaaa-0000-4000-8000-000000000003" : null}::uuid
+        from therapists t
+        join customers c on c.phone = ${r.customerPhone}
+        join addresses a on a.customer_id = c.id and a.kind = 'home'
+        where t.slug = ${r.therapistSlug}
+        limit 1
+        on conflict (id) do nothing
+      `;
+    }
+
+    // Phase 12: lost_orders seed
+    const lostOrderSeeds = [
+      { phone: '09011111111', area: '渋谷区', reason: 'time', note: '20時以降は対応できないとのこと' },
+      { phone: '09044444444', area: '八王子市', reason: 'area', note: 'エリア外のため案内不可' },
+      { phone: null, area: '新宿区', reason: 'nomination', note: '指名セラピストが不在' },
+      { phone: '09055555555', area: null, reason: 'price', note: '料金が高いとのフィードバック' },
+    ] as const;
+
+    for (const lo of lostOrderSeeds) {
+      const loAreaId = lo.area === null ? null : (areaId.get(lo.area) ?? null);
+      // Check if already exists (idempotent by matching fields)
+      const existing = await sql<{ id: string }[]>`
+        select id from lost_orders
+        where reason = ${lo.reason}::lost_order_reason
+          and coalesce(phone, '') = ${lo.phone ?? ''}
+          and note = ${lo.note}
+        limit 1
+      `;
+      if (existing.length === 0) {
+        await sql`
+          insert into lost_orders (phone, area_id, reason, note, created_by)
+          values (
+            ${lo.phone ?? null},
+            ${loAreaId ?? null}::uuid,
+            ${lo.reason}::lost_order_reason,
+            ${lo.note},
+            ${'aaaaaaaa-0000-4000-8000-000000000003'}::uuid
+          )
+        `;
+      }
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）/ phase12_customers ${phase12Customers.length} / phase12_reservations ${phase12Reservations.length} / lost_orders ${lostOrderSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });
