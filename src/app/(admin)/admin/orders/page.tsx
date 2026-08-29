@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   title: '電話受付オーダーエントリー',
 };
 
+// DB を読むためビルド時プリレンダしない（判断ログ #14。Vercel プレビュー env に
+// DATABASE_URL が無くても壊れず、実行時に描画する）
+export const dynamic = 'force-dynamic';
+
 interface TherapistRow {
   id: string;
   slug: string;

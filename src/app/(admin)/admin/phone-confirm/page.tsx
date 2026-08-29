@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   title: '電話確認一覧',
 };
 
+// DB を読むためビルド時プリレンダしない（判断ログ #14）
+export const dynamic = 'force-dynamic';
+
 /**
  * 電話確認画面（Server Component）。
  * Web 予約で phone_confirmed_at が null の予約一覧を表示し、
