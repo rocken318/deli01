@@ -13,11 +13,15 @@ import type {
   BufferSettings,
   PlaceRef,
   TimeModifier,
-  TravelDataSource,
   WalkSettings,
 } from "@/domain/availability";
 import { totalServiceMinutes } from "@/domain/catalog";
 import type { OptionDurationLike } from "@/domain/catalog";
+import {
+  areaPlace,
+  buildTravelDataSource,
+  loadActiveReservations,
+} from "./reservation-data";
 
 /**
  * 公開側の空き枠算出（フェーズ10 / spec 2-3・5-3・5-4）。
@@ -26,13 +30,15 @@ import type { OptionDurationLike } from "@/domain/catalog";
  * 指定エリア・指定コース/オプションの候補枠を返す。個人ページのエリア/コース
  * セレクタが変わるたびに**都度計算**する（キャッシュしない / spec 2-7）。
  *
- * 割り切り（本フェーズ / earliest.ts と同じ）:
- * - 目的地はエリア代表点（areas.center）。個別住所の確定計算はフェーズ11 の注文
- *   フローで住所を受けてから行う。ここは「〇〇区であれば案内可能」の前提つき枠。
+ * 割り切り（earliest.ts と同じ）:
+ * - 目的地はエリア代表点（areas.center）。ホテル指定時（フェーズ11）は hotels の
+ *   所在地とし、extra_minutes を到着バッファに加算する（spec 8-2）。
+ *   個別住所座標での再計算はジオコーディング配線後（docs/booking-holds.md）。
  * - 待機場所→エリアの車移動はマトリクスでなく距離×係数の暫定値（bases はエリアを
  *   持たないため。provisionalCarMinutes 経路）。
- * - 既存予約・仮押さえ（reservations / slot_holds）はフェーズ11 で反映する。
- *   本フェーズは空で回す = シフトと移動時間だけから出る前提つき枠。
+ * - **既存予約・仮押さえ（フェーズ11〜）**: held / confirmed（+進行中）の予約を
+ *   depart_at〜free_at の占有区間として engine に渡す。期限切れホールドは除外
+ *   （loadActiveReservations / spec 5-5）。
  * - L = totalServiceMinutes(コース duration + 選択オプション duration 合計 / spec 3-4・5-3)。
  *
  * ページ側は force-dynamic。ここは server-only の実行時読取に徹する。
@@ -96,6 +102,13 @@ export interface TherapistSlotsResult {
   serviceMinutes: number;
   /** その日の対応エリア（絞り込みチップ用・sort_order 順） */
   areas: PublicArea[];
+  /**
+   * 内訳つきの生スロット（フェーズ11 の仮押さえが depart_at / free_at / 移動・
+   * バッファの控えとして使う。クライアントへはそのまま渡さない）
+   */
+  rawSlots: AvailableSlot[];
+  /** 計算対象セラピストの内部 id（仮押さえの insert に使う。空 = 未解決） */
+  therapistId: string;
 }
 
 interface TherapistRow {
@@ -157,6 +170,8 @@ export async function getTherapistSlots(params: {
   areaId?: string | null;
   courseId?: string | null;
   optionIds?: readonly string[];
+  /** 派遣先がホテルのとき（spec 6章 手順2 / 8-2）。所在エリア・extra_minutes を使う */
+  hotelId?: string | null;
   now?: Date;
 }): Promise<TherapistSlotsResult | null> {
   const now = params.now ?? new Date();
@@ -194,6 +209,14 @@ export async function getTherapistSlots(params: {
   return lastResult;
 }
 
+/** 派遣先ホテルの解決結果（spec 8-2） */
+interface HotelRow {
+  id: string;
+  area_id: string | null;
+  extra_minutes: number;
+  is_blocked: boolean;
+}
+
 /** 単日（dateISO）での候補枠。getTherapistSlots の内部実体。 */
 async function slotsForDate(params: {
   slug: string;
@@ -201,6 +224,7 @@ async function slotsForDate(params: {
   areaId?: string | null;
   courseId?: string | null;
   optionIds?: readonly string[];
+  hotelId?: string | null;
   now: Date;
 }): Promise<TherapistSlotsResult | null> {
   const sql = getClient();
@@ -212,6 +236,23 @@ async function slotsForDate(params: {
   const areaFilter = params.areaId && UUID_RE.test(params.areaId) ? params.areaId : null;
   // 細工された areaId（UUID でない）で全体を概算に倒さない: 明示指定が不正なら null
   if (params.areaId && !areaFilter) return null;
+
+  // 派遣先ホテル（spec 8-2）: is_blocked は予約不可。所在エリアが分かれば
+  // それを目的地エリアとして確定し、extra_minutes を到着バッファに加算する。
+  let hotel: HotelRow | null = null;
+  if (params.hotelId) {
+    if (!UUID_RE.test(params.hotelId)) return null;
+    const hotels = await sql<HotelRow[]>`
+      select id, area_id, extra_minutes, is_blocked
+      from hotels where id = ${params.hotelId}::uuid
+      limit 1
+    `;
+    hotel = hotels[0] ?? null;
+    if (!hotel || hotel.is_blocked) return null;
+  }
+  // ホテルの所在エリアはエリア指定より優先（住所が確定している）。未設定なら
+  // areaFilter / 代表エリアで概算する（仮登録ホテル / spec 8-2）
+  const effectiveAreaFilter = hotel?.area_id ?? areaFilter;
 
   const therapists = await sql<TherapistRow[]>`
     select t.id, t.can_use_car, t.walk_cap_meters
@@ -233,7 +274,7 @@ async function slotsForDate(params: {
   `;
   const shift = shifts[0];
   if (!shift) {
-    return emptyResult(dateISO, areaFilter, []);
+    return emptyResult(dateISO, areaFilter, [], therapist.id);
   }
 
   const areas = await sql<AreaRow[]>`
@@ -244,12 +285,14 @@ async function slotsForDate(params: {
     order by a.sort_order asc, a.name asc
   `;
   if (areas.length === 0) {
-    return emptyResult(dateISO, areaFilter, []);
+    return emptyResult(dateISO, areaFilter, [], therapist.id);
   }
 
-  const requested = areaFilter ? areas.find((a) => a.id === areaFilter) : undefined;
+  const requested = effectiveAreaFilter
+    ? areas.find((a) => a.id === effectiveAreaFilter)
+    : undefined;
   // エリア明示指定が対応エリア外なら「その日その枠は無い」= null（嘘の枠を出さない / spec 2-3）
-  if (areaFilter && !requested) return null;
+  if (effectiveAreaFilter && !requested) return null;
   const destArea = requested ?? areas[0]!;
   const assumed = !requested;
 
@@ -260,7 +303,18 @@ async function slotsForDate(params: {
     therapistId: therapist.id,
   });
 
-  const [walkRows, defaultBufferRows, modifierRows, overrideRows, distanceRows] =
+  // 既存予約・仮押さえ（spec 5-3 手順4・5-5。期限切れホールドは除外済み）
+  const engineReservations = await loadActiveReservations(sql, {
+    therapistId: therapist.id,
+    windowStartAt: shift.start_at,
+    windowEndAt: shift.end_at,
+  });
+
+  const destination: PlaceRef = hotel
+    ? { id: `hotel:${hotel.id}`, areaId: destArea.id }
+    : areaPlace(destArea.id);
+
+  const [walkRows, defaultBufferRows, modifierRows, overrideRows, travel] =
     await Promise.all([
       sql<{ detour_factor: number; speed_m_per_min: number; cap_meters: number }[]>`
         select detour_factor::float8, speed_m_per_min, cap_meters from walk_settings limit 1
@@ -280,15 +334,16 @@ async function slotsForDate(params: {
         from travel_buffers where scope = 'area' and area_id = ${destArea.id}::uuid
         limit 1
       `,
-      sql<{ start_meters: number | null; end_meters: number | null }[]>`
-        select
-          st_distance(bs.location, a.center)::float8 as start_meters,
-          st_distance(be.location, a.center)::float8 as end_meters
-        from areas a
-        left join bases bs on bs.id = ${shift.base_start_id}::uuid
-        left join bases be on be.id = ${shift.base_end_id}::uuid
-        where a.id = ${destArea.id}::uuid
-      `,
+      buildTravelDataSource(sql, {
+        destAreaId: destArea.id,
+        destHotelId: hotel?.id ?? null,
+        destPlaceId: destination.id,
+        baseStartId: shift.base_start_id,
+        baseEndId: shift.base_end_id,
+        reservationAreaIds: engineReservations
+          .map((r) => r.place.areaId)
+          .filter((id): id is string => id !== null),
+      }),
     ]);
 
   const walkSettings: WalkSettings = walkRows[0]
@@ -305,23 +360,6 @@ async function slotsForDate(params: {
     multiplier: m.multiplier,
     additional: m.additional,
   }));
-  const startMeters = distanceRows[0]?.start_meters ?? 0;
-  const endMeters = distanceRows[0]?.end_meters ?? 0;
-
-  const baseStart: PlaceRef = { id: `base:${shift.base_start_id ?? "start"}`, areaId: null };
-  const baseEnd: PlaceRef = { id: `base:${shift.base_end_id ?? "end"}`, areaId: null };
-  const destination: PlaceRef = { id: `area:${destArea.id}`, areaId: destArea.id };
-
-  const distanceMap = new Map<string, number>([
-    [`${baseStart.id}|${destination.id}`, startMeters],
-    [`${baseEnd.id}|${destination.id}`, endMeters],
-  ]);
-  const travel: TravelDataSource = {
-    distanceMeters: (from, to) =>
-      distanceMap.get(`${from.id}|${to.id}`) ?? distanceMap.get(`${to.id}|${from.id}`) ?? null,
-    // bases はエリアを持たないためマトリクスは引かず、距離×係数の暫定値に落とす（概算）
-    carMatrixMinutes: () => null,
-  };
 
   const input: AvailabilityInput = {
     therapist: {
@@ -329,17 +367,21 @@ async function slotsForDate(params: {
       walkCapMeters: therapist.walk_cap_meters ?? walkSettings.capMeters,
     },
     serviceMinutes,
-    destination: { place: destination, kind: "residence" },
+    destination: {
+      place: destination,
+      kind: hotel ? "hotel" : "residence",
+      hotelExtraMinutes: hotel?.extra_minutes ?? null,
+    },
     shift: {
       startAt: shift.start_at,
       endAt: shift.end_at,
-      baseStart,
-      baseEnd,
+      baseStart: { id: `base:${shift.base_start_id ?? "start"}`, areaId: null },
+      baseEnd: { id: `base:${shift.base_end_id ?? "end"}`, areaId: null },
       areaIds: areas.map((a) => a.id),
       maxBookings: shift.max_bookings,
     },
-    // 既存予約・仮押さえの反映はフェーズ11（reservations / slot_holds 導入後）
-    reservations: [],
+    // 場所つきで reservations に渡す（engine の R-3 契約。holds には流さない）
+    reservations: engineReservations,
     now,
     walkSettings,
     timeModifiers,
@@ -357,6 +399,8 @@ async function slotsForDate(params: {
     dateISO,
     serviceMinutes,
     areas: areas.map((a) => ({ id: a.id, name: a.name })),
+    rawSlots: slots,
+    therapistId: therapist.id,
   };
 }
 
@@ -365,6 +409,7 @@ function emptyResult(
   dateISO: string,
   areaFilter: string | null,
   areas: PublicArea[],
+  therapistId = "",
 ): TherapistSlotsResult {
   return {
     slots: [],
@@ -374,6 +419,8 @@ function emptyResult(
     dateISO,
     serviceMinutes: 0,
     areas,
+    rawSlots: [],
+    therapistId,
   };
 }
 
