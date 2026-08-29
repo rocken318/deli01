@@ -101,6 +101,24 @@ const fieldDefinitions = [
   },
 ] as const;
 
+/** 動作確認用 entity_records サンプル（フェーズ2 / 冪等） */
+const entityRecordSamples: {
+  entity: string;
+  slug: string;
+  draft: Record<string, unknown>;
+}[] = [
+  {
+    entity: "therapist",
+    slug: "demo-therapist-01",
+    draft: {
+      catch_copy: "あなたの体のプロフェッショナル",
+      intro: "<p>経験豊富なセラピストです。</p>",
+      good_at: ["オイル", "リンパ"],
+      years_of_experience: 5,
+    },
+  },
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -144,8 +162,16 @@ async function main() {
       `;
     }
 
+    for (const r of entityRecordSamples) {
+      await sql`
+        insert into entity_records (entity, slug, draft)
+        values (${r.entity}, ${r.slug}, ${JSON.stringify(r.draft)}::jsonb)
+        on conflict (entity, slug) do nothing
+      `;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });
