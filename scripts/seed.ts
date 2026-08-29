@@ -119,6 +119,72 @@ const entityRecordSamples: {
   },
 ];
 
+const pageSeeds = [
+  {
+    slug: "home",
+    locale: "ja",
+    draft_fields: {
+      heading: "あなたに合った、癒しの時間を",
+      lead: "出張リラクゼーションで、ご自宅やホテルにお伺いします。",
+      heroImageId: null,
+      seoTitle: "出張リラクゼーション | トップページ",
+      seoDescription: "ご自宅やホテルに出張するリラクゼーションサービスです。",
+    },
+    draft_blocks: [
+      {
+        id: "home-hero-1",
+        type: "hero",
+        visible: true,
+        heading: "あなたに合った、癒しの時間を",
+        subheading: "出張リラクゼーションで、ご自宅やホテルにお伺いします。",
+        imageId: null,
+        ctaLabel: "空き枠を確認する",
+        ctaHref: "/booking",
+      },
+      {
+        id: "home-cta-1",
+        type: "cta",
+        visible: true,
+        label: "今すぐ予約する",
+        href: "/booking",
+        subtext: "最短90分でお伺いします",
+      },
+    ],
+  },
+];
+
+const mediaSeeds = [
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000001",
+    storage_path: "",
+    url: "",
+    alt: "ヒーロー画像プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "hero"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    storage_path: "",
+    url: "",
+    alt: "コース案内画像プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "course"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000003",
+    storage_path: "",
+    url: "",
+    alt: "セラピストシルエットプレースホルダー（実在人物写真は使用不可 / spec 3-7）",
+    tags: ["placeholder", "therapist"],
+    is_placeholder: true,
+  },
+];
+
+const bannedWordSeeds = [
+  "治る", "治ります", "治療", "診断", "医療",
+  "効果があります", "改善します", "国家資格", "あん摩", "マッサージ師",
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -170,8 +236,28 @@ async function main() {
       `;
     }
 
+    for (const p of pageSeeds) {
+      await sql`
+        insert into pages (slug, locale, draft_fields, draft_blocks)
+        values (${p.slug}, ${p.locale}, ${JSON.stringify(p.draft_fields)}::jsonb, ${JSON.stringify(p.draft_blocks)}::jsonb)
+        on conflict (slug, locale) do update set draft_fields = excluded.draft_fields, draft_blocks = excluded.draft_blocks
+      `;
+    }
+
+    for (const m of mediaSeeds) {
+      await sql`
+        insert into media (id, storage_path, url, alt, tags, is_placeholder)
+        values (${m.id}::uuid, ${m.storage_path}, ${m.url}, ${m.alt}, ${m.tags}::text[], ${m.is_placeholder})
+        on conflict (id) do update set alt = excluded.alt, tags = excluded.tags, is_placeholder = excluded.is_placeholder
+      `;
+    }
+
+    for (const word of bannedWordSeeds) {
+      await sql`insert into banned_words (word) values (${word}) on conflict (word) do nothing`;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });
