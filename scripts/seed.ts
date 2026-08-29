@@ -29,6 +29,40 @@ const siteSettings: { key: string; value: unknown }[] = [
   { key: "footer_note", value: "" },
 ];
 
+/**
+ * 各ロールのテストアカウント（spec 17章「各役割のテストアカウント」）。
+ * すべてダミー。auth_user_id は Supabase Auth の live 配線時に owner/admin が
+ * 管理画面から紐付ける（それまで null = ログイン不可の器だけ）。
+ * id を固定 UUID にして冪等に upsert する。therapist の therapist_id は
+ * therapists テーブルが入るフェーズ4で紐付ける。
+ */
+const appUsers: {
+  id: string;
+  role: "owner" | "admin" | "reception" | "therapist";
+  display_name: string;
+}[] = [
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000001",
+    role: "owner",
+    display_name: "（ダミー）オーナー",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000002",
+    role: "admin",
+    display_name: "（ダミー）管理者",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000003",
+    role: "reception",
+    display_name: "（ダミー）受付",
+  },
+  {
+    id: "aaaaaaaa-0000-4000-8000-000000000004",
+    role: "therapist",
+    display_name: "（ダミー）セラピスト",
+  },
+];
+
 /** CMS 項目定義の初期セット（spec 2-2 の初期項目。以降 CMS から追加可能） */
 const fieldDefinitions = [
   {
@@ -99,8 +133,19 @@ async function main() {
       `;
     }
 
+    for (const u of appUsers) {
+      await sql`
+        insert into app_users (id, role, display_name, is_active)
+        values (${u.id}, ${u.role}::app_role, ${u.display_name}, true)
+        on conflict (id) do update
+          set role = excluded.role,
+              display_name = excluded.display_name,
+              is_active = true
+      `;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });

@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   integer,
   jsonb,
@@ -99,3 +100,52 @@ export const fieldDefinitions = pgTable(
     ),
   }),
 );
+
+/** アプリのロール（spec 体制 / 15章）。ドメイン側の Role 型と同一の並び */
+export const appRole = pgEnum("app_role", [
+  "owner",
+  "admin",
+  "reception",
+  "therapist",
+]);
+
+/**
+ * アプリ内ユーザー（フェーズ1 / 0001_auth.sql）。
+ * Supabase auth.users とは auth_user_id で紐付け（live 配線までは null）。
+ * therapist ロールのみ therapist_id を持てる（CHECK は SQL 側で定義）。
+ */
+export const appUsers = pgTable("app_users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  authUserId: uuid("auth_user_id").unique(),
+  role: appRole("role").notNull(),
+  therapistId: uuid("therapist_id"),
+  displayName: text("display_name").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * 監査ログ（追記専用 / フェーズ1）。update/delete は RLS＋grant で不可。
+ * 住所閲覧（spec 13-3）は action='view' / entity='address'、CSV 出力は
+ * action='export'、枠外予約（spec 7-2）は action='override' + after.reason。
+ */
+export const auditLogs = pgTable("audit_logs", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  actorUserId: uuid("actor_user_id").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+  action: text("action").notNull(),
+  entity: text("entity").notNull(),
+  entityId: uuid("entity_id"),
+  before: jsonb("before"),
+  after: jsonb("after"),
+  ip: text("ip"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
