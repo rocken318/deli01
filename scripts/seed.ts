@@ -80,9 +80,27 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       filter_good_at_heading: "得意な施術で絞り込む",
       filter_all: "すべて",
       therapist_detail_cta: "プロフィールを見る",
-      // 署名要素（{time} を空き枠エンジンの値で差し替え。フェーズ9まで pending）
+      // 署名要素（{time} を空き枠エンジンの値で差し替え。枠が無い間は pending）
       earliest_slot_template: "最短 {time} から案内可能",
       earliest_slot_pending: "調整中",
+      // 空き枠パネル（フェーズ10 / spec 2-3・5-4）
+      slots_area_heading: "エリアで絞り込む",
+      slots_area_all: "おまかせ（代表エリア）",
+      slots_course_heading: "コースを選ぶ",
+      slots_option_heading: "オプションを選ぶ",
+      slots_heading: "案内できる時間",
+      slots_condition_template: "{area}であれば案内可能",
+      slots_assumed_note: "（代表エリアでの概算です）",
+      slots_empty_title: "この条件でご案内できる時間がありません",
+      slots_empty_body: "エリアや日付、コースを変えてお試しください。",
+      slots_loading: "計算中…",
+      slots_error: "時間の取得に失敗しました。時間をおいてお試しください。",
+      slots_select_aria: "この時間で予約に進む",
+      // 枠の日付表示（当日以外のとき。{date} を M/d(曜) で差し替え）
+      slots_date_note: "{date} の空き枠",
+      slots_date_today: "本日の空き枠",
+      // 最短案内の日付付きテンプレート（当日以外のとき。{date}{time} を差し替え）
+      earliest_slot_template_future: "最短 {date} {time} から案内可能",
       // 空状態
       empty_therapists_title: "該当するセラピストがいません",
       empty_therapists_body: "絞り込み条件を変えてお試しください。",

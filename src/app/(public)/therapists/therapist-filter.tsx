@@ -7,18 +7,24 @@ import { EmptyState } from "../_components/empty-state";
 
 /**
  * 一覧の絞り込み UI（spec 2-4）。得意な施術タグで絞る（is_filterable な
- * field_definition 由来の choices）。データが揃う範囲で提供し、エリア/日時は
- * フェーズ6-8 実装後に拡張する枠を用意する。
+ * field_definition 由来の choices）。エリア絞り込みはサーバ側（page.tsx が
+ * URL ?area= で最短案内時刻を再計算）で済ませ、ここには絞り込み後のカードが届く。
  *
- * 文言はすべて props（content レイヤ由来）。日本語リテラルを持たない。
- * クライアント側での絞り込みは published カードデータのみを対象にする。
+ * 各カードは最短案内時刻（earliestTime）と前提注記（conditionNote）を持ち、
+ * 署名要素をカード内に出す。文言はすべて props（content レイヤ由来。日本語リテラル無し）。
  */
+export interface FilterCard {
+  card: TherapistCardView;
+  earliestTime: string | null;
+  conditionNote: string;
+}
+
 export function TherapistFilter({
   cards,
   tagChoices,
   labels,
 }: {
-  cards: TherapistCardView[];
+  cards: FilterCard[];
   tagChoices: string[];
   labels: {
     filterHeading: string;
@@ -40,7 +46,7 @@ export function TherapistFilter({
 
   const filtered = useMemo(() => {
     if (activeTags.length === 0) return cards;
-    return cards.filter((c) => activeTags.every((t) => c.goodAtTags.includes(t)));
+    return cards.filter((c) => activeTags.every((t) => c.card.goodAtTags.includes(t)));
   }, [cards, activeTags]);
 
   return (
@@ -89,13 +95,15 @@ export function TherapistFilter({
         <EmptyState title={labels.emptyTitle} body={labels.emptyBody} />
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {filtered.map((card) => (
-            <li key={card.slug}>
+          {filtered.map((c) => (
+            <li key={c.card.slug}>
               <TherapistCard
-                card={card}
+                card={c.card}
                 detailLabel={labels.detailCta}
                 earliestTemplate={labels.earliestTemplate}
                 earliestPending={labels.earliestPending}
+                earliestTime={c.earliestTime}
+                conditionNote={c.conditionNote}
               />
             </li>
           ))}

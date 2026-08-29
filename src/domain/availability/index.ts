@@ -47,6 +47,7 @@ export {
   APP_TIME_ZONE,
   addDaysISO,
   formatShiftTimeRange,
+  isRealDateISO,
   localDateISO,
   parseDateISO,
   remainingSlots,
