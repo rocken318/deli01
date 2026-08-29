@@ -101,6 +101,35 @@ export const fieldDefinitions = pgTable(
   }),
 );
 
+/**
+ * 汎用 entity レコード（フェーズ2 / spec 3-1）。
+ * フィールド定義テーブル + JSONB 方式の保存先。
+ * draft が編集中、published が公開中（null なら未公開）。
+ */
+export const entityRecords = pgTable(
+  "entity_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entity: text("entity").notNull(),
+    slug: text("slug").notNull(),
+    draft: jsonb("draft").notNull().default({}),
+    published: jsonb("published"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    entitySlugUnique: unique("entity_records_entity_slug_unique").on(
+      t.entity,
+      t.slug,
+    ),
+  }),
+);
+
 /** アプリのロール（spec 体制 / 15章）。ドメイン側の Role 型と同一の並び */
 export const appRole = pgEnum("app_role", [
   "owner",
