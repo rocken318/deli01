@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getSiteContext, getPublicTherapistFields, label } from "@/lib/public/content";
 import { getPublicTherapist } from "@/lib/public/queries";
 import { buildTherapistView } from "@/lib/public/therapist-view";
+import { earliestSlotForTherapist } from "@/lib/availability/earliest";
 import { PublicImage } from "../../_components/public-image";
 import { EarliestSlot } from "../../_components/earliest-slot";
 import { FieldValue } from "./field-value";
@@ -46,10 +47,12 @@ export default async function TherapistDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [ctx, therapist, fields] = await Promise.all([
+  const [ctx, therapist, fields, earliest] = await Promise.all([
     getSiteContext(),
     getPublicTherapist(slug),
     getPublicTherapistFields(),
+    // 最短案内時間（spec 5-4 / フェーズ9）。失敗しても公開ページは落とさない
+    earliestSlotForTherapist(slug).catch(() => null),
   ]);
 
   if (!therapist) notFound();
@@ -148,7 +151,14 @@ export default async function TherapistDetailPage({
           </ul>
         )}
         <div className="rounded border border-pub-border bg-pub-surface p-4">
-          <EarliestSlot template={earliestTemplate} placeholder={earliestPending} time={null} size="lg" />
+          {/* time は空き枠エンジンの最短案内（spec 5-4）。枠なしは placeholder のまま。
+              「〇〇区の場合」の条件表示（earliest.assumed / areaName）はフェーズ10 */}
+          <EarliestSlot
+            template={earliestTemplate}
+            placeholder={earliestPending}
+            time={earliest?.time ?? null}
+            size="lg"
+          />
         </div>
       </header>
 
