@@ -30,6 +30,76 @@ const siteSettings: { key: string; value: unknown }[] = [
 ];
 
 /**
+ * 公開側の UI 文言・ナビ・法令表記（spec 3-6 / 13-1 / 13-3）。
+ * 公開テンプレートは日本語を直書きしないため、ボタン/見出し/空状態などの文言は
+ * すべて site_settings.ui_labels / nav_items / terminology から解決する。
+ * ここはあくまで初期投入で、CMS から変更できることをもって完成とする（spec 18章）。
+ *
+ * 既存キー（brand_name / reception_phone / reception_hours / footer_note）は
+ * フェーズ0の初期値を尊重して上書きしない（do nothing のまま）。公開ページは
+ * それらが空でも構造が崩れないよう条件描画にしてある。ここでは公開に必要な
+ * 新規キー（nav_items / social_links / ui_labels / legal_note）のみを投入する。
+ */
+const publicSiteSettings: { key: string; value: unknown }[] = [
+  {
+    key: "legal_note",
+    value: "特定商取引法に基づく表記・キャンセルポリシーは各ページをご確認ください。",
+  },
+  {
+    key: "nav_items",
+    value: [
+      { href: "/therapists", label: "セラピスト" },
+      { href: "/schedule", label: "出勤表" },
+      { href: "/courses", label: "コース" },
+      { href: "/areas", label: "エリア" },
+      { href: "/guide", label: "ご利用ガイド" },
+      { href: "/faq", label: "よくある質問" },
+    ],
+  },
+  {
+    key: "social_links",
+    value: [] as { href: string; label: string }[],
+  },
+  {
+    key: "ui_labels",
+    value: {
+      // レイアウト・ナビ
+      nav_aria: "サイトナビゲーション",
+      footer_nav_aria: "フッターナビゲーション",
+      booking_cta: "空き枠を確認して予約する",
+      booking_href: "/booking",
+      // トップ
+      therapists_section_title: "いま案内できるセラピスト",
+      view_all_therapists: "セラピストをすべて見る",
+      empty_home_title: "準備中です",
+      empty_home_body: "公開ページの内容は管理画面から設定します。",
+      // 一覧
+      therapists_page_title: "セラピスト",
+      therapists_page_lead: "得意な施術から選べます。",
+      filter_good_at_heading: "得意な施術で絞り込む",
+      filter_all: "すべて",
+      therapist_detail_cta: "プロフィールを見る",
+      // 署名要素（{time} を空き枠エンジンの値で差し替え。フェーズ9まで pending）
+      earliest_slot_template: "最短 {time} から案内可能",
+      earliest_slot_pending: "調整中",
+      // 空状態
+      empty_therapists_title: "該当するセラピストがいません",
+      empty_therapists_body: "絞り込み条件を変えてお試しください。",
+      empty_page_title: "準備中です",
+      empty_page_body: "この内容は管理画面から公開できます。",
+      back_home: "トップへ戻る",
+      // スタブ（フェーズ8/11）
+      schedule_page_title: "出勤表",
+      schedule_pending_title: "出勤表は準備中です",
+      schedule_pending_body: "日別の派遣可能一覧は近日公開します。",
+      booking_page_title: "予約",
+      booking_pending_title: "オンライン予約は準備中です",
+      booking_pending_body: "お電話でのご予約を承っています。",
+    },
+  },
+];
+
+/**
  * 各ロールのテストアカウント（spec 17章「各役割のテストアカウント」）。
  * すべてダミー。auth_user_id は Supabase Auth の live 配線時に owner/admin が
  * 管理画面から紐付ける（それまで null = ログイン不可の器だけ）。
@@ -65,6 +135,14 @@ const appUsers: {
 
 /** CMS 項目定義の初期セット（spec 2-2 の初期項目。以降 CMS から追加可能） */
 const fieldDefinitions = [
+  {
+    entity: "therapist",
+    key: "name",
+    label: "氏名・芸名",
+    type: "text",
+    sort_order: 2,
+    is_public: true,
+  },
   {
     entity: "therapist",
     key: "photo",
@@ -264,7 +342,8 @@ const therapistMediaSeeds = [
     tags: ["placeholder", "therapist", "aoi"],
     consent_flag: true,
     consent_date: "2026-01-01",
-    face_visibility: "none",
+    // 目線入り（spec 3-7）の表示デモ。公開ページで .eye-overlay の帯が乗る。
+    face_visibility: "eyes",
     is_placeholder: true,
   },
   // みなと: 同意なし（publishTherapistProfile のゲートデモ用）
@@ -308,6 +387,7 @@ const therapistRecordSeeds: {
     draft: {
       // photo（image_gallery）: 同意ありのメディアを参照（publishTherapistProfile で公開可能）
       photo: ["bbbbbbbb-0001-4000-8000-000000000001"],
+      name: "あおい",
       catch_copy: "心地よい圧で、あなたの体をほぐします",
       intro: "<p>オイルとリンパを得意とするセラピストです。</p>",
       good_at: ["オイル", "リンパ"],
@@ -319,6 +399,7 @@ const therapistRecordSeeds: {
     draft: {
       // photo（image_gallery）: 同意なしのメディアを参照（publishTherapistProfile がブロックされるデモ用）
       photo: ["bbbbbbbb-0001-4000-8000-000000000002"],
+      name: "みなと",
       catch_copy: "丁寧な施術で、日々の疲れをリセット",
       intro: "<p>指圧とストレッチを中心に、幅広いコースに対応します。</p>",
       good_at: ["指圧", "ストレッチ"],
@@ -330,6 +411,7 @@ const therapistRecordSeeds: {
     draft: {
       // photo（image_gallery）: 同意ありのメディア（退職処理で is_hidden 化されるデモ用）
       photo: ["bbbbbbbb-0001-4000-8000-000000000003"],
+      name: "ひなた",
       catch_copy: "足つぼで体の芯から癒します",
       intro: "<p>足つぼを専門とするセラピストです。</p>",
       good_at: ["足つぼ"],
@@ -354,6 +436,15 @@ async function main() {
         insert into site_settings (key, value)
         values (${s.key}, ${sql.json(s.value as postgres.JSONValue)})
         on conflict (key) do nothing
+      `;
+    }
+
+    // 公開側の初期文言・ナビ・法令表記（do update で公開ページが空にならない初期値を投入）
+    for (const s of publicSiteSettings) {
+      await sql`
+        insert into site_settings (key, value)
+        values (${s.key}, ${sql.json(s.value as postgres.JSONValue)})
+        on conflict (key) do update set value = excluded.value, updated_at = now()
       `;
     }
 
@@ -472,6 +563,36 @@ async function main() {
       )
       where entity = 'therapist' and slug = 'minato'
         and not (draft ? 'photo')
+    `;
+
+    // -----------------------------------------------------------------------
+    // フェーズ5: 公開に必要な published データ（冪等）
+    // -----------------------------------------------------------------------
+
+    // 同意済みセラピスト（aoi/hinata）を published に（掲載同意ゲートを通した想定）。
+    // publishTherapistProfile と同じく draft → published へコピーする。
+    // minato は未同意（写真 consent_flag=false）なので published は null のまま
+    //   ＝ listPublicTherapists / getPublicTherapist に出ない（spec 2-2 / 3-7）。
+    // hinata は published にするが therapists.status='retired' のため一覧・個人ページには
+    //   出ない（退職除外のデモ。listPublicTherapists は status='active' で絞る）。
+    for (const slug of ["aoi", "hinata"]) {
+      await sql`
+        update entity_records
+        set published = draft, published_at = now()
+        where entity = 'therapist' and slug = ${slug}
+          and published is null
+      `;
+    }
+
+    // トップの pages(home) を published に（draft → published コピー）。
+    // 公開ページ / の pages(home) ブロックを描画するため。
+    await sql`
+      update pages
+      set published_fields = draft_fields,
+          published_blocks = draft_blocks,
+          published_at = now()
+      where slug = 'home' and locale = 'ja'
+        and published_at is null
     `;
 
     console.log(

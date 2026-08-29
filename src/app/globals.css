@@ -13,6 +13,35 @@ body {
   font-family: theme("fontFamily.body");
 }
 
+/*
+ * next/font（公開レイアウト）が注入する CSS 変数を、tokens 由来のフォント名の
+ * 前段に差し込む。変数未設定（管理側など）でも tokens のフォールバックが効く。
+ */
+.font-heading {
+  font-family: var(--font-heading), theme("fontFamily.heading");
+}
+.font-body {
+  font-family: var(--font-body), theme("fontFamily.body");
+}
+.font-mono {
+  font-family: var(--font-mono), theme("fontFamily.mono");
+}
+
+/*
+ * 顔出し可否「目線入り（eyes）」の表示（spec 3-7）。
+ * 写真の目元付近に不透明の帯を重ねて目線を隠す。face_visibility='eyes' のときだけ付与。
+ * 親要素は position:relative（.relative）前提。
+ */
+.eye-overlay::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 30%;
+  height: 12%;
+  background-color: theme("colors.pub.bg");
+}
+
 /* prefers-reduced-motion を尊重（spec 12-2） */
 @media (prefers-reduced-motion: reduce) {
   *,
