@@ -27,7 +27,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const [ctx, therapist] = await Promise.all([getSiteContext(), getPublicTherapist(slug)]);
-  if (!therapist) return {};
+  // 非公開/未同意/退職セラピストは notFound() で not-found ページを描画する（プロフィールは
+  // 出さない）。Next 15.5 のストリーミング配下では notFound() が HTTP 200 を返すことがあるため、
+  // 検索エンジンに not-found ページを index させないよう noindex を明示する（判断ログ #13）。
+  if (!therapist) return { robots: { index: false, follow: false } };
   const catchRaw = therapist.published["catch_copy"];
   const title = typeof catchRaw === "string" && catchRaw ? catchRaw : slug;
   return {
@@ -53,13 +56,14 @@ export default async function TherapistDetailPage({
 
   const view = await buildTherapistView(therapist, fields);
 
-  // 構造化データ（Person / spec 12-1）
+  // JSON-LD (Person / spec 12-1)
+  const visiblePhotos = view.photos.filter((p) => p.faceVisibility !== "none");
   const personLd: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Person",
-    name: view.catchCopy || slug,
+    name: view.name || view.catchCopy || slug,
     url: `/therapists/${slug}`,
-    ...(view.photos.length > 0 ? { image: view.photos.map((p) => p.url) } : {}),
+    ...(visiblePhotos.length > 0 ? { image: visiblePhotos.map((p) => p.url) } : {}),
     ...(ctx.brandName
       ? { worksFor: { "@type": "Organization", name: ctx.brandName } }
       : {}),
@@ -74,28 +78,31 @@ export default async function TherapistDetailPage({
     <article className="mx-auto max-w-2xl px-5 py-8">
       <script
         type="application/ld+json"
-        // 構造化データは JSON。信頼できるサーバ生成の値のみ。
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(personLd) }}
+        // JSON-LD: escape < to prevent script injection via closing tags.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(personLd).replace(/</g, "\\u003c") }}
       />
 
-      {/* 写真 */}
-      {view.photos.length > 0 && (
+      {/* photos: face_visibility — none=skip, eyes=overlay, face=normal */}
+      {visiblePhotos.length > 0 && (
         <div className="mb-6 space-y-3">
-          <div className="overflow-hidden rounded border border-pub-border bg-pub-surface">
+          <div className="relative overflow-hidden rounded border border-pub-border bg-pub-surface">
             <PublicImage
-              src={view.photos[0]!.url}
-              alt={view.photos[0]!.alt}
-              width={view.photos[0]!.width ?? 800}
-              height={view.photos[0]!.height ?? 800}
+              src={visiblePhotos[0]!.url}
+              alt={visiblePhotos[0]!.alt}
+              width={visiblePhotos[0]!.width ?? 800}
+              height={visiblePhotos[0]!.height ?? 800}
               className="aspect-[4/5] w-full object-cover"
               priority
               sizes="(max-width: 768px) 100vw, 672px"
             />
+            {visiblePhotos[0]!.faceVisibility === "eyes" && (
+              <div className="eye-overlay pointer-events-none absolute inset-0" aria-hidden="true" />
+            )}
           </div>
-          {view.photos.length > 1 && (
+          {visiblePhotos.length > 1 && (
             <ul className="grid grid-cols-3 gap-2">
-              {view.photos.slice(1).map((p) => (
-                <li key={p.id} className="overflow-hidden rounded border border-pub-border">
+              {visiblePhotos.slice(1).map((p) => (
+                <li key={p.id} className="relative overflow-hidden rounded border border-pub-border">
                   <PublicImage
                     src={p.url}
                     alt={p.alt}
@@ -104,6 +111,9 @@ export default async function TherapistDetailPage({
                     className="aspect-square w-full object-cover"
                     sizes="(max-width: 768px) 33vw, 220px"
                   />
+                  {p.faceVisibility === "eyes" && (
+                    <div className="eye-overlay pointer-events-none absolute inset-0" aria-hidden="true" />
+                  )}
                 </li>
               ))}
             </ul>

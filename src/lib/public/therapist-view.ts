@@ -36,6 +36,8 @@ export interface TherapistView {
   slug: string;
   /** 写真（公開可能なもののみ・順序保持） */
   photos: PublicMedia[];
+  /** 氏名・芸名（name フィールドがあれば / JSON-LD Person.name 用） */
+  name: string;
   /** キャッチコピー（catch_copy フィールドがあれば） */
   catchCopy: string;
   /** 得意な施術タグ（good_at 等 filterable な multi_select/tag の統合） */
@@ -124,6 +126,7 @@ export async function buildTherapistView(
 
   // 汎用フィールド（画像以外）を is_public 順に整形
   const fields: DisplayField[] = [];
+  let name = "";
   let catchCopy = "";
   const goodAtTags: string[] = [];
   for (const def of publicFields) {
@@ -131,6 +134,10 @@ export async function buildTherapistView(
     const value = toDisplayValue(def, published[def.key]);
     if (!value) continue;
 
+    if (def.key === "name" && value.kind === "text") {
+      name = value.text;
+      continue; // name is used for JSON-LD, not rendered as a display field
+    }
     if (def.key === "catch_copy" && value.kind === "text") {
       catchCopy = value.text;
       continue; // キャッチコピーは専用位置で出すのでフィールド列からは除く
@@ -150,6 +157,7 @@ export async function buildTherapistView(
   return {
     slug: therapist.slug,
     photos,
+    name,
     catchCopy,
     goodAtTags: Array.from(new Set(goodAtTags)),
     fields,

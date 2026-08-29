@@ -137,6 +137,14 @@ const appUsers: {
 const fieldDefinitions = [
   {
     entity: "therapist",
+    key: "name",
+    label: "氏名・芸名",
+    type: "text",
+    sort_order: 2,
+    is_public: false,
+  },
+  {
+    entity: "therapist",
     key: "photo",
     label: "写真（複数枚）",
     type: "image_gallery",

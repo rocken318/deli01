@@ -10,13 +10,8 @@ export function FieldValue({ value }: { value: DisplayValue }) {
     case "text":
       return <p className="whitespace-pre-wrap leading-relaxed">{value.text}</p>;
     case "html":
-      // rich_text は CMS 側で作成された HTML。公開は published のみ。
-      return (
-        <div
-          className="prose-invert leading-relaxed [&_a]:text-pub-primary [&_a]:underline"
-          dangerouslySetInnerHTML={{ __html: value.html }}
-        />
-      );
+      // rich_text: strip tags to prevent XSS on the public side.
+      return <p className="whitespace-pre-wrap leading-relaxed">{value.html.replace(/<[^>]*>/g, "")}</p>;
     case "number":
       return <span className="font-mono text-pub-text">{value.num.toLocaleString("en-US")}</span>;
     case "money":

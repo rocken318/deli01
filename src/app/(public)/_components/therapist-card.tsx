@@ -4,9 +4,10 @@ import { PublicImage } from "./public-image";
 import { EarliestSlot } from "./earliest-slot";
 
 /**
- * セラピストカード（spec 2-3 / 12-1）。写真・キャッチ・得意な施術タグ。
- * 署名要素「最短 HH:MM から案内可能」の枠を各カードに置く（値は Phase9 まで placeholder）。
- * 文言はすべて props（content レイヤ由来）。日本語リテラルを持たない。
+ * Therapist card (spec 2-3 / 12-1). Photo, catch copy, specialty tags.
+ * Signature element "earliest slot" placeholder per card (value from Phase 9).
+ * All copy comes from props (content layer). No Japanese literals.
+ * face_visibility: face=normal, eyes=eye-overlay, none=silhouette (no person image).
  */
 export function TherapistCard({
   card,
@@ -19,6 +20,10 @@ export function TherapistCard({
   earliestTemplate: string;
   earliestPending: string;
 }) {
+  const photo = card.photo;
+  const showPhoto = photo !== null && photo.faceVisibility !== "none";
+  const eyesOverlay = photo !== null && photo.faceVisibility === "eyes";
+
   return (
     <Link
       href={`/therapists/${card.slug}`}
@@ -26,15 +31,40 @@ export function TherapistCard({
       aria-label={card.catchCopy || card.slug}
     >
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-pub-bg">
-        {card.photo && (
-          <PublicImage
-            src={card.photo.url}
-            alt={card.photo.alt}
-            width={card.photo.width ?? 800}
-            height={card.photo.height ?? 800}
-            className="h-full w-full object-cover"
-            sizes="(max-width: 640px) 100vw, 320px"
-          />
+        {showPhoto ? (
+          <>
+            <PublicImage
+              src={photo.url}
+              alt={photo.alt}
+              width={photo.width ?? 800}
+              height={photo.height ?? 800}
+              className="h-full w-full object-cover"
+              sizes="(max-width: 640px) 100vw, 320px"
+            />
+            {eyesOverlay && (
+              <div
+                className="eye-overlay pointer-events-none absolute inset-0"
+                aria-hidden="true"
+              />
+            )}
+          </>
+        ) : (
+          <div
+            className="flex h-full w-full items-center justify-center"
+            aria-hidden="true"
+            role="img"
+            aria-label="silhouette"
+          >
+            <svg
+              viewBox="0 0 100 120"
+              className="h-1/2 w-1/2 text-pub-border"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <circle cx="50" cy="35" r="20" />
+              <ellipse cx="50" cy="95" rx="35" ry="28" />
+            </svg>
+          </div>
         )}
       </div>
       <div className="space-y-2 p-4">
