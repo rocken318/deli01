@@ -6,8 +6,11 @@ import {
   searchHotels,
   createLostOrder,
   createPhoneOrder,
+  getAvailableTherapists,
+  registerProvisionalHotel,
 } from './actions';
-import type { OrderFormData } from './actions';
+import type { OrderFormData, AvailableTherapistOption } from './actions';
+import type { PublicSlotView } from '@/lib/availability/public-slots';
 
 interface Therapist {
   id: string;
@@ -62,12 +65,24 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
   const [hotelQuery, setHotelQuery] = useState('');
   const [hotelId, setHotelId] = useState('');
   const [hotelSuggestions, setHotelSuggestions] = useState<{ id: string; name: string }[]>([]);
+  const [hotelNotFound, setHotelNotFound] = useState(false);
   const [roomNumber, setRoomNumber] = useState('');
-  const [therapistId, setTherapistId] = useState('');
   const [courseId, setCourseId] = useState(courses[0]?.id ?? '');
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
-  const [startAtISO, setStartAtISO] = useState('');
   const [preferences, setPreferences] = useState('');
+
+  // セラピスト選択（候補セレクタ）
+  // 'any' = 誰でもいい（候補を検索）, '' = 未選択, それ以外 = therapist.id
+  const [therapistSelectMode, setTherapistSelectMode] = useState<'any' | 'specific'>('specific');
+  const [selectedTherapistId, setSelectedTherapistId] = useState('');
+  const [selectedTherapistSlug, setSelectedTherapistSlug] = useState('');
+  const [selectedStartAtISO, setSelectedStartAtISO] = useState('');
+  const [dateISO, setDateISO] = useState('');
+
+  // 候補リスト（getAvailableTherapists の結果）
+  const [candidateTherapists, setCandidateTherapists] = useState<AvailableTherapistOption[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidatesError, setCandidatesError] = useState('');
 
   // UI state
   const [loading, setLoading] = useState(false);
@@ -80,19 +95,21 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
   const [lostLoading, setLostLoading] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [showOverride, setShowOverride] = useState(false);
+  const [provisionalHotelLoading, setProvisionalHotelLoading] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const candidateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Price calculation
+  // Price calculation（表示用のみ。サーバ側が正）
   const selectedCourse = courses.find((c) => c.id === courseId);
   const selectedOptions = options.filter((o) => selectedOptionIds.includes(o.id));
   const coursePrice = selectedCourse?.price ?? 0;
   const optionTotal = selectedOptions.reduce((sum, o) => sum + o.price, 0);
-  const nominationFee = therapistId ? (selectedCourse?.nomination_fee_default ?? 0) : 0;
-  const transportFee = 0; // Simplified - would come from area settings
+  const nominationFee = selectedTherapistId ? (selectedCourse?.nomination_fee_default ?? 0) : 0;
+  const transportFee = 0; // 表示用（サーバ側で計算）
   const totalAmount = coursePrice + optionTotal + nominationFee + transportFee;
 
-  // Phone lookup with debounce
+  // Phone lookup with debounce（推奨9: note を preferences に自動補完）
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!/^0[0-9]{9,10}$/.test(phone)) {
@@ -106,6 +123,8 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
         setCustomerName((prev) => prev || c.name);
         if (c.addressDetail) setAddressDetail((prev) => prev || (c.addressDetail ?? ''));
         if (c.areaId) setAreaId((prev) => prev || (c.areaId ?? ''));
+        // 推奨9: note を preferences に自動補完
+        if (c.note) setPreferences((prev) => prev || (c.note ?? ''));
         setCustomerLookupMsg(`リピーター（${c.name}様）の情報を自動入力しました`);
       } else {
         setCustomerLookupMsg('');
@@ -116,9 +135,54 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     };
   }, [phone]);
 
+  // 候補セラピスト取得（エリア/コース/オプション/日付が確定したら自動呼び出し）
+  const fetchCandidates = useCallback(async () => {
+    if (!courseId || !dateISO) {
+      setCandidateTherapists([]);
+      return;
+    }
+    setCandidatesLoading(true);
+    setCandidatesError('');
+    try {
+      const result = await getAvailableTherapists({
+        dateISO,
+        areaId: areaId || undefined,
+        hotelId: hotelId || undefined,
+        courseId,
+        optionIds: selectedOptionIds.length > 0 ? selectedOptionIds : undefined,
+      });
+      if (result.ok && result.data) {
+        setCandidateTherapists(result.data);
+        if (result.data.length === 0) {
+          setCandidatesError('この条件で対応可能なセラピストが見つかりません');
+        }
+      } else {
+        setCandidatesError(result.error ?? '候補の取得に失敗しました');
+      }
+    } catch {
+      setCandidatesError('候補の取得中にエラーが発生しました');
+    } finally {
+      setCandidatesLoading(false);
+    }
+  }, [courseId, dateISO, areaId, hotelId, selectedOptionIds]);
+
+  // 候補を取得するトリガー（デバウンス）
+  useEffect(() => {
+    if (candidateDebounceRef.current) clearTimeout(candidateDebounceRef.current);
+    if (therapistSelectMode === 'any' || therapistSelectMode === 'specific') {
+      candidateDebounceRef.current = setTimeout(() => {
+        void fetchCandidates();
+      }, 300);
+    }
+    return () => {
+      if (candidateDebounceRef.current) clearTimeout(candidateDebounceRef.current);
+    };
+  }, [fetchCandidates, therapistSelectMode]);
+
   // Hotel search
   const handleHotelSearch = useCallback(async (q: string) => {
     setHotelQuery(q);
+    setHotelNotFound(false);
     if (q.trim().length < 1) {
       setHotelSuggestions([]);
       return;
@@ -126,8 +190,26 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     const result = await searchHotels(q);
     if (result.ok && result.data) {
       setHotelSuggestions(result.data.map((h) => ({ id: h.id, name: h.name })));
+      if (result.data.length === 0 && q.trim().length > 0) {
+        setHotelNotFound(true);
+      }
     }
   }, []);
+
+  const handleProvisionalHotel = async () => {
+    if (!hotelQuery.trim()) return;
+    setProvisionalHotelLoading(true);
+    const result = await registerProvisionalHotel(hotelQuery.trim());
+    setProvisionalHotelLoading(false);
+    if (result.ok && result.data) {
+      setHotelId(result.data.id);
+      setHotelQuery(result.data.name);
+      setHotelSuggestions([]);
+      setHotelNotFound(false);
+    } else {
+      setErrorMsg(result.error ?? '仮登録に失敗しました');
+    }
+  };
 
   const toggleOption = (optId: string) => {
     setSelectedOptionIds((prev) =>
@@ -135,11 +217,59 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     );
   };
 
+  // セラピスト + 枠 の選択
+  const handleSlotSelect = (therapist: AvailableTherapistOption, slot: PublicSlotView) => {
+    setSelectedTherapistId(therapist.id);
+    setSelectedTherapistSlug(therapist.slug);
+    setSelectedStartAtISO(slot.startAtISO);
+  };
+
+  const handleSpecificTherapistChange = (tId: string) => {
+    setSelectedTherapistId(tId);
+    const found = therapists.find((t) => t.id === tId);
+    setSelectedTherapistSlug(found?.slug ?? '');
+    setSelectedStartAtISO('');
+  };
+
+  const resetForm = () => {
+    setPhone('');
+    setCustomerName('');
+    setAddressDetail('');
+    setAreaId('');
+    setHotelId('');
+    setHotelQuery('');
+    setRoomNumber('');
+    setSelectedTherapistId('');
+    setSelectedTherapistSlug('');
+    setSelectedStartAtISO('');
+    setDateISO('');
+    setCourseId(courses[0]?.id ?? '');
+    setSelectedOptionIds([]);
+    setPreferences('');
+    setOverrideReason('');
+    setCustomerLookupMsg('');
+    setCandidateTherapists([]);
+    setTherapistSelectMode('specific');
+    setHotelNotFound(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
+
+    // セラピスト必須チェック
+    if (!selectedTherapistId || !selectedTherapistSlug) {
+      setErrorMsg('候補セラピストを選択してください');
+      setLoading(false);
+      return;
+    }
+    if (!selectedStartAtISO) {
+      setErrorMsg('利用開始時間を選択してください');
+      setLoading(false);
+      return;
+    }
 
     const formData: OrderFormData = {
       phone,
@@ -149,14 +279,12 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
       areaId: areaId || undefined,
       hotelId: hotelId || undefined,
       roomNumber: roomNumber || undefined,
-      therapistId: therapistId || undefined,
+      therapistId: selectedTherapistId,
+      therapistSlug: selectedTherapistSlug,
       courseId,
       optionIds: selectedOptionIds,
-      startAtISO,
+      startAtISO: selectedStartAtISO,
       preferences: preferences || undefined,
-      nominationFee,
-      transportFee,
-      totalAmount,
       overrideReason: overrideReason || undefined,
     };
 
@@ -165,21 +293,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
 
     if (result.ok) {
       setSuccessMsg(`予約が完了しました（ID: ${result.data?.reservationId ?? ''}）`);
-      // Reset form
-      setPhone('');
-      setCustomerName('');
-      setAddressDetail('');
-      setAreaId('');
-      setHotelId('');
-      setHotelQuery('');
-      setRoomNumber('');
-      setTherapistId('');
-      setCourseId(courses[0]?.id ?? '');
-      setSelectedOptionIds([]);
-      setStartAtISO('');
-      setPreferences('');
-      setOverrideReason('');
-      setCustomerLookupMsg('');
+      resetForm();
     } else {
       setErrorMsg(result.error ?? '予約の作成に失敗しました');
     }
@@ -207,15 +321,16 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
 
   return (
     <div className="space-y-6">
-      {/* Fixed price summary bar */}
+      {/* Fixed price summary bar（表示用のみ / サーバ側が正） */}
       <div className="sticky top-0 z-10 bg-adm-surface border border-adm-border rounded p-4 flex items-center justify-between shadow-sm">
         <div className="flex gap-6 text-sm">
           <span>コース: <strong>{coursePrice.toLocaleString()}円</strong></span>
           {optionTotal > 0 && <span>オプション: <strong>{optionTotal.toLocaleString()}円</strong></span>}
           {nominationFee > 0 && <span>指名料: <strong>{nominationFee.toLocaleString()}円</strong></span>}
+          <span className="text-xs text-adm-muted">※金額はサーバ側で再計算</span>
         </div>
         <div className="text-lg font-bold text-adm-primary">
-          合計: {totalAmount.toLocaleString()}円
+          参考合計: {totalAmount.toLocaleString()}円
         </div>
       </div>
 
@@ -326,7 +441,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
               <input
                 type="text"
                 value={hotelQuery}
-                onChange={(e) => handleHotelSearch(e.target.value)}
+                onChange={(e) => { void handleHotelSearch(e.target.value); }}
                 placeholder="ホテル名を入力（予測入力）"
                 className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
                 tabIndex={4}
@@ -342,6 +457,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
                           setHotelId(h.id);
                           setHotelQuery(h.name);
                           setHotelSuggestions([]);
+                          setHotelNotFound(false);
                         }}
                       >
                         {h.name}
@@ -349,6 +465,20 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
                     </li>
                   ))}
                 </ul>
+              )}
+              {/* 推奨11: 検索結果0件時に仮登録ボタン */}
+              {hotelNotFound && hotelQuery.trim().length > 0 && (
+                <div className="mt-2">
+                  <span className="text-xs text-adm-muted">ホテルが見つかりません。</span>
+                  <button
+                    type="button"
+                    onClick={() => { void handleProvisionalHotel(); }}
+                    disabled={provisionalHotelLoading}
+                    className="ml-2 text-xs text-adm-primary underline disabled:opacity-50"
+                  >
+                    {provisionalHotelLoading ? '登録中…' : '「' + hotelQuery + '」を仮登録する'}
+                  </button>
+                </div>
               )}
             </div>
             <div>
@@ -365,30 +495,17 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
           </>
         )}
 
-        {/* セラピスト指名 */}
-        <div>
-          <label className="block text-sm font-medium text-adm-text mb-1">セラピスト指名</label>
-          <select
-            value={therapistId}
-            onChange={(e) => setTherapistId(e.target.value)}
-            className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
-            tabIndex={6}
-          >
-            <option value="">対応可能な人（指名なし）</option>
-            {therapists.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-
         {/* コース */}
         <div>
           <label className="block text-sm font-medium text-adm-text mb-1">コース</label>
           <select
             value={courseId}
-            onChange={(e) => setCourseId(e.target.value)}
+            onChange={(e) => {
+              setCourseId(e.target.value);
+              setSelectedStartAtISO('');
+            }}
             className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
-            tabIndex={7}
+            tabIndex={6}
           >
             {courses.map((c) => (
               <option key={c.id} value={c.id}>
@@ -408,8 +525,11 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
                   <input
                     type="checkbox"
                     checked={selectedOptionIds.includes(o.id)}
-                    onChange={() => toggleOption(o.id)}
-                    tabIndex={8 + idx}
+                    onChange={() => {
+                      toggleOption(o.id);
+                      setSelectedStartAtISO('');
+                    }}
+                    tabIndex={7 + idx}
                   />
                   <span className="text-sm">
                     {o.name} +{o.price.toLocaleString()}円
@@ -421,18 +541,175 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
           </div>
         )}
 
-        {/* 希望日時 */}
+        {/* 希望日付 */}
         <div>
-          <label className="block text-sm font-medium text-adm-text mb-1">希望日時</label>
+          <label className="block text-sm font-medium text-adm-text mb-1">希望日</label>
           <input
-            type="datetime-local"
-            value={startAtISO.replace('Z', '').slice(0, 16)}
-            onChange={(e) => setStartAtISO(e.target.value ? new Date(e.target.value).toISOString() : '')}
+            type="date"
+            value={dateISO}
+            onChange={(e) => {
+              setDateISO(e.target.value);
+              setSelectedStartAtISO('');
+              setSelectedTherapistId('');
+              setSelectedTherapistSlug('');
+            }}
+            min={new Date().toISOString().slice(0, 10)}
             className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
-            tabIndex={9 + options.length}
+            tabIndex={8 + options.length}
             required
           />
         </div>
+
+        {/* セラピスト候補セレクタ */}
+        {dateISO && courseId && (
+          <div>
+            <label className="block text-sm font-medium text-adm-text mb-2">
+              セラピスト・利用時間の選択
+              <span className="text-red-500 ml-1">*</span>
+            </label>
+
+            {/* 指名あり / 誰でもいい の切り替え */}
+            <div className="flex gap-4 mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="therapistMode"
+                  checked={therapistSelectMode === 'specific'}
+                  onChange={() => {
+                    setTherapistSelectMode('specific');
+                    setSelectedStartAtISO('');
+                  }}
+                />
+                <span className="text-sm">指名あり</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="therapistMode"
+                  checked={therapistSelectMode === 'any'}
+                  onChange={() => {
+                    setTherapistSelectMode('any');
+                    setSelectedTherapistId('');
+                    setSelectedTherapistSlug('');
+                    setSelectedStartAtISO('');
+                  }}
+                />
+                <span className="text-sm">誰でもいい（候補を検索）</span>
+              </label>
+            </div>
+
+            {/* 指名ありの場合: セラピスト選択 → 枠表示 */}
+            {therapistSelectMode === 'specific' && (
+              <div className="space-y-3">
+                <select
+                  value={selectedTherapistId}
+                  onChange={(e) => {
+                    handleSpecificTherapistChange(e.target.value);
+                  }}
+                  className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
+                  tabIndex={9 + options.length}
+                >
+                  <option value="">セラピストを選択</option>
+                  {therapists.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+
+                {/* 選択セラピストの枠一覧 */}
+                {selectedTherapistId && (
+                  <div>
+                    {candidatesLoading && (
+                      <p className="text-xs text-adm-muted">枠を確認中…</p>
+                    )}
+                    {!candidatesLoading && candidatesError && (
+                      <p className="text-xs text-red-600">{candidatesError}</p>
+                    )}
+                    {!candidatesLoading && (() => {
+                      const candidate = candidateTherapists.find((c) => c.id === selectedTherapistId);
+                      if (!candidate) return null;
+                      return (
+                        <div>
+                          <p className="text-xs text-adm-muted mb-1">利用可能枠:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {candidate.slots.map((slot) => (
+                              <button
+                                key={slot.startAtISO}
+                                type="button"
+                                onClick={() => handleSlotSelect(candidate, slot)}
+                                className={`px-3 py-1 text-sm rounded border transition-colors ${
+                                  selectedStartAtISO === slot.startAtISO
+                                    ? 'bg-adm-primary text-white border-adm-primary'
+                                    : 'bg-adm-surface text-adm-text border-adm-border hover:bg-adm-bg'
+                                }`}
+                              >
+                                {slot.time}
+                              </button>
+                            ))}
+                            {candidate.slots.length === 0 && (
+                              <span className="text-xs text-adm-muted">この条件で利用可能な枠がありません</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 誰でもいいの場合: 候補一覧を全員表示 */}
+            {therapistSelectMode === 'any' && (
+              <div>
+                {candidatesLoading && (
+                  <p className="text-xs text-adm-muted">候補を検索中…</p>
+                )}
+                {!candidatesLoading && candidatesError && (
+                  <p className="text-xs text-red-600">{candidatesError}</p>
+                )}
+                {!candidatesLoading && candidateTherapists.length > 0 && (
+                  <div className="space-y-3">
+                    {candidateTherapists.map((therapist) => (
+                      <div key={therapist.id} className="border border-adm-border rounded p-3">
+                        <p className="text-sm font-medium text-adm-text mb-2">{therapist.name}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {therapist.slots.map((slot) => (
+                            <button
+                              key={slot.startAtISO}
+                              type="button"
+                              onClick={() => handleSlotSelect(therapist, slot)}
+                              className={`px-3 py-1 text-sm rounded border transition-colors ${
+                                selectedTherapistId === therapist.id && selectedStartAtISO === slot.startAtISO
+                                  ? 'bg-adm-primary text-white border-adm-primary'
+                                  : 'bg-adm-surface text-adm-text border-adm-border hover:bg-adm-bg'
+                              }`}
+                            >
+                              {slot.time}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 選択状態の表示 */}
+            {selectedTherapistId && selectedStartAtISO && (
+              <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                選択: {therapists.find((t) => t.id === selectedTherapistId)?.name ?? candidateTherapists.find((t) => t.id === selectedTherapistId)?.name} ・{' '}
+                {new Date(selectedStartAtISO).toLocaleString('ja-JP', {
+                  timeZone: 'Asia/Tokyo',
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* お好み・備考 */}
         <div>
@@ -475,7 +752,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
         <div className="flex gap-3 pt-4 border-t border-adm-border">
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !selectedTherapistId || !selectedStartAtISO}
             className="flex-1 bg-adm-primary text-white rounded px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
             tabIndex={13 + options.length}
           >
@@ -529,7 +806,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
             </div>
             <div className="flex gap-2 mt-4">
               <button
-                onClick={handleLostOrder}
+                onClick={() => { void handleLostOrder(); }}
                 disabled={!lostReason || lostLoading}
                 className="flex-1 bg-adm-primary text-white rounded px-3 py-2 text-sm font-medium disabled:opacity-50"
               >

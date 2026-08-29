@@ -1,6 +1,7 @@
 'use server';
 
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { getClient } from '@/lib/db-client';
 import { getDevSession } from '@/lib/cms/dev-session';
 import { withUser } from '@/lib/auth/with-user';
@@ -8,6 +9,12 @@ import { can } from '@/domain/auth';
 import { toActor } from '@/lib/auth/session';
 import { getTherapistSlots } from '@/lib/availability/public-slots';
 import type { PublicSlotView } from '@/lib/availability/public-slots';
+import {
+  createHold,
+  isSlotTakenError,
+  loadBookingFees,
+} from '@/lib/booking/holds';
+import { feeBreakdown } from '@/domain/booking';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -172,6 +179,97 @@ export async function createLostOrder(
   return { ok: true, data: result };
 }
 
+// AvailableTherapistOption: セラピスト候補 + その枠
+export interface AvailableTherapistOption {
+  id: string;
+  slug: string;
+  name: string;
+  slots: PublicSlotView[];
+}
+
+const getAvailableTherapistsSchema = z.object({
+  dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  areaId: z.string().uuid().optional(),
+  hotelId: z.string().uuid().optional(),
+  courseId: z.string().uuid(),
+  optionIds: z.array(z.string().uuid()).optional(),
+  startAtISO: z.string().datetime().optional(),
+});
+
+/**
+ * 指定コース/オプション/日付で枠が出るセラピストの候補リストを返す。
+ * startAtISO 指定があればその枠を持つ人のみ。
+ */
+export async function getAvailableTherapists(params: {
+  dateISO: string;
+  areaId?: string;
+  hotelId?: string;
+  courseId: string;
+  optionIds?: string[];
+  startAtISO?: string;
+}): Promise<ActionResult<AvailableTherapistOption[]>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+
+  const parsed = getAvailableTherapistsSchema.safeParse(params);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors.map((e) => e.message).join(', ') };
+  }
+
+  const d = parsed.data;
+  const sql = getClient();
+
+  try {
+    // active なセラピスト一覧を取得
+    const therapistRows = await sql<{ id: string; slug: string; display_name: string | null }[]>`
+      select t.id, t.slug,
+             r.published->>'name' as display_name
+      from therapists t
+      left join entity_records r on r.entity = 'therapist' and r.slug = t.slug
+      where t.status = 'active'
+      order by t.display_order asc
+    `;
+
+    const candidates: AvailableTherapistOption[] = [];
+
+    // 各セラピストについてエンジンで枠を確認
+    for (const therapist of therapistRows) {
+      const result = await getTherapistSlots({
+        slug: therapist.slug,
+        dateISO: d.dateISO,
+        areaId: d.areaId ?? null,
+        courseId: d.courseId,
+        optionIds: d.optionIds ?? [],
+        hotelId: d.hotelId ?? null,
+      });
+
+      if (!result || result.slots.length === 0) continue;
+
+      let slots = result.slots;
+
+      // startAtISO 指定があればその枠のみ
+      if (d.startAtISO) {
+        const targetMs = Date.parse(d.startAtISO);
+        slots = slots.filter((s) => Date.parse(s.startAtISO) === targetMs);
+        if (slots.length === 0) continue;
+      }
+
+      candidates.push({
+        id: therapist.id,
+        slug: therapist.slug,
+        name: therapist.display_name ?? therapist.slug,
+        slots,
+      });
+    }
+
+    return { ok: true, data: candidates };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '不明なエラー';
+    return { ok: false, error: msg };
+  }
+}
+
+// OrderFormData: therapistId/therapistSlug 必須化
 export interface OrderFormData {
   phone: string;
   customerName: string;
@@ -180,15 +278,13 @@ export interface OrderFormData {
   areaId?: string;
   hotelId?: string;
   roomNumber?: string;
-  therapistId?: string;
+  therapistId: string;     // 必須化（候補 UI で必ず選ばせる）
+  therapistSlug: string;   // createHold の slug パラメータ用
   courseId: string;
   optionIds?: string[];
   startAtISO: string;
   preferences?: string;
-  nominationFee?: number;
-  transportFee?: number;
-  totalAmount?: number;
-  overrideReason?: string;
+  overrideReason?: string; // 枠外のときのみ
 }
 
 const orderFormSchema = z.object({
@@ -199,14 +295,12 @@ const orderFormSchema = z.object({
   areaId: z.string().uuid().optional(),
   hotelId: z.string().uuid().optional(),
   roomNumber: z.string().optional(),
-  therapistId: z.string().uuid().optional(),
+  therapistId: z.string().uuid(),        // 必須
+  therapistSlug: z.string().min(1),      // 必須
   courseId: z.string().uuid(),
   optionIds: z.array(z.string().uuid()).optional(),
   startAtISO: z.string().datetime(),
   preferences: z.string().optional(),
-  nominationFee: z.number().int().min(0).optional().default(0),
-  transportFee: z.number().int().min(0).optional().default(0),
-  totalAmount: z.number().int().min(0).optional().default(0),
   overrideReason: z.string().optional(),
 });
 
@@ -217,129 +311,303 @@ export async function createPhoneOrder(
   if (!session) return { ok: false, error: '認証が必要です' };
 
   const actor = toActor(session);
+
+  // セラピスト未選択チェック（自動割当廃止 / 重大5）
+  if (!data.therapistId || !data.therapistSlug) {
+    return { ok: false, error: '候補セラピストを選択してください' };
+  }
+
   const parsed = orderFormSchema.safeParse(data);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.errors.map((e) => e.message).join(', ') };
   }
 
   const d = parsed.data;
+  const now = new Date();
 
-  // Override slot check
-  if (
-    d.overrideReason !== undefined &&
-    !can(actor, 'override_slot', { kind: 'slot_override', reason: d.overrideReason })
-  ) {
-    return { ok: false, error: '枠外予約の権限がありません' };
+  // エリア解決: hotelId からエリアを取得
+  let resolvedAreaId: string | null = d.areaId ?? null;
+  if (!resolvedAreaId && d.hotelId) {
+    const sql = getClient();
+    const hotels = await sql<{ area_id: string | null }[]>`
+      select area_id from hotels where id = ${d.hotelId}::uuid limit 1
+    `;
+    resolvedAreaId = hotels[0]?.area_id ?? null;
   }
 
-  const sql = getClient();
+  // dateISO を startAtISO から導出（Asia/Tokyo）
+  const startAtDate = new Date(d.startAtISO);
+  // タイムゾーン変換せず UTC の日付で dateISO を組む（getTherapistSlots は dateISO を使う）
+  // JST = UTC + 9h
+  const jstDate = new Date(startAtDate.getTime() + 9 * 60 * 60 * 1000);
+  const dateISO = jstDate.toISOString().slice(0, 10);
+
+  // sessionId 生成（isValidFunnelSession は length 8-100 で pass）
+  const sessionId = `phone:${session.userId}:${randomUUID()}`;
 
   try {
-    const result = await withUser(sql, session, async (tx) => {
-      // Upsert customer
-      const customers = await tx<{ id: string }[]>`
-        insert into customers (phone, name)
-        values (${d.phone}, ${d.customerName.trim()})
-        on conflict (phone) do update
-          set name = coalesce(nullif(customers.name, ''), excluded.name),
-              updated_at = now()
-        returning id
-      `;
-      const customerId = customers[0]?.id;
-      if (!customerId) throw new Error('customer upsert failed');
+    // createHold を再利用（枠内ルート）
+    const holdResult = await createHold({
+      slug: d.therapistSlug,
+      dateISO,
+      startAtISO: d.startAtISO,
+      areaId: resolvedAreaId,
+      courseId: d.courseId,
+      optionIds: d.optionIds ?? [],
+      hotelId: d.hotelId ?? null,
+      sessionId,
+      now,
+    });
 
-      // Get course info
-      const courses = await tx<{
+    if (holdResult.ok) {
+      // 枠内ルート: held → confirmed に遷移（phone 用）
+      const sql = getClient();
+      const result = await withUser(sql, session, async (tx) => {
+        // 顧客 upsert
+        const customers = await tx<{ id: string }[]>`
+          insert into customers (phone, name)
+          values (${d.phone}, ${d.customerName.trim()})
+          on conflict (phone) do update
+            set name = coalesce(nullif(customers.name, ''), excluded.name),
+                updated_at = now()
+          returning id
+        `;
+        const customerId = customers[0]?.id;
+        if (!customerId) throw new Error('顧客の登録に失敗しました');
+
+        // preferences があれば customers.note を更新
+        if (d.preferences) {
+          await tx`
+            update customers set note = ${d.preferences} where id = ${customerId}::uuid
+          `;
+        }
+
+        // 住所 insert
+        const addresses = await tx<{ id: string }[]>`
+          insert into addresses (customer_id, kind, hotel_id, label, detail, area_id)
+          values (
+            ${customerId}::uuid,
+            ${d.destinationType === 'hotel' ? 'hotel' : 'home'}::address_kind,
+            ${d.hotelId ?? null}::uuid,
+            ${d.roomNumber ?? null},
+            ${d.addressDetail ?? d.roomNumber ?? ''}::text,
+            ${holdResult.areaId}::uuid
+          )
+          returning id
+        `;
+        const addressId = addresses[0]?.id;
+        if (!addressId) throw new Error('住所の登録に失敗しました');
+
+        // held → confirmed に遷移（楽観ロック: version = 0）
+        const updated = await tx<{ version: number }[]>`
+          update reservations
+          set status = 'confirmed',
+              customer_id = ${customerId}::uuid,
+              address_id = ${addressId}::uuid,
+              source = 'phone'::reservation_source,
+              phone_confirmed_at = now(),
+              phone_confirmed_by = ${session.userId}::uuid,
+              version = version + 1
+          where id = ${holdResult.reservationId}::uuid
+            and status = 'held'
+            and version = ${holdResult.version}
+          returning version
+        `;
+        if (!updated[0]) throw new Error('予約の確定に失敗しました（楽観ロック競合）');
+
+        // slot_holds を削除（期限切れ解放対象から外す）
+        await tx`
+          delete from slot_holds where reservation_id = ${holdResult.reservationId}::uuid
+        `;
+
+        return { reservationId: holdResult.reservationId };
+      });
+
+      return { ok: true, data: result };
+    }
+
+    // slot_gone: 枠外ルートへ
+    if (holdResult.error === 'slot_gone' || holdResult.error === 'slot_taken') {
+      // slot_taken は日本語エラー（推奨8）
+      if (holdResult.error === 'slot_taken') {
+        return {
+          ok: false,
+          error:
+            '他のお客様の予約と重なりました。別の時間帯をお選びください',
+        };
+      }
+
+      // slot_gone = 枠外。overrideReason が必要（重大2）
+      if (!d.overrideReason || d.overrideReason.trim() === '') {
+        return { ok: false, error: '枠外予約には理由が必要です' };
+      }
+
+      // override_slot 権限チェック（重大2）
+      if (
+        !can(actor, 'override_slot', { kind: 'slot_override', reason: d.overrideReason })
+      ) {
+        return { ok: false, error: '枠外予約の権限がありません' };
+      }
+
+      // 枠外ルート: engine を先に呼んで depart_at/free_at を暫定計算
+      const engineResult = await getTherapistSlots({
+        slug: d.therapistSlug,
+        dateISO,
+        areaId: resolvedAreaId,
+        courseId: d.courseId,
+        optionIds: d.optionIds ?? [],
+        hotelId: d.hotelId ?? null,
+        now,
+      });
+
+      const sql = getClient();
+
+      // コース情報取得
+      const courseRows = await sql<{
         id: string;
-        duration_min: number;
         price: number;
+        duration_min: number;
         nomination_fee_default: number;
       }[]>`
-        select id, duration_min, price, nomination_fee_default
+        select id, price, duration_min, nomination_fee_default
         from courses where id = ${d.courseId}::uuid and is_active = true
         limit 1
       `;
-      const course = courses[0];
-      if (!course) throw new Error('コースが見つかりません');
+      const course = courseRows[0];
+      if (!course) return { ok: false, error: 'コースが見つかりません' };
 
-      // Get therapist
-      let therapistId: string | null = d.therapistId ?? null;
-      if (!therapistId) {
-        // Pick first active therapist (simplified - full logic would check availability)
-        const therapists = await tx<{ id: string }[]>`
-          select id from therapists where status = 'active' limit 1
-        `;
-        therapistId = therapists[0]?.id ?? null;
-      }
-      if (!therapistId) throw new Error('セラピストが見つかりません');
-
-      // Get area
-      let areaId: string | null = d.areaId ?? null;
-      if (!areaId && d.hotelId) {
-        const hotels = await tx<{ area_id: string | null }[]>`
-          select area_id from hotels where id = ${d.hotelId}::uuid limit 1
-        `;
-        areaId = hotels[0]?.area_id ?? null;
-      }
-      if (!areaId) throw new Error('エリアを指定してください');
-
-      // Insert address
-      const addresses = await tx<{ id: string }[]>`
-        insert into addresses (customer_id, kind, hotel_id, label, detail, area_id)
-        values (
-          ${customerId}::uuid,
-          ${d.destinationType === 'hotel' ? 'hotel' : 'home'}::address_kind,
-          ${d.hotelId ?? null}::uuid,
-          ${d.roomNumber ?? null},
-          ${d.addressDetail ?? d.roomNumber ?? ''},
-          ${areaId}::uuid
-        )
-        returning id
+      // セラピスト情報取得
+      const therapistRows = await sql<{ id: string }[]>`
+        select id from therapists where id = ${d.therapistId}::uuid and status = 'active' limit 1
       `;
-      const addressId = addresses[0]?.id;
-      if (!addressId) throw new Error('住所の登録に失敗しました');
+      if (!therapistRows[0]) return { ok: false, error: 'セラピストが見つかりません' };
 
       const startAt = new Date(d.startAtISO);
-      // Simplified times - in production, use the availability engine
       const durationMin = course.duration_min;
       const serviceEndAt = new Date(startAt.getTime() + durationMin * 60_000);
-      const departAt = new Date(startAt.getTime() - 25 * 60_000);
-      const freeAt = new Date(serviceEndAt.getTime() + 10 * 60_000);
 
-      const nominationFee = d.nominationFee ?? course.nomination_fee_default;
-      const transportFee = d.transportFee ?? 0;
-      const totalAmount = d.totalAmount ?? (course.price + nominationFee + transportFee);
+      // depart_at/free_at: engine の rawSlots から近い枠を探す（なければ固定バッファ）
+      let departAt: Date;
+      let freeAt: Date;
+      let travelInMin = 15;
+      let travelOutMin = 15;
+      let bufferMin = 30;
+      let travelInMode: 'walk' | 'car' = 'walk';
 
-      // Insert reservation with source='phone' and phone_confirmed_at=now()
-      const reservations = await tx<{ id: string }[]>`
-        insert into reservations (
-          therapist_id, customer_id, address_id, area_id, course_id,
-          hotel_id, start_at, end_at, depart_at, free_at,
-          travel_in_min, travel_out_min, buffer_min,
-          status, nomination_fee, transport_fee, total_amount,
-          source, phone_confirmed_at, phone_confirmed_by
-        ) values (
-          ${therapistId}::uuid,
-          ${customerId}::uuid,
-          ${addressId}::uuid,
-          ${areaId}::uuid,
-          ${d.courseId}::uuid,
-          ${d.hotelId ?? null}::uuid,
-          ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt},
-          15, 15, 30,
-          'confirmed',
-          ${nominationFee}, ${transportFee}, ${totalAmount},
-          'phone'::reservation_source,
-          now(),
-          ${session.userId}::uuid
-        )
-        returning id
+      const nearbySlot = engineResult?.rawSlots.find(
+        (s) =>
+          Math.abs(s.startAt.getTime() - startAt.getTime()) < 60 * 60_000,
+      );
+
+      if (nearbySlot) {
+        departAt = nearbySlot.departAt;
+        freeAt = nearbySlot.freeAt;
+        travelInMin = nearbySlot.travelInMin;
+        travelOutMin = nearbySlot.travelOutMin;
+        bufferMin = nearbySlot.bufferTotalMin;
+        travelInMode = nearbySlot.travelInMode;
+      } else {
+        // engine で枠なし → 固定バッファ（25分前出発、10分後解放）
+        departAt = new Date(startAt.getTime() - 25 * 60_000);
+        freeAt = new Date(serviceEndAt.getTime() + 10 * 60_000);
+      }
+
+      // 料金計算（サーバ側で計算 / クライアント値無視）
+      const bookingFees = await loadBookingFees();
+      const optionRows = await sql<{ id: string; price: number }[]>`
+        select id, price from options
+        where id = any(${(d.optionIds ?? []).filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))}::uuid[])
+          and is_active = true and is_public = true
       `;
-      const reservationId = reservations[0]?.id;
-      if (!reservationId) throw new Error('予約の作成に失敗しました');
+      const breakdown = feeBreakdown({
+        coursePrice: course.price,
+        optionPrices: optionRows.map((o) => o.price),
+        nominationFee: course.nomination_fee_default,
+        travelInMode,
+        startAt,
+        settings: bookingFees,
+      });
 
-      // Audit log for override
-      if (d.overrideReason) {
+      const result = await withUser(sql, session, async (tx) => {
+        // 顧客 upsert
+        const customers = await tx<{ id: string }[]>`
+          insert into customers (phone, name)
+          values (${d.phone}, ${d.customerName.trim()})
+          on conflict (phone) do update
+            set name = coalesce(nullif(customers.name, ''), excluded.name),
+                updated_at = now()
+          returning id
+        `;
+        const customerId = customers[0]?.id;
+        if (!customerId) throw new Error('顧客の登録に失敗しました');
+
+        if (d.preferences) {
+          await tx`
+            update customers set note = ${d.preferences} where id = ${customerId}::uuid
+          `;
+        }
+
+        const effectiveAreaId = resolvedAreaId ?? (engineResult?.areaId ?? null);
+        if (!effectiveAreaId) throw new Error('エリアを特定できませんでした');
+
+        const addresses = await tx<{ id: string }[]>`
+          insert into addresses (customer_id, kind, hotel_id, label, detail, area_id)
+          values (
+            ${customerId}::uuid,
+            ${d.destinationType === 'hotel' ? 'hotel' : 'home'}::address_kind,
+            ${d.hotelId ?? null}::uuid,
+            ${d.roomNumber ?? null},
+            ${d.addressDetail ?? d.roomNumber ?? ''}::text,
+            ${effectiveAreaId}::uuid
+          )
+          returning id
+        `;
+        const addressId = addresses[0]?.id;
+        if (!addressId) throw new Error('住所の登録に失敗しました');
+
+        // 直接 confirmed で insert
+        const reservations = await tx<{ id: string }[]>`
+          insert into reservations (
+            therapist_id, customer_id, address_id, area_id, course_id,
+            hotel_id, start_at, end_at, depart_at, free_at,
+            travel_in_min, travel_out_min, buffer_min,
+            status, nomination_fee, transport_fee, total_amount,
+            source, phone_confirmed_at, phone_confirmed_by
+          ) values (
+            ${d.therapistId}::uuid,
+            ${customerId}::uuid,
+            ${addressId}::uuid,
+            ${effectiveAreaId}::uuid,
+            ${d.courseId}::uuid,
+            ${d.hotelId ?? null}::uuid,
+            ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt},
+            ${travelInMin}, ${travelOutMin}, ${bufferMin},
+            'confirmed'::reservation_status,
+            ${breakdown.nominationFee}, ${breakdown.transportFee}, ${breakdown.totalAmount},
+            'phone'::reservation_source,
+            now(),
+            ${session.userId}::uuid
+          )
+          returning id
+        `;
+        const reservationId = reservations[0]?.id;
+        if (!reservationId) throw new Error('予約の作成に失敗しました');
+
+        // オプションのスナップショット
+        for (const opt of optionRows) {
+          await tx`
+            insert into reservation_options (
+              reservation_id, option_id, price_snapshot, duration_snapshot,
+              back_type_snapshot, back_value_snapshot
+            )
+            select
+              ${reservationId}::uuid, o.id, o.price, o.duration_min,
+              o.back_type, o.back_value
+            from options o where o.id = ${opt.id}::uuid
+          `;
+        }
+
+        // audit_log に override を記録（必須）
         await tx`
           insert into audit_logs (actor_user_id, action, entity, entity_id, after)
           values (
@@ -347,23 +615,102 @@ export async function createPhoneOrder(
             'override',
             'reservation',
             ${reservationId}::uuid,
-            ${tx.json({ reason: d.overrideReason })}
+            ${tx.json({ reason: d.overrideReason ?? '', source: 'phone' } satisfies { reason: string; source: string })}
           )
         `;
-      }
 
-      return { reservationId };
-    });
+        return { reservationId };
+      });
 
-    return { ok: true, data: result };
+      return { ok: true, data: result };
+    }
+
+    // invalid
+    return { ok: false, error: '無効なパラメータです' };
   } catch (e) {
+    if (isSlotTakenError(e)) {
+      return {
+        ok: false,
+        error: '他のお客様の予約と重なりました。別の時間帯をお選びください',
+      };
+    }
     const msg = e instanceof Error ? e.message : '不明なエラー';
     return { ok: false, error: msg };
   }
 }
 
+// UnconfirmedReservation: 電話未確認の予約
+export interface UnconfirmedReservation {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  startAtISO: string;
+  therapistName: string;
+  source: string;
+}
+
+/**
+ * phone_confirmed_at が null かつ status='confirmed' の予約一覧を返す。
+ * 電話確認画面用。
+ */
+export async function listUnconfirmedReservations(): Promise<
+  ActionResult<UnconfirmedReservation[]>
+> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+
+  const sql = getClient();
+  const rows = await withUser(sql, session, async (tx) => {
+    return tx<{
+      id: string;
+      customer_name: string;
+      customer_phone: string;
+      start_at: Date;
+      therapist_name: string | null;
+      therapist_slug: string;
+      source: string;
+    }[]>`
+      select r.id,
+             c.name as customer_name,
+             c.phone as customer_phone,
+             r.start_at,
+             er.published->>'name' as therapist_name,
+             t.slug as therapist_slug,
+             r.source::text
+      from reservations r
+      join customers c on c.id = r.customer_id
+      join therapists t on t.id = r.therapist_id
+      left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
+      where r.status = 'confirmed'
+        and r.phone_confirmed_at is null
+        and r.source = 'web'::reservation_source
+      order by r.start_at asc
+      limit 50
+    `;
+  });
+
+  return {
+    ok: true,
+    data: rows.map((r) => ({
+      id: r.id,
+      customerName: r.customer_name,
+      customerPhone: r.customer_phone,
+      startAtISO: r.start_at.toISOString(),
+      therapistName: r.therapist_name ?? r.therapist_slug,
+      source: r.source,
+    })),
+  };
+}
+
+/**
+ * 電話確認を記録する（重大6 / confirmPhoneCall 強化）。
+ * - call_result パラメータ追加
+ * - version チェック（楽観ロック）
+ * - call_logs に result を記録
+ */
 export async function confirmPhoneCall(
   reservationId: string,
+  callResult: 'confirmed' | 'no_answer' | 'other',
   note?: string,
 ): Promise<ActionResult> {
   const session = await getDevSession();
@@ -376,21 +723,30 @@ export async function confirmPhoneCall(
 
   try {
     await withUser(sql, session, async (tx) => {
-      // Update reservation
-      await tx`
+      // 楽観ロック: status='confirmed' で phone_confirmed_at is null の行のみ更新
+      const updated = await tx<{ version: number }[]>`
         update reservations
         set phone_confirmed_at = now(),
             phone_confirmed_by = ${session.userId}::uuid,
+            version = version + 1,
             updated_at = now()
         where id = ${parsedId.data}::uuid
+          and status = 'confirmed'
+          and phone_confirmed_at is null
+        returning version
       `;
 
-      // Insert call log
+      if (!updated[0]) {
+        // 既に確認済み or 存在しないはエラー
+        throw new Error('予約が見つからないか、既に電話確認済みです');
+      }
+
+      // call_logs に記録
       await tx`
         insert into call_logs (reservation_id, result, note, called_by)
         values (
           ${parsedId.data}::uuid,
-          'confirmed'::call_result,
+          ${callResult}::call_result,
           ${note ?? null},
           ${session.userId}::uuid
         )
@@ -412,7 +768,6 @@ export async function getAvailableSlots(
   if (!session) return { ok: false, error: '認証が必要です' };
 
   if (!therapistSlug) {
-    // Return empty if no therapist specified - calling code should pick one
     return { ok: true, data: [] };
   }
 
@@ -420,6 +775,38 @@ export async function getAvailableSlots(
     const result = await getTherapistSlots({ slug: therapistSlug, dateISO: date });
     if (!result) return { ok: true, data: [] };
     return { ok: true, data: result.slots };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '不明なエラー';
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * 未登録ホテルの仮登録（推奨11）。
+ * name のみで insert（area_id null, extra_minutes 0, is_blocked false）。
+ */
+export async function registerProvisionalHotel(
+  name: string,
+): Promise<ActionResult<{ id: string; name: string }>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, error: 'ホテル名を入力してください' };
+
+  const sql = getClient();
+  try {
+    const result = await withUser(sql, session, async (tx) => {
+      const rows = await tx<{ id: string; name: string }[]>`
+        insert into hotels (name, extra_minutes, is_blocked)
+        values (${trimmed}, 0, false)
+        returning id, name
+      `;
+      const row = rows[0];
+      if (!row) throw new Error('仮登録に失敗しました');
+      return { id: row.id, name: row.name };
+    });
+    return { ok: true, data: result };
   } catch (e) {
     const msg = e instanceof Error ? e.message : '不明なエラー';
     return { ok: false, error: msg };
