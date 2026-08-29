@@ -13,6 +13,20 @@ body {
   font-family: theme("fontFamily.body");
 }
 
+/*
+ * next/font（公開レイアウト）が注入する CSS 変数を、tokens 由来のフォント名の
+ * 前段に差し込む。変数未設定（管理側など）でも tokens のフォールバックが効く。
+ */
+.font-heading {
+  font-family: var(--font-heading), theme("fontFamily.heading");
+}
+.font-body {
+  font-family: var(--font-body), theme("fontFamily.body");
+}
+.font-mono {
+  font-family: var(--font-mono), theme("fontFamily.mono");
+}
+
 /* prefers-reduced-motion を尊重（spec 12-2） */
 @media (prefers-reduced-motion: reduce) {
   *,
