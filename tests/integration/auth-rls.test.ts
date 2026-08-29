@@ -44,14 +44,16 @@ afterAll(async () => {
 });
 
 describe("RLS の網羅性", () => {
-  it("public の全テーブルで RLS が有効（extension 由来と schema_migrations を除く）", async () => {
-    const rows = await sql<{ relname: string }[]>`
-      select c.relname
+  it("public の全テーブルで RLS が enable かつ force（extension 由来と schema_migrations を除く）", async () => {
+    // 接続ユーザーが BYPASSRLS のため、防御の本線は app_runtime への降格。
+    // force RLS はその補強。enable だけの張り忘れ（force 抜け）も検出する。
+    const rows = await sql<{ relname: string; forced: boolean }[]>`
+      select c.relname, c.relforcerowsecurity as forced
       from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = 'public'
         and c.relkind = 'r'
-        and not c.relrowsecurity
+        and (not c.relrowsecurity or not c.relforcerowsecurity)
         and c.relname <> 'schema_migrations'
         and not exists (
           select 1 from pg_depend d

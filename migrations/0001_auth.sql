@@ -18,10 +18,11 @@
 --    GUC 未設定（= withUser を通っていない）なら helper は null を返し、
 --    ポリシーは不成立 = デフォルト拒否。**アプリのバグで withUser を忘れても
 --    「見えない」側に倒れる**（fail-closed）。
--- 4. RLS は enable + force。force により（superuser 以外の）テーブル owner にも
---    RLS がかかるので、本番 Supabase で postgres のまま流す素のクエリも
---    公開読み取りポリシー以外は通らない。ローカルの superuser だけが唯一の例外で、
---    これは migrate / seed / テストの検証用クエリの通り道になる。
+-- 4. RLS は enable + force。ただし接続ユーザー postgres は本番 Supabase でも
+--    BYPASSRLS 属性を持つ（ローカルは superuser）ため、素の接続では RLS を素通りする
+--    （migrate / seed / 保守クエリはこの経路）。RLS が実効になるのは withUser 内で
+--    SET LOCAL ROLE app_runtime に降格した後だけ。force は app_runtime が将来
+--    テーブル owner になっても素通りさせない保険であり、防御の本線は降格である。
 --
 -- 将来の拡張（spec 13-3 / 15章）:
 --   - addresses:    select ポリシーで「担当セラピスト かつ 予約3時間前以降」を

@@ -20,8 +20,9 @@ withUser(sql, session, fn)
 
 - ポリシーは `app_current_user_id()` / `app_current_role()`（`current_setting('app.current_user_id', true)` の薄いラッパ）を参照する
 - **fail-closed**: GUC 未設定（withUser を忘れたコードパス）ではヘルパが null を返し、ポリシー不成立＝デフォルト拒否。アプリのバグは「見えすぎる」ではなく「見えない」側に倒れる
-- `app_runtime`（nologin）への降格が必須な理由: ローカル docker の postgres は superuser、Supabase の postgres はテーブル owner で、どちらも素のままでは RLS を素通りするため
-- RLS は `enable` + `force`。本番（owner ≠ superuser）では withUser を通らない素のクエリも公開読み取り以外は通らない。ローカルの superuser（migrate / seed / テストの検証クエリ）だけが保守経路として素通りできる
+- `app_runtime`（nologin）への降格が**唯一の実効防壁**である理由: 接続ユーザー `postgres` は **どちらも `rolbypassrls=true`**（ローカル docker は superuser、Supabase は非 superuser だが `BYPASSRLS` 属性を持つ）。BYPASSRLS ロールは `enable`/`force` に関わらず RLS を素通りするので、**素の接続では本番でも RLS は効かない**（migrate / seed / 保守クエリが通るのはこのため）。RLS が実際に効くのは `SET LOCAL ROLE app_runtime` で **BYPASSRLS を持たない `app_runtime` に降格した後だけ**。したがって業務クエリは必ず `withUser()`（＝降格）経由で流す
+- `force row level security` の役割: `app_runtime` が万一いずれかのテーブルの owner になっても owner 特権で素通りさせない保険。BYPASSRLS ロールは force でも止められないため、防御の本線はあくまで降格である（force はその補強）
+- 事実確認（2026-08-29）: `select current_user, rolsuper, rolbypassrls` → ローカル `{postgres, t, t}` / Supabase `{postgres, f, t}`。この結論は BYPASSRLS の有無に依存し、両環境で本線（降格）は有効
 
 ## 2. 現在のポリシー一覧（0001）
 
