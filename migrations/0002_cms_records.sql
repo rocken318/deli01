@@ -26,6 +26,10 @@ create table if not exists entity_records (
 create index if not exists entity_records_entity_idx
   on entity_records (entity);
 
+-- published への GIN インデックス（spec 3-1: 公開値の絞り込み・検索用）
+create index if not exists entity_records_published_gin
+  on entity_records using gin (published jsonb_path_ops);
+
 -- updated_at 自動更新（set_updated_at() は 0001_auth.sql で定義済み）
 drop trigger if exists entity_records_set_updated_at on entity_records;
 create trigger entity_records_set_updated_at

@@ -27,9 +27,14 @@ function buildFieldSchema(def: FieldDefinition): z.ZodTypeAny {
     case "rich_text":
       return z.string().trim();
 
-    case "number":
+    case "number": {
       // 整数のみ（spec 禁止: 金額に小数を使わない。number も整数で運用）
-      return z.number().int("整数を入力してください");
+      // options.min/max があれば範囲も反映する（spec 3-1「数値の範囲など」）。
+      let n = z.number().int("整数を入力してください");
+      if (typeof options?.min === "number") n = n.min(options.min, `${options.min} 以上で入力してください`);
+      if (typeof options?.max === "number") n = n.max(options.max, `${options.max} 以下で入力してください`);
+      return n;
+    }
 
     case "money":
       // 金額は整数（円）、0以上（spec 禁止: 金額に小数を使わない）

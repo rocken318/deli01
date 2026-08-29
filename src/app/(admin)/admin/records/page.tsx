@@ -3,6 +3,7 @@
  */
 
 import Link from "next/link";
+import { RecordOpenForm } from "./record-open-form";
 
 export const metadata = { title: "レコード" };
 
@@ -36,28 +37,7 @@ export default function RecordsPage() {
             <h2 className="text-sm font-medium text-adm-text">
               {ENTITY_LABELS[entity]}
             </h2>
-            <form
-              action={`/admin/records/${entity}/`}
-              method="get"
-              className="flex gap-2"
-            >
-              <input
-                name="slug"
-                type="text"
-                placeholder="slug（例: therapist-01）"
-                required
-                className="flex-1 px-3 py-1.5 text-sm border border-adm-border rounded bg-adm-surface text-adm-text placeholder:text-adm-text/40 focus:outline-none focus:border-adm-primary"
-                style={{ borderRadius: "4px" }}
-              />
-              <button
-                type="submit"
-                className="px-3 py-1.5 text-sm bg-adm-primary text-white rounded hover:bg-adm-primary/90 transition-colors"
-                style={{ borderRadius: "4px" }}
-                formAction={`/admin/records/${entity}/`}
-              >
-                開く
-              </button>
-            </form>
+            <RecordOpenForm entity={entity} />
           </div>
         ))}
       </div>

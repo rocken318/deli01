@@ -14,10 +14,15 @@ import { z } from "zod";
 import { can } from "@/domain/auth";
 import { toActor } from "@/lib/auth/session";
 import type { AddFieldInput, UpdateFieldInput } from "@/domain/cms";
-import { FIELD_TYPES } from "@/domain/cms";
+import { FIELD_TYPES, buildZodSchema } from "@/domain/cms";
 import { withUser } from "@/lib/auth/with-user";
 import { getClient } from "@/lib/db-client";
 import { getDevSession } from "@/lib/cms/dev-session";
+import { getFieldDefinitions } from "@/lib/cms/get-field-definitions";
+
+/** entity_records / field_definitions が扱う既知の entity（spec 3-1・3-6） */
+const KNOWN_ENTITIES = ["therapist", "course", "area", "page"] as const;
+const entitySchema = z.enum(KNOWN_ENTITIES);
 
 /** Server Action の共通レスポンス型 */
 export interface ActionResult<T = void> {
@@ -31,7 +36,7 @@ export interface ActionResult<T = void> {
 // ---------------------------------------------------------------------------
 
 const addFieldSchema = z.object({
-  entity: z.string().min(1),
+  entity: entitySchema,
   key: z
     .string()
     .min(1)
@@ -79,7 +84,7 @@ const reorderSchema = z.array(
 );
 
 const saveRecordSchema = z.object({
-  entity: z.string().min(1),
+  entity: entitySchema,
   slug: z.string().min(1).regex(/^[a-z0-9-]+$/, "slug は小文字英数字とハイフンのみ"),
   draft: z.record(z.string(), z.unknown()),
 });
@@ -191,12 +196,28 @@ export async function updateFieldDefinition(
 
   try {
     await withUser(sql, session, async (tx) => {
-      // 既存レコードを取得（before スナップショット）
-      const existing = await tx<{ id: string; label: string; sort_order: number }[]>`
-        select id, label, sort_order from field_definitions where id = ${data.id}::uuid
+      // 既存レコードを取得（before スナップショット / 未指定項目の据え置きに使う）
+      const existing = await tx<
+        {
+          id: string;
+          label: string;
+          sort_order: number;
+          group_label: string | null;
+          help_text: string | null;
+        }[]
+      >`
+        select id, label, sort_order, group_label, help_text
+        from field_definitions where id = ${data.id}::uuid
       `;
       const before = existing[0];
       if (!before) throw new Error("フィールド定義が見つかりません");
+
+      // group_label / help_text は「未指定(undefined)＝据え置き」「null＝クリア」の3状態。
+      // coalesce では null クリアと未指定を区別できないため、明示的に解決する。
+      const nextGroupLabel =
+        data.groupLabel !== undefined ? data.groupLabel : before.group_label;
+      const nextHelpText =
+        data.helpText !== undefined ? data.helpText : before.help_text;
 
       // 更新（key / type は SET に含めない）
       await tx`
@@ -204,12 +225,12 @@ export async function updateFieldDefinition(
         set
           label       = coalesce(${data.label ?? null}, label),
           options     = coalesce(${data.options != null ? JSON.stringify(data.options) : null}::jsonb, options),
-          group_label = ${data.groupLabel !== undefined ? data.groupLabel : null}::text,
+          group_label = ${nextGroupLabel}::text,
           sort_order  = coalesce(${data.sortOrder ?? null}, sort_order),
           is_public   = coalesce(${data.isPublic ?? null}, is_public),
           is_required = coalesce(${data.isRequired ?? null}, is_required),
           is_filterable = coalesce(${data.isFilterable ?? null}, is_filterable),
-          help_text   = ${data.helpText !== undefined ? data.helpText : null}::text
+          help_text   = ${nextHelpText}::text
         where id = ${data.id}::uuid
       `;
 
@@ -373,6 +394,21 @@ export async function saveEntityRecord(
     return { ok: false, error: parsed.error.errors.map((e) => e.message).join(", ") };
   }
 
+  // サーバー側でも定義から Zod を組み立てて検証する（spec 3-1）。
+  // Server Action は公開エンドポイントなので、クライアント検証だけに頼らない。
+  // z.object は既定で未定義キーを strip するため、想定外キーも同時に除去される。
+  const defs = await getFieldDefinitions(parsed.data.entity);
+  const draftValidation = buildZodSchema(defs).safeParse(parsed.data.draft);
+  if (!draftValidation.success) {
+    return {
+      ok: false,
+      error: draftValidation.error.errors
+        .map((e) => `${e.path.join(".")}: ${e.message}`)
+        .join(", "),
+    };
+  }
+  const validatedDraft = draftValidation.data;
+
   const sql = getClient();
 
   try {
@@ -382,7 +418,7 @@ export async function saveEntityRecord(
         values (
           ${parsed.data.entity},
           ${parsed.data.slug},
-          ${JSON.stringify(parsed.data.draft)}::jsonb
+          ${JSON.stringify(validatedDraft)}::jsonb
         )
         on conflict (entity, slug)
         do update set
@@ -433,10 +469,36 @@ export async function publishEntityRecord(
     return { ok: false, error: "この操作には owner または admin のロールが必要です" };
   }
 
+  const parsedKey = z
+    .object({ entity: entitySchema, slug: z.string().min(1) })
+    .safeParse({ entity, slug });
+  if (!parsedKey.success) {
+    return { ok: false, error: parsedKey.error.errors.map((e) => e.message).join(", ") };
+  }
+
   const sql = getClient();
 
   try {
-    await withUser(sql, session, async (tx) => {
+    return await withUser(sql, session, async (tx): Promise<ActionResult> => {
+      // 公開前に、現在の draft を定義から組んだ Zod で検証する（spec 3-1/3-2）。
+      const current = await tx<{ id: string; draft: Record<string, unknown> }[]>`
+        select id, draft from entity_records
+        where entity = ${entity} and slug = ${slug}
+      `;
+      const rec = current[0];
+      if (!rec) return { ok: false, error: "レコードが見つかりません" };
+
+      const defs = await getFieldDefinitions(parsedKey.data.entity);
+      const check = buildZodSchema(defs).safeParse(rec.draft);
+      if (!check.success) {
+        return {
+          ok: false,
+          error:
+            "下書きに未入力/不正な項目があるため公開できません: " +
+            check.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", "),
+        };
+      }
+
       const rows = await tx<{ id: string }[]>`
         update entity_records
         set published = draft, published_at = now()
@@ -455,9 +517,9 @@ export async function publishEntityRecord(
           ${row.id}::uuid
         )
       `;
-    });
 
-    return { ok: true };
+      return { ok: true };
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "不明なエラー";
     return { ok: false, error: msg };

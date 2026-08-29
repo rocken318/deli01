@@ -43,7 +43,9 @@ function makeSubmitAction(entity: string, slug: string, defs: FieldDefinition[])
       const raw = formData.get(def.key);
       switch (def.type) {
         case "boolean":
-          rawValues[def.key] = raw === "true";
+          // hidden("false") + checkbox("true") の2値が来る。get() は先頭="false" を
+          // 返すため、getAll に "true" が含まれるかで判定する。
+          rawValues[def.key] = formData.getAll(def.key).includes("true");
           break;
         case "number":
         case "money":
@@ -262,12 +264,17 @@ export function DynamicForm({
   // 表示対象のフィールド（論理削除済みを除く）
   const activeDefs = defs.filter((d) => d.deletedAt === null);
 
-  // グループ別に分類
+  // グループ別に分類。並びは spec 3-1「sort_order に従って並べる」に合わせ、
+  // 各グループ内の最小 sort_order 順にする（辞書順にしない）。
   const grouped = groupBy(activeDefs, (d) => d.groupLabel ?? "");
+  const groupMinSort = new Map<string, number>();
+  for (const [key, fields] of grouped) {
+    groupMinSort.set(key, Math.min(...fields.map((f) => f.sortOrder)));
+  }
   const groupKeys = Array.from(grouped.keys()).sort((a, b) => {
     if (a === "") return 1; // グループなしは末尾
     if (b === "") return -1;
-    return a.localeCompare(b, "ja");
+    return (groupMinSort.get(a) ?? 0) - (groupMinSort.get(b) ?? 0);
   });
 
   return (

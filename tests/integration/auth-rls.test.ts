@@ -189,3 +189,54 @@ describe("CMS テーブルの RLS", () => {
     await sql`delete from site_settings where key = 'rls_test_key'`;
   });
 });
+
+describe("entity_records の RLS（spec 3-1 / 15章）", () => {
+  const slug = "rls-probe-record";
+
+  beforeAll(async () => {
+    // 保守経路（superuser）で検証用レコードを1件用意
+    await sql`
+      insert into entity_records (entity, slug, draft)
+      values ('page', ${slug}, '{"title":"probe"}'::jsonb)
+      on conflict (entity, slug) do update set draft = excluded.draft
+    `;
+  });
+
+  afterAll(async () => {
+    await sql`delete from entity_records where slug = ${slug}`;
+  });
+
+  it("therapist は entity_records を select できない（0件）", async () => {
+    const rows = await withUser(sql, sessionOf("therapist"), async (tx) => {
+      return tx<{ id: string }[]>`select id from entity_records where slug = ${slug}`;
+    });
+    expect(rows.length).toBe(0);
+  });
+
+  it("reception は select できるが update は 0 行（不可視のため更新されない）", async () => {
+    const rows = await withUser(sql, sessionOf("reception"), async (tx) => {
+      return tx<{ id: string }[]>`select id from entity_records where slug = ${slug}`;
+    });
+    expect(rows.length).toBe(1);
+
+    // reception には update ポリシーが無い。RLS は UPDATE 対象を不可視にするため
+    // エラーではなく 0 行更新になる（INSERT の WITH CHECK 違反とは挙動が異なる）。
+    const updated = await withUser(sql, sessionOf("reception"), async (tx) => {
+      return tx<{ id: string }[]>`
+        update entity_records set draft = '{"x":1}'::jsonb
+        where slug = ${slug} returning id
+      `;
+    });
+    expect(updated.length).toBe(0);
+  });
+
+  it("owner は select も update もできる", async () => {
+    await withUser(sql, sessionOf("owner"), async (tx) => {
+      const rows = await tx<{ id: string }[]>`
+        select id from entity_records where slug = ${slug}
+      `;
+      expect(rows.length).toBe(1);
+      await tx`update entity_records set draft = '{"title":"owner"}'::jsonb where slug = ${slug}`;
+    });
+  });
+});

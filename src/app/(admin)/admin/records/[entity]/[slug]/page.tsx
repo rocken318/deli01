@@ -11,6 +11,9 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { getFieldDefinitions } from "@/lib/cms/get-field-definitions";
 import { getEntityRecord } from "@/lib/cms/get-entity-record";
+import { getDevSession } from "@/lib/cms/dev-session";
+import { toActor } from "@/lib/auth/session";
+import { can } from "@/domain/auth";
 import type { FieldDefinition, EntityRecord } from "@/domain/cms";
 import { DynamicForm } from "./dynamic-form";
 
@@ -74,13 +77,19 @@ async function FormContent({
   entity: string;
   slug: string;
 }) {
+  // 権限ガード（RLS が最後の砦だが、画面側でも can() を通す / spec 15章）
+  const session = await getDevSession();
+  if (!session || !can(toActor(session), "manage_cms")) {
+    return <FormError message="この画面を表示する権限がありません" />;
+  }
+
   let defs: FieldDefinition[];
   let record: EntityRecord | null;
 
   try {
     [defs, record] = await Promise.all([
       getFieldDefinitions(entity),
-      getEntityRecord(entity, slug),
+      getEntityRecord(session, entity, slug),
     ]);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "不明なエラー";
