@@ -39,4 +39,6 @@ export const env = {
   supabaseServiceRoleKey: read("SUPABASE_SERVICE_ROLE_KEY"),
   googleMapsApiKey: read("GOOGLE_MAPS_API_KEY"),
   openaiApiKey: read("OPENAI_API_KEY"),
+  /** 開発専用セッションスタブ有効化フラグ。本番では絶対に設定しない（spec フェーズ3 優先度0） */
+  adminDevSession: read("ADMIN_DEV_SESSION"),
 } as const;
