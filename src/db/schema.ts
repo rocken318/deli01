@@ -178,3 +178,61 @@ export const auditLogs = pgTable("audit_logs", {
     .notNull()
     .defaultNow(),
 });
+
+/** face_visibility enum（spec 3-7: セラピスト写真の顔出し可否） */
+export const faceVisibility = pgEnum("face_visibility", ["face", "eyes", "none"]);
+
+/**
+ * メディアライブラリ（spec 3-7）。
+ * alt は必須（未入力では公開不可）。
+ */
+export const media = pgTable("media", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  storagePath: text("storage_path").notNull().default(""),
+  url: text("url").notNull().default(""),
+  mime: text("mime").notNull().default("image/webp"),
+  width: integer("width"),
+  height: integer("height"),
+  alt: text("alt").notNull(),
+  tags: text("tags").array().notNull().default([]),
+  consentFlag: boolean("consent_flag").notNull().default(false),
+  consentDate: text("consent_date"),
+  faceVisibility: faceVisibility("face_visibility").notNull().default("none"),
+  isPlaceholder: boolean("is_placeholder").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 固定ページ（spec 3-6）。
+ */
+export const pages = pgTable(
+  "pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    locale: text("locale").notNull().default("ja"),
+    draftFields: jsonb("draft_fields").notNull().default({}),
+    publishedFields: jsonb("published_fields"),
+    draftBlocks: jsonb("draft_blocks").notNull().default([]),
+    publishedBlocks: jsonb("published_blocks"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    seoTitle: text("seo_title"),
+    seoDescription: text("seo_description"),
+    seoOgpImageId: uuid("seo_ogp_image_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    slugLocaleUnique: unique("pages_slug_locale_unique").on(t.slug, t.locale),
+  }),
+);
+
+/**
+ * 禁止語リスト（spec 13-2）。
+ */
+export const bannedWords = pgTable("banned_words", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  word: text("word").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

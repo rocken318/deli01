@@ -119,6 +119,107 @@ const entityRecordSamples: {
   },
 ];
 
+const pageSeeds = [
+  {
+    slug: "home",
+    locale: "ja",
+    draft_fields: {
+      heading: "あなたに合った、癒しの時間を",
+      lead: "出張リラクゼーションで、ご自宅やホテルにお伺いします。",
+      heroImageId: null,
+      seoTitle: "出張リラクゼーション | トップページ",
+      seoDescription: "ご自宅やホテルに出張するリラクゼーションサービスです。",
+    },
+    draft_blocks: [
+      {
+        id: "home-hero-1",
+        type: "hero",
+        visible: true,
+        heading: "あなたに合った、癒しの時間を",
+        subheading: "出張リラクゼーションで、ご自宅やホテルにお伺いします。",
+        imageId: "bbbbbbbb-0000-4000-8000-000000000001",
+        ctaLabel: "空き枠を確認する",
+        ctaHref: "/booking",
+      },
+      {
+        id: "home-cta-1",
+        type: "cta",
+        visible: true,
+        label: "今すぐ予約する",
+        href: "/booking",
+        subtext: "最短90分でお伺いします",
+      },
+    ],
+  },
+];
+
+/**
+ * プレースホルダ画像の実体（spec 3-7 / 12-1）。
+ * 自己完結の data-URI SVG（抽象グラデーション）にすることで、Storage 未配線でも
+ * プレビュー・公開レンダラーで実際に描画できる。本番公開前に本物へ差し替える
+ * （README「本番前チェックリスト」参照）。第12-1章のトーン（落ち着いた暖色〜藤色）。
+ */
+function gradientSvgDataUri(from: string, to: string, label: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="${label}">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="${from}"/><stop offset="100%" stop-color="${to}"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="1200" height="675" fill="url(#g)"/>` +
+    `<circle cx="300" cy="180" r="220" fill="#ffffff" opacity="0.08"/>` +
+    `<circle cx="960" cy="520" r="300" fill="#ffffff" opacity="0.06"/>` +
+    `</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const mediaSeeds = [
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000001",
+    storage_path: "",
+    url: gradientSvgDataUri("#c9a27e", "#8a6f9e", "ヒーロー画像プレースホルダー"),
+    alt: "ヒーロー画像プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "hero"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    storage_path: "",
+    url: gradientSvgDataUri("#a8846a", "#6f7e9e", "ヒーロー画像プレースホルダー（別トーン）"),
+    alt: "ヒーロー画像プレースホルダー（別トーン・本番公開前に差し替えること）",
+    tags: ["placeholder", "hero"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000003",
+    storage_path: "",
+    url: gradientSvgDataUri("#c98e8e", "#9e8a6f", "コース案内画像プレースホルダー"),
+    alt: "コース案内画像プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "course"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000004",
+    storage_path: "",
+    url: gradientSvgDataUri("#8e9ec9", "#c9a27e", "コース案内画像プレースホルダー（別トーン）"),
+    alt: "コース案内画像プレースホルダー（別トーン・本番公開前に差し替えること）",
+    tags: ["placeholder", "course"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000005",
+    storage_path: "",
+    url: gradientSvgDataUri("#9e8ac9", "#7e9e8a", "セラピストシルエットプレースホルダー"),
+    alt: "セラピストシルエットプレースホルダー（実在人物写真は使用不可 / spec 3-7）",
+    tags: ["placeholder", "therapist"],
+    is_placeholder: true,
+  },
+];
+
+const bannedWordSeeds = [
+  "治る", "治ります", "治療", "診断", "医療",
+  "効果があります", "改善します", "国家資格", "あん摩", "マッサージ師",
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -133,7 +234,7 @@ async function main() {
     for (const s of siteSettings) {
       await sql`
         insert into site_settings (key, value)
-        values (${s.key}, ${JSON.stringify(s.value)}::jsonb)
+        values (${s.key}, ${sql.json(s.value as postgres.JSONValue)})
         on conflict (key) do nothing
       `;
     }
@@ -144,7 +245,7 @@ async function main() {
           (entity, key, label, type, options, sort_order, is_public, is_filterable)
         values (
           ${f.entity}, ${f.key}, ${f.label}, ${f.type}::field_type,
-          ${"options" in f ? JSON.stringify(f.options) : null}::jsonb,
+          ${"options" in f ? sql.json(f.options as postgres.JSONValue) : null},
           ${f.sort_order}, ${f.is_public}, ${"is_filterable" in f ? f.is_filterable : false}
         )
         on conflict (entity, key) do nothing
@@ -165,13 +266,33 @@ async function main() {
     for (const r of entityRecordSamples) {
       await sql`
         insert into entity_records (entity, slug, draft)
-        values (${r.entity}, ${r.slug}, ${JSON.stringify(r.draft)}::jsonb)
+        values (${r.entity}, ${r.slug}, ${sql.json(r.draft as postgres.JSONValue)})
         on conflict (entity, slug) do nothing
       `;
     }
 
+    for (const p of pageSeeds) {
+      await sql`
+        insert into pages (slug, locale, draft_fields, draft_blocks)
+        values (${p.slug}, ${p.locale}, ${sql.json(p.draft_fields as postgres.JSONValue)}, ${sql.json(p.draft_blocks as postgres.JSONValue)})
+        on conflict (slug, locale) do update set draft_fields = excluded.draft_fields, draft_blocks = excluded.draft_blocks
+      `;
+    }
+
+    for (const m of mediaSeeds) {
+      await sql`
+        insert into media (id, storage_path, url, alt, tags, is_placeholder)
+        values (${m.id}::uuid, ${m.storage_path}, ${m.url}, ${m.alt}, ${m.tags}::text[], ${m.is_placeholder})
+        on conflict (id) do update set alt = excluded.alt, tags = excluded.tags, is_placeholder = excluded.is_placeholder
+      `;
+    }
+
+    for (const word of bannedWordSeeds) {
+      await sql`insert into banned_words (word) values (${word}) on conflict (word) do nothing`;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });

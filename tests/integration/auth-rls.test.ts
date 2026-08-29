@@ -240,3 +240,69 @@ describe("entity_records の RLS（spec 3-1 / 15章）", () => {
     });
   });
 });
+
+describe("pages の RLS（spec 3-6 / 15章）", () => {
+  const testSlug = "rls-probe-page";
+
+  beforeAll(async () => {
+    await sql`
+      insert into pages (slug, locale, draft_fields, draft_blocks)
+      values (${testSlug}, 'ja', '{"heading":"probe"}'::jsonb, '[]'::jsonb)
+      on conflict (slug, locale) do update set draft_fields = excluded.draft_fields
+    `;
+  });
+
+  afterAll(async () => {
+    await sql`delete from pages where slug = ${testSlug}`;
+  });
+
+  it("therapist は pages を select できない（0件）", async () => {
+    const rows = await withUser(sql, sessionOf("therapist"), async (tx) => {
+      return tx<{ id: string }[]>`select id from pages where slug = ${testSlug}`;
+    });
+    expect(rows.length).toBe(0);
+  });
+
+  it("owner は pages を select・update できる", async () => {
+    await withUser(sql, sessionOf("owner"), async (tx) => {
+      const rows = await tx<{ id: string }[]>`select id from pages where slug = ${testSlug}`;
+      expect(rows.length).toBe(1);
+      await tx`update pages set draft_fields = '{"heading":"owner-update"}'::jsonb where slug = ${testSlug}`;
+    });
+  });
+});
+
+describe("media の RLS（spec 3-7 / 15章）", () => {
+  let testMediaId: string;
+
+  beforeAll(async () => {
+    const rows = await sql<{ id: string }[]>`insert into media (alt, tags) values ('RLS probe', '{}') returning id`;
+    testMediaId = rows[0]!.id;
+  });
+
+  afterAll(async () => {
+    await sql`delete from media where id = ${testMediaId}::uuid`;
+  });
+
+  it("therapist は media を select できる（公開ページが参照する）", async () => {
+    const rows = await withUser(sql, sessionOf("therapist"), async (tx) => {
+      return tx<{ id: string }[]>`select id from media where id = ${testMediaId}::uuid`;
+    });
+    expect(rows.length).toBe(1);
+  });
+
+  it("therapist は media を update できない（0行更新）", async () => {
+    const updated = await withUser(sql, sessionOf("therapist"), async (tx) => {
+      return tx<{ id: string }[]>`update media set alt = 'hacked' where id = ${testMediaId}::uuid returning id`;
+    });
+    expect(updated.length).toBe(0);
+  });
+
+  it("admin は media を update できる", async () => {
+    await withUser(sql, sessionOf("admin"), async (tx) => {
+      await tx`update media set alt = 'admin-update' where id = ${testMediaId}::uuid`;
+    });
+    const check = await sql<{ alt: string }[]>`select alt from media where id = ${testMediaId}::uuid`;
+    expect(check[0]?.alt).toBe("admin-update");
+  });
+});

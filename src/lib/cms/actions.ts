@@ -128,7 +128,7 @@ export async function addFieldDefinition(
           ${data.key},
           ${data.label},
           ${data.type}::field_type,
-          ${data.options != null ? JSON.stringify(data.options) : null}::jsonb,
+          ${data.options != null ? tx.json(data.options) : null},
           ${data.groupLabel ?? null},
           ${data.sortOrder},
           ${data.isPublic},
@@ -149,7 +149,7 @@ export async function addFieldDefinition(
           'create',
           'field_definition',
           ${row.id}::uuid,
-          ${JSON.stringify({ entity: data.entity, key: data.key, label: data.label })}::jsonb
+          ${tx.json({ entity: data.entity, key: data.key, label: data.label })}
         )
       `;
 
@@ -224,7 +224,7 @@ export async function updateFieldDefinition(
         update field_definitions
         set
           label       = coalesce(${data.label ?? null}, label),
-          options     = coalesce(${data.options != null ? JSON.stringify(data.options) : null}::jsonb, options),
+          options     = coalesce(${data.options != null ? tx.json(data.options) : null}, options),
           group_label = ${nextGroupLabel}::text,
           sort_order  = coalesce(${data.sortOrder ?? null}, sort_order),
           is_public   = coalesce(${data.isPublic ?? null}, is_public),
@@ -242,8 +242,8 @@ export async function updateFieldDefinition(
           'update',
           'field_definition',
           ${data.id}::uuid,
-          ${JSON.stringify(before)}::jsonb,
-          ${JSON.stringify(data)}::jsonb
+          ${tx.json(before)},
+          ${tx.json(data)}
         )
       `;
     });
@@ -303,7 +303,7 @@ export async function toggleFieldVisibility(
           ${hide ? "soft_delete" : "restore"},
           'field_definition',
           ${id}::uuid,
-          ${JSON.stringify({ hide })}::jsonb
+          ${tx.json({ hide })}
         )
       `;
     });
@@ -356,7 +356,7 @@ export async function reorderFieldDefinitions(
           ${session.userId}::uuid,
           'reorder',
           'field_definition',
-          ${JSON.stringify(parsed.data)}::jsonb
+          ${tx.json(parsed.data)}
         )
       `;
     });
@@ -418,7 +418,7 @@ export async function saveEntityRecord(
         values (
           ${parsed.data.entity},
           ${parsed.data.slug},
-          ${JSON.stringify(validatedDraft)}::jsonb
+          ${tx.json(validatedDraft)}
         )
         on conflict (entity, slug)
         do update set
@@ -436,7 +436,7 @@ export async function saveEntityRecord(
           'update',
           'entity_record',
           ${row.id}::uuid,
-          ${JSON.stringify({ entity: parsed.data.entity, slug: parsed.data.slug })}::jsonb
+          ${tx.json({ entity: parsed.data.entity, slug: parsed.data.slug })}
         )
       `;
 
