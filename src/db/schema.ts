@@ -1,11 +1,15 @@
 import {
   bigint,
   boolean,
+  customType,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
+  time,
   timestamp,
   unique,
   uuid,
@@ -259,5 +263,124 @@ export const therapists = pgTable("therapists", {
   displayOrder: integer("display_order").notNull().default(0),
   retiredAt: timestamp("retired_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// フェーズ6: エリア・移動時間・バッファ（spec 4章・5-1・5-2 / 0005_areas_travel.sql）
+// ---------------------------------------------------------------------------
+
+/**
+ * PostGIS geography(Point,4326) の写像。
+ * ORM からは WKT / EWKB hex のテキストとして受け渡す（距離計算は SQL 側 ST_Distance）。
+ * DDL 上の定義は 0005_areas_travel.sql が正。
+ */
+const geographyPoint = customType<{ data: string }>({
+  dataType() {
+    return "geography(point, 4326)";
+  },
+});
+
+/** エリア種別（spec 3-8 / 4章）。DDL は text + check 制約 */
+export type AreaKind = "ward" | "city" | "station";
+
+/** エリア（区・市・駅単位 / spec 4章）。center は代表点（徒歩距離・暫定値算出に使う） */
+export const areas = pgTable("areas", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  kind: text("kind").$type<AreaKind>().notNull(),
+  center: geographyPoint("center"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 車のエリア間移動時間マトリクス（spec 5-1 ★）。CMS で人手上書きが正 */
+export const areaTravelTimes = pgTable(
+  "area_travel_times",
+  {
+    fromAreaId: uuid("from_area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    toAreaId: uuid("to_area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    minutes: integer("minutes").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.fromAreaId, t.toAreaId] }),
+  }),
+);
+
+/** 徒歩の迂回係数・分速・上限距離（spec 5-1。単一行 / CMS で調整可） */
+export const walkSettings = pgTable("walk_settings", {
+  id: boolean("id").primaryKey().default(true),
+  detourFactor: numeric("detour_factor", { precision: 4, scale: 2 }).notNull().default("1.30"),
+  speedMPerMin: integer("speed_m_per_min").notNull().default(80),
+  capMeters: integer("cap_meters").notNull().default(1600),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 区間ごとの徒歩時間上書き（橋・踏切などの分断 / spec 5-1） */
+export const walkOverrides = pgTable(
+  "walk_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fromAreaId: uuid("from_area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    toAreaId: uuid("to_area_id")
+      .notNull()
+      .references(() => areas.id, { onDelete: "cascade" }),
+    addedMinutes: integer("added_minutes").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pairUnique: unique("walk_overrides_pair_unique").on(t.fromAreaId, t.toAreaId),
+  }),
+);
+
+/** 車の時間帯係数（spec 5-1）。time_from > time_to は日跨ぎ区間（例 23:00〜05:00） */
+export const travelTimeModifiers = pgTable("travel_time_modifiers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  label: text("label").notNull(),
+  timeFrom: time("time_from").notNull(),
+  timeTo: time("time_to").notNull(),
+  multiplier: numeric("multiplier", { precision: 4, scale: 2 }).notNull().default("1.00"),
+  additional: integer("additional").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** 待機場所種別（spec 3-3: 自宅／最寄り駅／事務所）。DDL は text + check 制約 */
+export type BaseKind = "home" | "station" | "office";
+
+/** 待機場所（spec 4章）。shifts（フェーズ8）の待機開始/終了場所から参照される */
+export const bases = pgTable("bases", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  kind: text("kind").$type<BaseKind>().notNull(),
+  location: geographyPoint("location"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** バッファ設定のスコープ。DDL は text + check 制約 */
+export type TravelBufferScope = "default" | "area";
+
+/** 移動バッファ（spec 5-2）。既定1行 + エリア別上書き。駐車は車のみ加算（domain 側） */
+export const travelBuffers = pgTable("travel_buffers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scope: text("scope").$type<TravelBufferScope>().notNull(),
+  areaId: uuid("area_id").references(() => areas.id, { onDelete: "cascade" }),
+  arriveMin: integer("arrive_min").notNull().default(10),
+  parkingMin: integer("parking_min").notNull().default(15),
+  beforeMin: integer("before_min").notNull().default(5),
+  afterMin: integer("after_min").notNull().default(10),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
