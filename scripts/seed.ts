@@ -420,6 +420,158 @@ const therapistRecordSeeds: {
   },
 ];
 
+// ---------------------------------------------------------------------------
+// フェーズ6: エリア・移動時間・バッファ（spec 4章・5-1・5-2・18章 / 冪等）
+// Google Maps Distance Matrix API は未キーのため、車マトリクスは手動の暫定値
+// （判断ログ参照）。CMS で人手上書きできることが正の運用（spec 5-1）。
+// ---------------------------------------------------------------------------
+
+/**
+ * エリア（spec 3-8 / 4章）。center は代表点の経緯度（lon, lat / WGS84）。
+ * 配置の意図:
+ * - 目黒区の代表点と恵比寿駅は約1.2km（徒歩上限1.6km 以内 → walk になる例）
+ * - 八王子市は他の全区から遠方（車 or unreachable になる例）
+ */
+const areaSeeds: {
+  id: string;
+  name: string;
+  kind: "ward" | "city" | "station";
+  lon: number;
+  lat: number;
+  sort_order: number;
+}[] = [
+  { id: "cccccccc-0000-4000-8000-000000000001", name: "渋谷区", kind: "ward", lon: 139.6982, lat: 35.664, sort_order: 10 },
+  { id: "cccccccc-0000-4000-8000-000000000002", name: "新宿区", kind: "ward", lon: 139.7034, lat: 35.6938, sort_order: 20 },
+  { id: "cccccccc-0000-4000-8000-000000000003", name: "港区", kind: "ward", lon: 139.7516, lat: 35.6581, sort_order: 30 },
+  { id: "cccccccc-0000-4000-8000-000000000004", name: "目黒区", kind: "ward", lon: 139.6982, lat: 35.6415, sort_order: 40 },
+  { id: "cccccccc-0000-4000-8000-000000000005", name: "世田谷区", kind: "ward", lon: 139.6532, lat: 35.6461, sort_order: 50 },
+  { id: "cccccccc-0000-4000-8000-000000000006", name: "品川区", kind: "ward", lon: 139.7302, lat: 35.6092, sort_order: 60 },
+  { id: "cccccccc-0000-4000-8000-000000000007", name: "中野区", kind: "ward", lon: 139.6638, lat: 35.7074, sort_order: 70 },
+  { id: "cccccccc-0000-4000-8000-000000000008", name: "豊島区", kind: "ward", lon: 139.7164, lat: 35.7263, sort_order: 80 },
+  { id: "cccccccc-0000-4000-8000-000000000009", name: "恵比寿駅", kind: "station", lon: 139.7101, lat: 35.6467, sort_order: 90 },
+  { id: "cccccccc-0000-4000-8000-000000000010", name: "八王子市", kind: "city", lon: 139.316, lat: 35.6664, sort_order: 100 },
+];
+
+/** エリア名 → id（マトリクス定義を読みやすくする） */
+const areaId = new Map(areaSeeds.map((a) => [a.name, a.id]));
+
+/**
+ * 車のエリア間移動時間マトリクス（分 / 双方向に同値で展開）。
+ * 近隣 8〜20分、遠方（八王子）45〜60分の差をつける（spec 18章の現実的分布）。
+ * 未登録ペア（例: 豊島区↔品川区）は暫定値経路（provisionalCarMinutes）のデモに残す。
+ */
+const carMatrixSeeds: { from: string; to: string; minutes: number }[] = [
+  { from: "渋谷区", to: "新宿区", minutes: 15 },
+  { from: "渋谷区", to: "港区", minutes: 18 },
+  { from: "渋谷区", to: "目黒区", minutes: 12 },
+  { from: "渋谷区", to: "世田谷区", minutes: 16 },
+  { from: "渋谷区", to: "中野区", minutes: 20 },
+  { from: "渋谷区", to: "恵比寿駅", minutes: 8 },
+  { from: "新宿区", to: "中野区", minutes: 12 },
+  { from: "新宿区", to: "豊島区", minutes: 15 },
+  { from: "港区", to: "品川区", minutes: 15 },
+  { from: "目黒区", to: "品川区", minutes: 12 },
+  { from: "目黒区", to: "恵比寿駅", minutes: 8 },
+  { from: "渋谷区", to: "八王子市", minutes: 60 },
+  { from: "新宿区", to: "八王子市", minutes: 55 },
+  { from: "世田谷区", to: "八王子市", minutes: 45 },
+];
+
+/** 時間帯係数（spec 5-1: 深夜 < 1、朝夕 1.3〜1.5）。深夜は日跨ぎ区間 */
+const timeModifierSeeds: {
+  id: string;
+  label: string;
+  time_from: string;
+  time_to: string;
+  multiplier: string;
+  additional: number;
+  sort_order: number;
+}[] = [
+  {
+    id: "eeeeeeee-0000-4000-8000-000000000001",
+    label: "深夜（道が空く）",
+    time_from: "23:00",
+    time_to: "05:00",
+    multiplier: "0.75",
+    additional: 0,
+    sort_order: 10,
+  },
+  {
+    id: "eeeeeeee-0000-4000-8000-000000000002",
+    label: "朝の通勤帯",
+    time_from: "07:00",
+    time_to: "09:30",
+    multiplier: "1.40",
+    additional: 0,
+    sort_order: 20,
+  },
+  {
+    id: "eeeeeeee-0000-4000-8000-000000000003",
+    label: "夕の通勤帯",
+    time_from: "17:00",
+    time_to: "19:30",
+    multiplier: "1.30",
+    additional: 0,
+    sort_order: 30,
+  },
+];
+
+/** 待機場所（spec 3-3: 自宅／最寄り駅／事務所） */
+const baseSeeds: {
+  id: string;
+  name: string;
+  kind: "home" | "station" | "office";
+  lon: number;
+  lat: number;
+}[] = [
+  { id: "dddddddd-0000-4000-8000-000000000001", name: "事務所（渋谷）", kind: "office", lon: 139.7005, lat: 35.6595 },
+  { id: "dddddddd-0000-4000-8000-000000000002", name: "新宿駅 待機", kind: "station", lon: 139.7003, lat: 35.6896 },
+  { id: "dddddddd-0000-4000-8000-000000000003", name: "自宅待機（中野）", kind: "home", lon: 139.6657, lat: 35.7056 },
+];
+
+/**
+ * 移動バッファ（spec 5-2）。既定: 到着前10・駐車15・施術前5・施術後10。
+ * 都心（港区）は駐車バッファ20分に上書き（エリア別上書きの実証）。
+ */
+const travelBufferSeeds: {
+  id: string;
+  scope: "default" | "area";
+  area: string | null;
+  arrive_min: number;
+  parking_min: number;
+  before_min: number;
+  after_min: number;
+}[] = [
+  {
+    id: "ffffffff-0000-4000-8000-000000000001",
+    scope: "default",
+    area: null,
+    arrive_min: 10,
+    parking_min: 15,
+    before_min: 5,
+    after_min: 10,
+  },
+  {
+    id: "ffffffff-0000-4000-8000-000000000002",
+    scope: "area",
+    area: "港区",
+    arrive_min: 10,
+    parking_min: 20,
+    before_min: 5,
+    after_min: 10,
+  },
+];
+
+/** 徒歩上書きの例（spec 5-1: 川・線路等の分断区間は迂回係数が効かない） */
+const walkOverrideSeeds: { from: string; to: string; added_minutes: number; note: string }[] = [
+  {
+    from: "品川区",
+    to: "港区",
+    added_minutes: 8,
+    note: "運河・橋を渡るため直線距離より時間がかかる区間",
+  },
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -595,8 +747,127 @@ async function main() {
         and published_at is null
     `;
 
+    // -----------------------------------------------------------------------
+    // フェーズ6: エリア・移動時間・バッファ（冪等）
+    // -----------------------------------------------------------------------
+
+    for (const a of areaSeeds) {
+      await sql`
+        insert into areas (id, name, kind, center, sort_order, is_active)
+        values (
+          ${a.id}::uuid, ${a.name}, ${a.kind},
+          st_setsrid(st_makepoint(${a.lon}::float8, ${a.lat}::float8), 4326)::geography,
+          ${a.sort_order}, true
+        )
+        on conflict (id) do update set
+          name       = excluded.name,
+          kind       = excluded.kind,
+          center     = excluded.center,
+          sort_order = excluded.sort_order,
+          is_active  = excluded.is_active
+      `;
+    }
+
+    // 車マトリクス（双方向に同値で展開。CMS で片方向だけ直せる余地を残すため行は分ける）
+    for (const m of carMatrixSeeds) {
+      const fromId = areaId.get(m.from);
+      const toId = areaId.get(m.to);
+      if (!fromId || !toId) throw new Error(`マトリクスのエリア名が不正: ${m.from} → ${m.to}`);
+      for (const [f, t] of [
+        [fromId, toId],
+        [toId, fromId],
+      ] as const) {
+        await sql`
+          insert into area_travel_times (from_area_id, to_area_id, minutes)
+          values (${f}::uuid, ${t}::uuid, ${m.minutes})
+          on conflict (from_area_id, to_area_id) do update set minutes = excluded.minutes
+        `;
+      }
+    }
+
+    // 徒歩設定（単一行 / spec 5-1 既定: 迂回1.30・分速80・上限1600m）
+    await sql`
+      insert into walk_settings (id, detour_factor, speed_m_per_min, cap_meters)
+      values (true, 1.30, 80, 1600)
+      on conflict (id) do nothing
+    `;
+
+    // 徒歩上書き（分断区間。両方向に展開）
+    for (const w of walkOverrideSeeds) {
+      const fromId = areaId.get(w.from);
+      const toId = areaId.get(w.to);
+      if (!fromId || !toId) throw new Error(`徒歩上書きのエリア名が不正: ${w.from} → ${w.to}`);
+      for (const [f, t] of [
+        [fromId, toId],
+        [toId, fromId],
+      ] as const) {
+        await sql`
+          insert into walk_overrides (from_area_id, to_area_id, added_minutes, note)
+          values (${f}::uuid, ${t}::uuid, ${w.added_minutes}, ${w.note})
+          on conflict (from_area_id, to_area_id) do update set
+            added_minutes = excluded.added_minutes,
+            note          = excluded.note
+        `;
+      }
+    }
+
+    for (const tm of timeModifierSeeds) {
+      await sql`
+        insert into travel_time_modifiers
+          (id, label, time_from, time_to, multiplier, additional, sort_order)
+        values (
+          ${tm.id}::uuid, ${tm.label}, ${tm.time_from}::time, ${tm.time_to}::time,
+          ${tm.multiplier}::numeric, ${tm.additional}, ${tm.sort_order}
+        )
+        on conflict (id) do update set
+          label      = excluded.label,
+          time_from  = excluded.time_from,
+          time_to    = excluded.time_to,
+          multiplier = excluded.multiplier,
+          additional = excluded.additional,
+          sort_order = excluded.sort_order
+      `;
+    }
+
+    for (const b of baseSeeds) {
+      await sql`
+        insert into bases (id, name, kind, location, is_active)
+        values (
+          ${b.id}::uuid, ${b.name}, ${b.kind},
+          st_setsrid(st_makepoint(${b.lon}::float8, ${b.lat}::float8), 4326)::geography,
+          true
+        )
+        on conflict (id) do update set
+          name     = excluded.name,
+          kind     = excluded.kind,
+          location = excluded.location
+      `;
+    }
+
+    for (const tb of travelBufferSeeds) {
+      const tbAreaId = tb.area === null ? null : (areaId.get(tb.area) ?? null);
+      if (tb.area !== null && tbAreaId === null) {
+        throw new Error(`バッファのエリア名が不正: ${tb.area}`);
+      }
+      await sql`
+        insert into travel_buffers
+          (id, scope, area_id, arrive_min, parking_min, before_min, after_min)
+        values (
+          ${tb.id}::uuid, ${tb.scope}, ${tbAreaId}::uuid,
+          ${tb.arrive_min}, ${tb.parking_min}, ${tb.before_min}, ${tb.after_min}
+        )
+        on conflict (id) do update set
+          scope       = excluded.scope,
+          area_id     = excluded.area_id,
+          arrive_min  = excluded.arrive_min,
+          parking_min = excluded.parking_min,
+          before_min  = excluded.before_min,
+          after_min   = excluded.after_min
+      `;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });
