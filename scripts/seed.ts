@@ -220,6 +220,112 @@ const bannedWordSeeds = [
   "効果があります", "改善します", "国家資格", "あん摩", "マッサージ師",
 ];
 
+// ---------------------------------------------------------------------------
+// フェーズ4: セラピストシード（spec 18-5 / 3-7・3-8）
+// ---------------------------------------------------------------------------
+
+/**
+ * セラピストプレースホルダ画像（spec 3-7: 実在人物写真は使用不可）。
+ * 各セラピストにイニシャル入りの抽象 SVG を使う。
+ */
+function therapistSvgDataUri(initial: string, from: string, to: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="セラピストシルエット">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="${from}"/><stop offset="100%" stop-color="${to}"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="800" height="800" fill="url(#g)"/>` +
+    `<circle cx="400" cy="300" r="160" fill="#ffffff" opacity="0.15"/>` +
+    `<ellipse cx="400" cy="600" rx="220" ry="180" fill="#ffffff" opacity="0.10"/>` +
+    `<text x="400" y="380" text-anchor="middle" font-family="serif" font-size="200" fill="#ffffff" opacity="0.6">${initial}</text>` +
+    `</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * セラピスト用メディアシード（プレースホルダ）。
+ * bbbbbbbb-0001〜: セラピスト写真枠。
+ * 同意フラグの違いで publishTherapistProfile の掲載同意ゲートをデモできる。
+ */
+const therapistMediaSeeds = [
+  // あおい: 同意あり（公開可能）
+  {
+    id: "bbbbbbbb-0001-4000-8000-000000000001",
+    url: therapistSvgDataUri("蒼", "#8a7ead", "#5e8fa8"),
+    alt: "セラピスト「あおい」プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "therapist", "aoi"],
+    consent_flag: true,
+    consent_date: "2026-01-01",
+    face_visibility: "none",
+    is_placeholder: true,
+  },
+  // みなと: 同意なし（publishTherapistProfile のゲートデモ用）
+  {
+    id: "bbbbbbbb-0001-4000-8000-000000000002",
+    url: therapistSvgDataUri("湊", "#7eadad", "#5e8f7e"),
+    alt: "セラピスト「みなと」プレースホルダー（掲載同意未取得 / 本番公開前に差し替えること）",
+    tags: ["placeholder", "therapist", "minato"],
+    consent_flag: false,
+    consent_date: null,
+    face_visibility: "none",
+    is_placeholder: true,
+  },
+  // ひなた: 同意あり（退職済みのためis_hiddenデモ用）
+  {
+    id: "bbbbbbbb-0001-4000-8000-000000000003",
+    url: therapistSvgDataUri("陽", "#ada87e", "#a88e5e"),
+    alt: "セラピスト「ひなた」プレースホルダー（退職済み / 本番公開前に差し替えること）",
+    tags: ["placeholder", "therapist", "hinata"],
+    consent_flag: true,
+    consent_date: "2026-01-01",
+    face_visibility: "none",
+    is_placeholder: true,
+  },
+] as const;
+
+/** セラピストマスタシード（spec 18-5） */
+const therapistSeeds = [
+  { slug: "aoi",    status: "active",   display_order: 1, retired_at: null },
+  { slug: "minato", status: "active",   display_order: 2, retired_at: null },
+  { slug: "hinata", status: "retired",  display_order: 3, retired_at: new Date("2026-04-01") },
+] as const;
+
+/** セラピストの entity_records シード（draft のみ。公開は管理画面から手動） */
+const therapistRecordSeeds: {
+  slug: string;
+  draft: Record<string, unknown>;
+}[] = [
+  {
+    slug: "aoi",
+    draft: {
+      catch_copy: "心地よい圧で、あなたの体をほぐします",
+      intro: "<p>オイルとリンパを得意とするセラピストです。</p>",
+      good_at: ["オイル", "リンパ"],
+      years_of_experience: 5,
+      // image フィールド: 同意ありのメディアを参照（publishTherapistProfile で公開可能）
+    },
+  },
+  {
+    slug: "minato",
+    draft: {
+      catch_copy: "丁寧な施術で、日々の疲れをリセット",
+      intro: "<p>指圧とストレッチを中心に、幅広いコースに対応します。</p>",
+      good_at: ["指圧", "ストレッチ"],
+      years_of_experience: 3,
+      // image フィールド: 同意なしのメディアを参照（publishTherapistProfile がブロックされるデモ用）
+    },
+  },
+  {
+    slug: "hinata",
+    draft: {
+      catch_copy: "足つぼで体の芯から癒します",
+      intro: "<p>足つぼを専門とするセラピストです。</p>",
+      good_at: ["足つぼ"],
+      years_of_experience: 2,
+    },
+  },
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -291,8 +397,72 @@ async function main() {
       await sql`insert into banned_words (word) values (${word}) on conflict (word) do nothing`;
     }
 
+    // -----------------------------------------------------------------------
+    // フェーズ4: セラピスト（therapists + media + entity_records）
+    // -----------------------------------------------------------------------
+
+    for (const m of therapistMediaSeeds) {
+      await sql`
+        insert into media (id, url, alt, tags, consent_flag, consent_date, face_visibility, is_placeholder)
+        values (
+          ${m.id}::uuid,
+          ${m.url},
+          ${m.alt},
+          ${m.tags as unknown as string[]}::text[],
+          ${m.consent_flag},
+          ${m.consent_date ?? null},
+          ${m.face_visibility}::face_visibility,
+          ${m.is_placeholder}
+        )
+        on conflict (id) do update set
+          alt          = excluded.alt,
+          consent_flag = excluded.consent_flag,
+          consent_date = excluded.consent_date,
+          tags         = excluded.tags,
+          is_placeholder = excluded.is_placeholder
+      `;
+    }
+
+    for (const t of therapistSeeds) {
+      await sql`
+        insert into therapists (slug, status, display_order, retired_at)
+        values (
+          ${t.slug},
+          ${t.status}::therapist_status,
+          ${t.display_order},
+          ${t.retired_at ?? null}
+        )
+        on conflict (slug) do update set
+          status        = excluded.status,
+          display_order = excluded.display_order,
+          retired_at    = excluded.retired_at
+      `;
+    }
+
+    for (const r of therapistRecordSeeds) {
+      await sql`
+        insert into entity_records (entity, slug, draft)
+        values ('therapist', ${r.slug}, ${sql.json(r.draft as postgres.JSONValue)})
+        on conflict (entity, slug) do nothing
+      `;
+    }
+
+    // みなと: consent_flag=false のメディアを draft の image_gallery に追加して
+    //         publishTherapistProfile のゲートデモを示す
+    // (draft のみ更新。image_gallery の field_definitions が存在しない場合は影響なし)
+    await sql`
+      update entity_records
+      set draft = jsonb_set(
+        draft,
+        '{photo}',
+        to_jsonb(${"bbbbbbbb-0001-4000-8000-000000000002"}::text)
+      )
+      where entity = 'therapist' and slug = 'minato'
+        and not (draft ? 'photo')
+    `;
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });

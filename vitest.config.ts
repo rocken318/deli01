@@ -29,7 +29,13 @@ function loadDotEnv(): Record<string, string> {
 export default defineConfig({
   resolve: {
     // tsconfig の paths（"@/*" → "./src/*"）と揃える
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // "server-only" は Next.js のビルド時専用ガード。
+      // vitest（Node）では throw するため空モジュールに差し替える。
+      // これで server-only を import している lib を統合テストから呼べる。
+      "server-only": fileURLToPath(new URL("./tests/__mocks__/server-only.ts", import.meta.url)),
+    },
   },
   test: {
     environment: "node",

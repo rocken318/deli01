@@ -199,6 +199,8 @@ export const media = pgTable("media", {
   consentDate: text("consent_date"),
   faceVisibility: faceVisibility("face_visibility").notNull().default("none"),
   isPlaceholder: boolean("is_placeholder").notNull().default(false),
+  /** 退職処理（retireTherapist）で一括 true に設定（spec 3-7） */
+  isHidden: boolean("is_hidden").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -235,4 +237,27 @@ export const bannedWords = pgTable("banned_words", {
   id: uuid("id").primaryKey().defaultRandom(),
   word: text("word").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** therapist_status enum（spec 3-8） */
+export const therapistStatus = pgEnum("therapist_status", [
+  "active",
+  "inactive",
+  "retired",
+]);
+
+/**
+ * セラピストマスタ（spec 3-8 / 4章 / 0004_therapists.sql）。
+ * 内部情報（status・display_order）と entity_records（プロフィール）は分離する。
+ * app_users との紐付けは app_user_id で行う。
+ */
+export const therapists = pgTable("therapists", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appUserId: uuid("app_user_id").references(() => appUsers.id, { onDelete: "set null" }),
+  slug: text("slug").notNull().unique(),
+  status: therapistStatus("status").notNull().default("active"),
+  displayOrder: integer("display_order").notNull().default(0),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
