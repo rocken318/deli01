@@ -19,6 +19,10 @@ export const metadata: Metadata = {
 const navItems = [
   { href: "/admin/fields", label: "フィールド定義" },
   { href: "/admin/records", label: "レコード" },
+  { href: "/admin/settings", label: "サイト設定" },
+  { href: "/admin/pages", label: "固定ページ" },
+  { href: "/admin/media", label: "メディア" },
+  { href: "/admin/preview/home", label: "プレビュー" },
 ] as const;
 
 export default function AdminLayout({
