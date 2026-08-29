@@ -555,6 +555,39 @@ describe("手順8: held/confirmed の占有区間（depart_at〜free_at）と重
   });
 });
 
+describe("到着側の車係数が固定点で振動する場合、遅刻側に倒さない（reviewer R-1）", () => {
+  // 朝ピーク 07:00-09:30 ×1.4。車マトリクス60分。目的地=別エリア(ebisu)で car。
+  const PEAK: TimeModifier[] = [
+    { timeFrom: "07:00", timeTo: "09:30", multiplier: 1.4, additional: 0 },
+  ];
+  const destEbisu: PlaceRef = { id: "dest-ebisu", areaId: "ebisu" };
+
+  it("s=08:30 の到着分は 84/60 で振動 → max=84 を採り depart_at=06:41（甘い60を採らない）", () => {
+    const slots = computeAvailableSlots(
+      makeInput({
+        destination: { place: destEbisu, kind: "residence" },
+        // 早朝から開始し、depart_at=06:41 が gap.tP 以降・now 以降になるように
+        shift: makeShift({ startAt: jst(DAY, "06:00"), endAt: jst(DAY, "19:00") }),
+        timeModifiers: PEAK,
+        travel: src({
+          distances: { "base-office|dest-ebisu": 3000 }, // >1600m → car
+          matrix: { "shibuya|ebisu": 60 },
+        }),
+        now: jst("2026-08-31", "12:00"),
+      }),
+    );
+    const s0830 = slots.find(
+      (s) => formatInTimeZone(s.startAt, TZ, "HH:mm") === "08:30",
+    );
+    expect(s0830).toBeDefined();
+    expect(s0830!.travelInMode).toBe("car");
+    // arriveBy = 08:30 − (到着10 + 駐車15) = 08:05。係数境界を跨ぐ振動でも遅刻側に倒さず 84 分。
+    expect(s0830!.travelInMin).toBe(84);
+    // depart_at = 08:05 − 84 = 06:41（甘い60なら 07:05 になってしまう）
+    expect(formatInTimeZone(s0830!.departAt, TZ, "HH:mm")).toBe("06:41");
+  });
+});
+
 describe("5-4. 最短で案内できる時間（earliestAvailable / slotTimeLabel）", () => {
   it("now 起点で最初の1件を返す", () => {
     const slot = earliestAvailable(makeInput({ now: jst(DAY, "09:00") }));

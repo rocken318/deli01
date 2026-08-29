@@ -133,7 +133,13 @@ export interface AvailabilityInput {
   shift: EngineShift | null;
   /** 既存予約（held/confirmed）。順不同でよい（engine が depart_at 順に並べる） */
   reservations: readonly ExistingReservation[];
-  /** 追加の占有区間（slot_holds 等）。省略時なし */
+  /**
+   * 追加の占有区間（slot_holds 等）。省略時なし。
+   * ★フェーズ11 契約（reviewer R-3）: `holds` は**手順8 の重複除外のみ**に使い、場所を持たない。
+   * 前後の移動可否や上限本数（remainingSlots）には算入されない。したがって
+   * **status='held' の予約は場所つきで `reservations` に渡すこと**（spec 5-5）。
+   * slot_holds を `holds` にだけ流すと、ホールド直前後に移動不能な枠を案内しうる。
+   */
   holds?: readonly OccupiedRange[];
   /** 現在時刻 */
   now: Date;
@@ -279,12 +285,21 @@ function legMinutesAt(ctx: EngineContext, leg: ResolvedLeg, departAt: Date): num
 function inboundMinutes(ctx: EngineContext, leg: ResolvedLeg, arriveBy: Date): number {
   if (leg.mode === "walk") return leg.walkFixedMin;
   let minutes = legMinutesAt(ctx, leg, arriveBy);
+  let maxObserved = minutes;
+  let converged = false;
   for (let i = 0; i < 3; i += 1) {
     const next = legMinutesAt(ctx, leg, addMin(arriveBy, -minutes));
-    if (next === minutes) break;
+    if (next === minutes) {
+      converged = true;
+      break;
+    }
     minutes = next;
+    if (next > maxObserved) maxObserved = next;
   }
-  return minutes;
+  // 係数境界を跨いで固定点が振動する場合、打ち切り値は「小さい方」に落ちうる。
+  // 移動を短く見積もると遅刻に直結するため、非収束時は観測した最大値を採る
+  // （所要を長く見積もる＝出発が早まる＝早着側に倒れるだけで安全 / spec 5-1）。
+  return converged ? minutes : maxObserved;
 }
 
 /** [departAt, freeAt) が占有区間のどれかと重なるか（手順8。区間は半開） */
@@ -399,7 +414,13 @@ export function computeAvailableSlots(input: AvailabilityInput): AvailableSlot[]
       const arriveBy = addMin(s, -buffers.arrivalTotalMin);
       const travelInMin = inboundMinutes(ctx, inbound, arriveBy);
       const departAt = addMin(arriveBy, -travelInMin);
-      if (departAt.getTime() < gap.tP.getTime()) continue;
+      // 6-1. depart_at ≥ t_p（直前地点を出られる時刻）。加えて出発は現在時刻以降でなければ
+      //      物理的に履行不能（travel+到着バッファ > リードタイム のとき depart が過去になりうる / R-2）
+      if (
+        departAt.getTime() < gap.tP.getTime() ||
+        departAt.getTime() < input.now.getTime()
+      )
+        continue;
 
       // 6-3. s + buffer_before + L + buffer_after + travel(A→N) ≤ t_n
       const freeAt = addMin(s, occupyMin);
