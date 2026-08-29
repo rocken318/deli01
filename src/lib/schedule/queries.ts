@@ -53,11 +53,23 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * areaId を渡すと、その日 shift_areas にそのエリアを持つセラピストだけに絞る。
  * dateISO は "YYYY-MM-DD"（Asia/Tokyo の営業日 = shifts.work_date）。
  */
+/** "YYYY-MM-DD" が実在する暦日か（2026-02-31 等を弾く。Postgres の date キャストエラー防止） */
+function isRealDate(iso: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+
 export async function listDailySchedule(
   dateISO: string,
   areaId?: string | null,
 ): Promise<ScheduleEntry[]> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return [];
+  // 実在しない日付（細工URL）は空返し。生の Postgres エラーを画面に出さない（spec 4章）
+  if (!isRealDate(dateISO)) return [];
   const area = areaId && UUID_RE.test(areaId) ? areaId : null;
 
   const sql = getClient();

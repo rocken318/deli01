@@ -126,3 +126,9 @@ canUseCar: can_use_car })` とそのまま渡す（関数側の変更不要）�
   （2週間先まで受け付ける）。個人ページへのカレンダー埋め込みはフェーズ9-10 と合わせて
 - therapist 本人用の欠勤ワンタップ UI（マイページ / spec 7-4）はフェーズ14。
   RLS（自分の shift を update 可）は先行して用意済み
+
+## 後続への申し送り（reviewer 推奨）
+
+- **therapist の shifts 更新は列制限が必要（フェーズ14 / spec 3-3）**: RLS は列を絞れないため、現状 therapist 本人は自分の shift の全列（start_at/end_at/max_bookings/base_*/note）を更新できてしまう（therapist_id 付替は with check で防止済み）。仕様上 therapist に許すのは「当日欠勤ワンタップ（is_day_off のみ）」。マイページUI（フェーズ14）実装前に、is_day_off だけ許す専用 Server Action か BEFORE UPDATE トリガーで列を制限する。
+- **実在日付の検証**: 公開 `listDailySchedule` は `isRealDate` で 2026-02-31 等を空返しにした（Postgres の date キャストエラー防止）。admin の shift-actions も同様に強化を検討（現状は can(manage_cms) ガードで露出は限定的）。
+- **areaId フォールバック**: `listDailySchedule` は不正 areaId を絞り込みなしにフォールバックする。ページ側で areas 照合済みだが、直接呼び出しでは fail-closed（空返し）の方が安全。
