@@ -131,6 +131,14 @@ describe("pickTimeModifier（時間帯係数の選択 / Asia/Tokyo ローカル 
     expect(pickTimeModifier(modifiers, "09:30")).toBeNull();
   });
 
+  it('"HH:MM:SS"（postgres の time 素の値）も受理する（秒は切り捨て）', () => {
+    // postgres の time 列は select で "23:00:00" 形式を返すため、フェーズ9で
+    // 素の値を渡しても RangeError にならないこと（reviewer 推奨1）。
+    expect(pickTimeModifier(modifiers, "23:00:00")?.multiplier).toBe(0.75);
+    expect(pickTimeModifier(modifiers, "07:00:30")?.multiplier).toBe(1.4);
+    expect(pickTimeModifier(modifiers, "09:30:00")).toBeNull();
+  });
+
   it("深夜係数を通すと同じ経路の車移動が昼より短くなる（spec 5-3 該当分）", () => {
     const base = 40; // マトリクス上のエリア間分数
     const day = carMinutes(base, pickTimeModifier(modifiers, "13:00"));

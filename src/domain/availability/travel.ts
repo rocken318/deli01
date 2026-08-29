@@ -123,10 +123,13 @@ export function carMinutes(
   return Math.max(0, applied);
 }
 
-/** "HH:MM"（Asia/Tokyo ローカル）→ 0〜1439 の分に変換 */
+/**
+ * "HH:MM" または "HH:MM:SS"（Asia/Tokyo ローカル）→ 0〜1439 の分に変換。
+ * postgres の `time` 列は素の select で "23:00:00" を返すため秒を許容する（秒は切り捨て）。
+ */
 function toMinutesOfDay(hhmm: string): number {
-  const m = /^([0-1]\d|2[0-3]):([0-5]\d)$/.exec(hhmm);
-  if (!m) throw new RangeError(`時刻は "HH:MM"（00:00〜23:59）であること: ${hhmm}`);
+  const m = /^([0-1]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(hhmm);
+  if (!m) throw new RangeError(`時刻は "HH:MM" または "HH:MM:SS"（00:00〜23:59）であること: ${hhmm}`);
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
