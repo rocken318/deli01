@@ -75,6 +75,21 @@ export function isSlotTakenError(e: unknown): boolean {
 }
 
 /**
+ * reservations の CHECK 制約違反（23514）か。占有区間の順序
+ * （reservations_occupy_order_check: depart_at ≤ start_at かつ free_at ≥ end_at）等を
+ * 破る insert/update が該当する。override 経路の手動 insert が誤った区間を組んだ
+ * 場合に発生しうるため、exclusion（23P01）と同様に生の Postgres エラーを画面に
+ * 出さず日本語へ変換するための判定点（spec 4章）。
+ */
+export function isOccupancyCheckError(e: unknown): boolean {
+  return (
+    e instanceof postgres.PostgresError &&
+    e.code === "23514" &&
+    (e.constraint_name ?? "").startsWith("reservations_")
+  );
+}
+
+/**
  * 再試行可能なトランザクション競合か。GiST の exclusion 制約は**完全に同時**の
  * insert 同士が互いの投機的エントリを待ち合い、deadlock（40P01）として片方が
  * 中断されることがある（勝敗の裁定自体は正しい）。中断された側は再計算からやり
@@ -102,7 +117,7 @@ interface CourseRow {
   nomination_fee_default: number;
 }
 
-interface OptionSnapshotRow {
+export interface OptionSnapshotRow {
   id: string;
   price: number;
   duration_min: number;
@@ -469,8 +484,9 @@ export async function confirmReservation(params: {
 /**
  * 選択オプションのスナップショット材料（engine の L 計算と同じ絞り込み:
  * is_active・is_public・option_availability の対応 / spec 3-4）。
+ * 電話受付の override 経路（フェーズ12）も同じ絞り込みで L と金額を組むため export。
  */
-async function loadOptionSnapshots(
+export async function loadOptionSnapshots(
   sql: ReturnType<typeof getClient>,
   params: { optionIds: readonly string[]; therapistId: string },
 ): Promise<OptionSnapshotRow[]> {

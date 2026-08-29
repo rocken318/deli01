@@ -17,6 +17,7 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
+  { href: "/admin/orders", label: "電話受付" },
   { href: "/admin/fields", label: "フィールド定義" },
   { href: "/admin/records", label: "レコード" },
   { href: "/admin/settings", label: "サイト設定" },
