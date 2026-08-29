@@ -13,7 +13,9 @@ import { env } from "@/lib/env";
  * 本番環境では ADMIN_DEV_SESSION を絶対に設定しないこと。
  */
 export async function getDevSession(): Promise<Session | null> {
-  if (!env.adminDevSession) {
+  // 厳格化: 明示的に "1" のときだけ有効。"0"・"false"・"true" 等の曖昧値では
+  // 有効化しない（本番で誤って任意の非空値を設定しても発火しないよう安全側）。
+  if (env.adminDevSession !== "1") {
     return null;
   }
   // シードで投入した owner の id（scripts/seed.ts の appUsers 参照）

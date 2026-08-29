@@ -4,10 +4,23 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { listPages } from "@/lib/cms/pages-actions";
+import { getDevSession } from "@/lib/cms/dev-session";
+import { can } from "@/domain/auth";
+import { toActor } from "@/lib/auth/session";
 
 export const metadata: Metadata = { title: "固定ページ" };
 
 export default async function PagesListPage() {
+  // 機微データの露出防止（本番・未 Auth では 403 相当）。
+  const session = await getDevSession();
+  if (!session || !can(toActor(session), "manage_cms")) {
+    return (
+      <div className="bg-adm-surface border border-adm-border rounded p-6">
+        <p className="text-sm text-adm-text">権限がありません。</p>
+      </div>
+    );
+  }
+
   const pages = await listPages("ja");
 
   return (

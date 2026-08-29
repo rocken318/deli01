@@ -3,32 +3,51 @@ import type { Metadata } from "next";
 export const dynamic = "force-dynamic";
 
 import { getPage } from "@/lib/cms/pages-actions";
+import { listMedia } from "@/lib/cms/media-actions";
 import { getAllSiteSettings } from "@/lib/cms/site-settings-actions";
 import { getAllTerminology } from "@/lib/cms/terminology-actions";
+import { getDevSession } from "@/lib/cms/dev-session";
+import { can } from "@/domain/auth";
+import { toActor } from "@/lib/auth/session";
 import type { Block, HeroBlock, CtaBlock } from "@/domain/cms/blocks";
 
 export const metadata: Metadata = { title: "プレビュー: ホーム" };
 
-function renderHeroBlock(block: HeroBlock, brandName: string) {
+/** imageId → { url, alt } の解決マップ */
+type MediaMap = Map<string, { url: string; alt: string }>;
+
+function renderHeroBlock(block: HeroBlock, brandName: string, media: MediaMap) {
+  const image = block.imageId ? media.get(block.imageId) : undefined;
   return (
     <div
       key={block.id}
       className="relative min-h-[60vh] bg-pub-bg flex flex-col items-center justify-center text-center px-6 py-16"
     >
-      <h1 className="text-3xl font-heading text-pub-primary mb-4">
-        {block.heading || brandName}
-      </h1>
-      {block.subheading && (
-        <p className="text-lg text-pub-text mb-8 max-w-lg">{block.subheading}</p>
+      {image?.url && (
+        // data-URI / 外部 URL 双方を扱うため通常の img を使う（next/image は data-URI に不向き）
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={image.url}
+          alt={image.alt}
+          className="absolute inset-0 w-full h-full object-cover opacity-40"
+        />
       )}
-      {block.ctaLabel && block.ctaHref && (
-        <a
-          href={block.ctaHref}
-          className="inline-block px-8 py-3 bg-pub-primary text-pub-bg font-semibold rounded-sm hover:opacity-90"
-        >
-          {block.ctaLabel}
-        </a>
-      )}
+      <div className="relative">
+        <h1 className="text-3xl font-heading text-pub-primary mb-4">
+          {block.heading || brandName}
+        </h1>
+        {block.subheading && (
+          <p className="text-lg text-pub-text mb-8 max-w-lg">{block.subheading}</p>
+        )}
+        {block.ctaLabel && block.ctaHref && (
+          <a
+            href={block.ctaHref}
+            className="inline-block px-8 py-3 bg-pub-primary text-pub-bg font-semibold rounded-sm hover:opacity-90"
+          >
+            {block.ctaLabel}
+          </a>
+        )}
+      </div>
     </div>
   );
 }
@@ -52,11 +71,11 @@ function renderCtaBlock(block: CtaBlock) {
   );
 }
 
-function renderBlock(block: Block, brandName: string): React.ReactNode {
+function renderBlock(block: Block, brandName: string, media: MediaMap): React.ReactNode {
   if (!block.visible) return null;
   switch (block.type) {
     case "hero":
-      return renderHeroBlock(block, brandName);
+      return renderHeroBlock(block, brandName, media);
     case "cta":
       return renderCtaBlock(block);
     case "text":
@@ -85,9 +104,23 @@ function renderBlock(block: Block, brandName: string): React.ReactNode {
 }
 
 export default async function PreviewHomePage() {
+  // 機微データの露出防止（本番・未 Auth では 403 相当）。
+  const session = await getDevSession();
+  if (!session || !can(toActor(session), "manage_cms")) {
+    return (
+      <div className="bg-adm-surface border border-adm-border rounded p-6">
+        <p className="text-sm text-adm-text">権限がありません。</p>
+      </div>
+    );
+  }
+
   const page = await getPage("home", "ja");
   const settings = await getAllSiteSettings();
   const terms = await getAllTerminology("ja");
+  const mediaItems = await listMedia();
+  const media: MediaMap = new Map(
+    mediaItems.map((m) => [m.id, { url: m.url, alt: m.alt }]),
+  );
 
   const brandName = String(settings["brand_name"] ?? "（屋号未設定）");
   const staffNoun = terms["staff_noun"] ?? "セラピスト";
@@ -116,7 +149,7 @@ export default async function PreviewHomePage() {
             ブロックがありません。エディタでブロックを追加してください。
           </div>
         ) : (
-          blocks.map((block) => renderBlock(block, brandName))
+          blocks.map((block) => renderBlock(block, brandName, media))
         )}
       </div>
     </div>

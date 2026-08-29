@@ -45,6 +45,15 @@ pnpm dev            # http://localhost:3000
 | 7 | 2026-08-29 | 1 | **Supabase 開発プロジェクトと Vercel を接続**。Supabase(PG17+PostGIS3.3.7, ref `zzkvjeqxqeayauoexqoi`) を preview/production DB とし、Vercel 本番 env に `DATABASE_URL`(6543 transaction pooler)/`NEXT_PUBLIC_SUPABASE_URL`/`APP_TZ` を設定。0000/0001 マイグレーション＋シードを Supabase にも適用。本番 https://deli01-zeta.vercel.app が health 200 で稼働 | 発注者が Supabase を用意し「デプロイまで捌いて」と指示。開発は引き続きローカル docker(5433)、Supabase は preview/production 用に分離。アプリ接続は serverless 向けに transaction pooler、マイグレーションは session pooler(5432)。停止条件② の Supabase/Vercel は解消済み（残: anon/service_role キーは Auth 実配線時に検証、OpenAI/Maps は該当フェーズで） |
 | 8 | 2026-08-29 | 1 | 認証/権限の設計判断（architect）: (a) 枠外予約の許可ロールに reception を含める（常に理由必須）、(b) `audit_logs.id` は追記順が保たれる bigint identity、(c) 住所閲覧の可視終了側の上限は設けない | (a) spec 8-1 が電話受付を枠外予約の担い手として明記しているため。(b) 監査ログの時系列同定を確実にするため。(c) spec に終了上限の規定がなく、当日の道順再確認を妨げないため。RLS は接続ユーザーを1本にし GUC(`app.current_user_id`/`app.current_role`)＋`SET LOCAL ROLE app_runtime` で降格、未設定は fail-closed |
 | 9 | 2026-08-29 | 2 | CMS 動的フォームの保存先として汎用の `entity_records`（entity+slug, draft/published jsonb）を1枚導入（spec 3-1 の therapist_profiles に倣う。EAV にしない）。RLS は owner/admin 全操作・reception は SELECT のみ・therapist 不可。認証は開発スタブ（owner）で、live Supabase 配線は後差し | spec 3-1「値は対象テーブルの jsonb カラムに入れる」に沿い、entity 横断で使い回せる保存先を1枚で用意。reception は電話受付で内容参照の可能性があり SELECT のみ許可。動的フォームは毎リクエストで `field_definitions` を読むため、項目追加が即フォームに反映される（受入条件を実証済み） |
+| 10 | 2026-08-29 | 3 | フェーズ3で以下を先送りにする: (a) 画像アップロード UI（現状は data-URI プレースホルダ + メタ編集のみ / Storage 未配線）、(b) 画像の WebP 変換・リサイズ、(c) ページの履歴・巻き戻し（spec 3-2）、(d) 公開時の `revalidate`（ISR 再生成）、(e) ブロックの並べ替え・複製・追加 UI（現状は見出し編集とヒーロー画像添付のみ）。ヒーロー画像は draft ブロックの `imageId` 側に一本化し、ページ fields の `heroImageId` は保持のみ（誤消去防止）で編集経路にしない | spec 14章フェーズ3の完成条件（「画像を CMS から差し替えられる」）は data-URI プレースホルダ + ヒーロー画像添付 UI + プレビュー描画で実証できるため、アップロード実配線・履歴・並べ替えは後続フェーズに回してスコープを絞る。画像の一本化は fields 側 `heroImageId` を null 上書きしていた不具合の再発防止も兼ねる |
+
+### 本番公開前チェックリスト（判断ログ #10 の解消条件）
+
+フェーズ3で暫定対応した項目を本番前に必ず解消する:
+
+- [ ] **ダミー画像（data-URI SVG）を本物の写真・イラストに差し替える**（`is_placeholder=true` の media 全件 / spec 3-7。実在人物の顔出しは同意フラグと顔出し可否を確認）
+- [ ] 画像アップロード UI と Storage（Supabase Storage 等）を配線し、WebP 変換・リサイズを通す
+- [ ] `ADMIN_DEV_SESSION` を本番で設定しない（live Supabase Auth へ差し替え）
 
 ### シード段階投入の対応表（判断ログ #5 の追跡）
 
@@ -61,7 +70,7 @@ spec 18章の本体シードを、対象テーブルが揃うフェーズで投�
 | 顧客5,000（4割ポイント保有） | 5,000 | 16 | 予定 |
 | 予約1年分15,000（3割オプション・土日夜偏り・指名率6割・キャンセル1割） | 15,000 | 11以降 | 予定 |
 | 報酬レート・ポイント初期設定 | spec 18-4・18-6 | 18 / 16 | 予定 |
-| ダミー画像（ヒーロー2・コース4・セラピスト25 / placeholder タグ） | 31点 | 3〜4 | 予定 |
+| ダミー画像（ヒーロー2・コース4・セラピスト25 / placeholder タグ） | 31点 | 3〜4 | 🟡 済（暫定 data-URI SVG。ヒーロー2・コース2・セラピスト1 を投入。本番前に本物へ差し替え） |
 
 ## 停止条件で発注者に依頼する事項（判明分）
 

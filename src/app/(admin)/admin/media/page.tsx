@@ -3,10 +3,23 @@ import type { Metadata } from "next";
 export const dynamic = "force-dynamic";
 
 import { listMedia, upsertMediaMeta } from "@/lib/cms/media-actions";
+import { getDevSession } from "@/lib/cms/dev-session";
+import { can } from "@/domain/auth";
+import { toActor } from "@/lib/auth/session";
 
 export const metadata: Metadata = { title: "メディア" };
 
 export default async function MediaPage() {
+  // 機微データの露出防止（本番・未 Auth では 403 相当）。
+  const session = await getDevSession();
+  if (!session || !can(toActor(session), "manage_cms")) {
+    return (
+      <div className="bg-adm-surface border border-adm-border rounded p-6">
+        <p className="text-sm text-adm-text">権限がありません。</p>
+      </div>
+    );
+  }
+
   const items = await listMedia();
 
   async function handleUpdateMeta(formData: FormData) {

@@ -26,7 +26,8 @@ create table if not exists media (
   mime            text not null default 'image/webp',
   width           integer,
   height          integer,
-  alt             text not null,
+  -- alt は必須（spec 3-7）。空文字も拒否し、Zod min(1) と DB 制約で二重化する。
+  alt             text not null constraint media_alt_not_blank check (alt <> ''),
   tags            text[] not null default '{}',
   consent_flag    boolean not null default false,
   consent_date    date,

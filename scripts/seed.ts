@@ -137,7 +137,7 @@ const pageSeeds = [
         visible: true,
         heading: "あなたに合った、癒しの時間を",
         subheading: "出張リラクゼーションで、ご自宅やホテルにお伺いします。",
-        imageId: null,
+        imageId: "bbbbbbbb-0000-4000-8000-000000000001",
         ctaLabel: "空き枠を確認する",
         ctaHref: "/booking",
       },
@@ -153,11 +153,30 @@ const pageSeeds = [
   },
 ];
 
+/**
+ * プレースホルダ画像の実体（spec 3-7 / 12-1）。
+ * 自己完結の data-URI SVG（抽象グラデーション）にすることで、Storage 未配線でも
+ * プレビュー・公開レンダラーで実際に描画できる。本番公開前に本物へ差し替える
+ * （README「本番前チェックリスト」参照）。第12-1章のトーン（落ち着いた暖色〜藤色）。
+ */
+function gradientSvgDataUri(from: string, to: string, label: string): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="${label}">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="${from}"/><stop offset="100%" stop-color="${to}"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="1200" height="675" fill="url(#g)"/>` +
+    `<circle cx="300" cy="180" r="220" fill="#ffffff" opacity="0.08"/>` +
+    `<circle cx="960" cy="520" r="300" fill="#ffffff" opacity="0.06"/>` +
+    `</svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
 const mediaSeeds = [
   {
     id: "bbbbbbbb-0000-4000-8000-000000000001",
     storage_path: "",
-    url: "",
+    url: gradientSvgDataUri("#c9a27e", "#8a6f9e", "ヒーロー画像プレースホルダー"),
     alt: "ヒーロー画像プレースホルダー（本番公開前に差し替えること）",
     tags: ["placeholder", "hero"],
     is_placeholder: true,
@@ -165,15 +184,31 @@ const mediaSeeds = [
   {
     id: "bbbbbbbb-0000-4000-8000-000000000002",
     storage_path: "",
-    url: "",
-    alt: "コース案内画像プレースホルダー（本番公開前に差し替えること）",
-    tags: ["placeholder", "course"],
+    url: gradientSvgDataUri("#a8846a", "#6f7e9e", "ヒーロー画像プレースホルダー（別トーン）"),
+    alt: "ヒーロー画像プレースホルダー（別トーン・本番公開前に差し替えること）",
+    tags: ["placeholder", "hero"],
     is_placeholder: true,
   },
   {
     id: "bbbbbbbb-0000-4000-8000-000000000003",
     storage_path: "",
-    url: "",
+    url: gradientSvgDataUri("#c98e8e", "#9e8a6f", "コース案内画像プレースホルダー"),
+    alt: "コース案内画像プレースホルダー（本番公開前に差し替えること）",
+    tags: ["placeholder", "course"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000004",
+    storage_path: "",
+    url: gradientSvgDataUri("#8e9ec9", "#c9a27e", "コース案内画像プレースホルダー（別トーン）"),
+    alt: "コース案内画像プレースホルダー（別トーン・本番公開前に差し替えること）",
+    tags: ["placeholder", "course"],
+    is_placeholder: true,
+  },
+  {
+    id: "bbbbbbbb-0000-4000-8000-000000000005",
+    storage_path: "",
+    url: gradientSvgDataUri("#9e8ac9", "#7e9e8a", "セラピストシルエットプレースホルダー"),
     alt: "セラピストシルエットプレースホルダー（実在人物写真は使用不可 / spec 3-7）",
     tags: ["placeholder", "therapist"],
     is_placeholder: true,
