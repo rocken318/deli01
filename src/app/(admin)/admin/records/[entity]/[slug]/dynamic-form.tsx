@@ -278,7 +278,8 @@ export function DynamicForm({
   });
 
   return (
-    <form action={formAction} className="space-y-6" aria-label="レコード編集フォーム">
+    <div className="space-y-6">
+      <form action={formAction} className="space-y-6" aria-label="レコード編集フォーム">
       {/* エラー / 成功メッセージ */}
       {state.error && (
         <div
@@ -349,7 +350,7 @@ export function DynamicForm({
         </p>
       )}
 
-      {/* アクションボタン */}
+      {/* 保存ボタン（この form 内） */}
       <div className="flex items-center gap-3 pt-4 border-t border-adm-border">
         <button
           type="submit"
@@ -359,9 +360,11 @@ export function DynamicForm({
         >
           {isPending ? "保存中…" : "下書きを保存"}
         </button>
-        <PublishButton entity={entity} slug={slug} />
       </div>
-    </form>
+      </form>
+      {/* 公開は別 Server Action・別 form。form のネストは不正なので兄弟要素に置く。 */}
+      <PublishButton entity={entity} slug={slug} />
+    </div>
   );
 }
 
