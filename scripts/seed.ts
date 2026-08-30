@@ -1294,10 +1294,12 @@ async function main() {
           ${m.is_placeholder}
         )
         on conflict (id) do update set
+          url          = excluded.url,
           alt          = excluded.alt,
           consent_flag = excluded.consent_flag,
           consent_date = excluded.consent_date,
           tags         = excluded.tags,
+          face_visibility = excluded.face_visibility,
           is_placeholder = excluded.is_placeholder
       `;
     }
