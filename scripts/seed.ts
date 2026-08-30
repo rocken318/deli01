@@ -28,6 +28,9 @@ const siteSettings: { key: string; value: unknown }[] = [
   { key: "reception_phone", value: "" },
   { key: "reception_hours", value: "" },
   { key: "footer_note", value: "" },
+  // 運用先メール（週次レポート等スタッフ宛通知の実配信先 / v1後(a) メール配線）。
+  // 空なら reception_phone にフォールバック（sender はスタブ）。CMS から設定が正。
+  { key: "ops_email", value: "" },
   // 予約フローの料金設定（spec 18-3 のダミー初期値 / フェーズ11。CMS から変更が正）
   {
     key: "booking_fees",

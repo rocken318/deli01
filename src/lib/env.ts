@@ -41,6 +41,11 @@ export const env = {
   openaiApiKey: read("OPENAI_API_KEY"),
   /** フェーズ21 CMS内AIアシスタント。未設定でもビルド/起動は通る（Vercel のみ設定） */
   anthropicApiKey: read("ANTHROPIC_API_KEY"),
+  /** 通知メール送信（フェーズ20 sender 配線）。SMTP 接続 URL（例 smtps://user:pass@host:465）。
+   *  未設定ならローカル/CI はスタブ送信のまま（feedback-no-over-configuration） */
+  smtpUrl: read("SMTP_URL"),
+  /** 通知メールの From（例 "予約 <noreply@example.com>"）。未設定なら実送信しない */
+  emailFrom: read("EMAIL_FROM"),
   /** 開発専用セッションスタブ有効化フラグ。本番では絶対に設定しない（spec フェーズ3 優先度0） */
   adminDevSession: read("ADMIN_DEV_SESSION"),
 } as const;

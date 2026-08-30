@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { format, subDays, startOfWeek, addDays } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
+import { pickWeeklyRecipient } from "./weekly";
 
 /** actions.ts の triggerWeeklyReport が使う計算ロジック（再掲） */
 function lastWeekStartISO(now: Date): string {
@@ -46,6 +47,23 @@ describe("先週月曜の計算（受入 L1133: 先週分の数字で生成さ�
     // 2026-09-07 (月) → 先週月曜は 2026-08-31
     const now = new Date("2026-09-07T09:00:00+09:00");
     expect(lastWeekStartISO(now)).toBe("2026-08-31");
+  });
+});
+
+describe("pickWeeklyRecipient（ops_email 優先・reception_phone フォールバック）", () => {
+  it("ops_email が設定されていればそれを使う", () => {
+    expect(pickWeeklyRecipient("ops@example.com", "09012345678")).toBe(
+      "ops@example.com",
+    );
+  });
+  it("ops_email 空なら reception_phone にフォールバック", () => {
+    expect(pickWeeklyRecipient("", "09012345678")).toBe("09012345678");
+    expect(pickWeeklyRecipient("  ", "09012345678")).toBe("09012345678");
+    expect(pickWeeklyRecipient(undefined, "09012345678")).toBe("09012345678");
+  });
+  it("両方空なら空文字（呼び出し側が生成中止）", () => {
+    expect(pickWeeklyRecipient("", "")).toBe("");
+    expect(pickWeeklyRecipient(undefined, undefined)).toBe("");
   });
 });
 

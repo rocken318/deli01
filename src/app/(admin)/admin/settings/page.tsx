@@ -43,6 +43,7 @@ export default async function SettingsPage() {
     { key: "reception_phone", label: "受付電話番号" },
     { key: "reception_hours", label: "受付時間" },
     { key: "footer_note", label: "フッター注記" },
+    { key: "ops_email", label: "運用先メール（週次レポート等の宛先）" },
   ];
 
   const termFields: { key: string; label: string }[] = [
