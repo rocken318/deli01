@@ -18,10 +18,13 @@ import { HeroBanner } from "./_components/hero-banner";
  * - いま出勤中のセラピスト（published therapists）をカードで
  * - 最短案内時間は空き枠エンジン（spec 5-4）で代表エリア概算し、前提を明記する
  *
- * キャッシュ（spec 2-7）: プロフィール・本文は ISR、空き枠はキャッシュしない。
- * 空き枠を都度計算するため force-dynamic（古い枠を出さない）。
+ * キャッシュ（spec 2-7）: プロフィール・本文は ISR。空き枠は本来キャッシュしないが、
+ * force-dynamic だと本番でリクエスト毎に全セラピストの空き枠を再計算し、サーバレスの
+ * 再利用接続が凍結後 stale になってページごとハング→画像が出ない事故が発生した。
+ * ISR(revalidate=30) にして描画結果をキャッシュ配信し、DB 依存をリクエストから切り離す
+ * （spec の「60秒以内に反映」許容内。空き枠は最大30秒の概算ずれを許容）。
  */
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 export async function generateMetadata(): Promise<Metadata> {
   const [ctx, page] = await Promise.all([getSiteContext(), getPublishedPage("home")]);
