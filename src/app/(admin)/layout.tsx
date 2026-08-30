@@ -28,6 +28,7 @@ const navItems = [
   { href: "/admin/waitlists", label: "キャンセル待ち" },
   { href: "/admin/dispatch", label: "配車テキスト" },
   { href: "/admin/message-templates", label: "送信テンプレート" },
+  { href: "/admin/notifications", label: "通知" },
   { href: "/admin/fields", label: "フィールド定義" },
   { href: "/admin/records", label: "レコード" },
   { href: "/admin/settings", label: "サイト設定" },
