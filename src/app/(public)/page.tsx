@@ -46,11 +46,27 @@ export default async function HomePage() {
 
   // 各セラピストの最短案内時刻（代表エリア概算 / spec 5-4）。都度計算・キャッシュしない。
   // 失敗しても null に倒し、カードは placeholder のまま出す（公開ページを落とさない）。
+  // ★重要: 空き枠計算が本番プーラーで詰まるとページ本体（ヒーロー・画像・コース紹介）
+  //   ごと描画が止まる事故があったため、各計算に上限時間を設ける。遅い/ハング時は
+  //   null（「調整中」表示）に倒し、画像を含むページ本体は必ず即描画させる。
+  const AVAILABILITY_TIMEOUT_MS = 4000;
+  const withTimeout = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+    ]);
   const earliestBySlug = new Map(
     await Promise.all(
       cards.map(
         async (c) =>
-          [c.slug, await earliestSlotForTherapist(c.slug).catch(() => null)] as const,
+          [
+            c.slug,
+            await withTimeout(
+              earliestSlotForTherapist(c.slug).catch(() => null),
+              AVAILABILITY_TIMEOUT_MS,
+              null,
+            ),
+          ] as const,
       ),
     ),
   );
