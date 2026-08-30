@@ -567,3 +567,105 @@ export const hotels = pgTable("hotels", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ---------------------------------------------------------------------------
+// フェーズ16: ポイント台帳・引き継ぎメモ・指名NG・コース×セラピスト
+// （0014_points_handover_nomination.sql の写像。customers / reservations は
+//   手書き SQL 側のみのため、それらへの FK は素の uuid 列で表す）
+// ---------------------------------------------------------------------------
+
+/** ポイント台帳の仕訳種別（spec 9章 L828） */
+export const pointEntryType = pgEnum("point_entry_type", [
+  "earn",
+  "use",
+  "expire",
+  "adjust",
+  "reverse",
+]);
+
+/**
+ * ポイント追記専用台帳 ★（spec 9章 L826-833）。残高 = sum(points)。
+ * update/delete は grant なし（0014）。ロット = points>0 かつ lotId null の行。
+ * use/expire は負で必ず lotId（どの付与を消費/失効したか）を持つ。
+ * 期限（expiresAt）は付与ロット単位（spec L837 先入先出）。
+ */
+export const pointEntries = pgTable("point_entries", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  customerId: uuid("customer_id").notNull(),
+  type: pointEntryType("type").notNull(),
+  /** earn:+ / use・expire:−。0 不可・整数のみ（円換算 1P=1円） */
+  points: integer("points").notNull(),
+  reservationId: uuid("reservation_id"),
+  reason: text("reason"),
+  /** 付与ロットの失効期限（ロット行のみ） */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /** 消費/失効/逆仕訳の対象ロット（point_entries.id） */
+  lotId: bigint("lot_id", { mode: "bigint" }),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/**
+ * 施術後の引き継ぎメモ（spec 9章 L810-814）。
+ * therapist には「その顧客の次回以降の自分の担当予約があるとき」だけ RLS で開示。
+ * 顧客本人・無関係のセラピストには見せない（受入 L1123）。
+ */
+export const handoverNotes = pgTable("handover_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  customerId: uuid("customer_id").notNull(),
+  reservationId: uuid("reservation_id"),
+  /** 書いた人 */
+  therapistId: uuid("therapist_id")
+    .notNull()
+    .references(() => therapists.id, { onDelete: "restrict" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 指名NG（spec 9章 L808）。この組合せは公開側でも予約不可
+ * （reservations への guard トリガが DB 層で拒否 / 0014）。
+ */
+export const customerTherapistNg = pgTable(
+  "customer_therapist_ng",
+  {
+    customerId: uuid("customer_id").notNull(),
+    therapistId: uuid("therapist_id")
+      .notNull()
+      .references(() => therapists.id, { onDelete: "cascade" }),
+    reason: text("reason"),
+    createdBy: uuid("created_by").references(() => appUsers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.customerId, t.therapistId] }),
+  }),
+);
+
+/**
+ * コース×セラピストの対応可否と個別指名料（spec 9章 L817）。
+ * nominationFee null = courses.nominationFeeDefault を使う。
+ */
+export const therapistCourses = pgTable(
+  "therapist_courses",
+  {
+    therapistId: uuid("therapist_id")
+      .notNull()
+      .references(() => therapists.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    isAvailable: boolean("is_available").notNull().default(true),
+    /** 個別指名料（円・整数）。null = コース既定 */
+    nominationFee: integer("nomination_fee"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.therapistId, t.courseId] }),
+  }),
+);
