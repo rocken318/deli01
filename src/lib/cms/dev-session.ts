@@ -4,14 +4,24 @@ import { getDefaultSessionProvider } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 /**
+ * 開発スタブ認証が有効か。ADMIN_DEV_SESSION=1 かつ Vercel の production デプロイ
+ * *でない* ときのみ true。本番 Vercel で誤って ADMIN_DEV_SESSION=1 を設定しても
+ * 認証を素通りしないコード側の歯止め（NODE_ENV はローカル next start でも production に
+ * なるため、Vercel が付与する VERCEL_ENV で本番デプロイを判定する）。
+ */
+export function devStubEnabled(): boolean {
+  return env.adminDevSession === "1" && process.env.VERCEL_ENV !== "production";
+}
+
+/**
  * セッション取得。名前は互換のため据え置くが、挙動は二段:
- * - ADMIN_DEV_SESSION=1（ローカル/CI）: シードの owner を返す（従来のスタブ）。
+ * - 開発スタブ有効（ローカル/CI）: シードの owner を返す（従来のスタブ）。
  * - それ以外（本番）: Supabase Auth（getDefaultSessionProvider）。未ログイン/未紐付けは null。
  *
- * 本番では ADMIN_DEV_SESSION を絶対に設定しないこと（設定すると認証を素通りする）。
+ * 本番では ADMIN_DEV_SESSION を絶対に設定しないこと（設定しても devStubEnabled が拒否する）。
  */
 export async function getDevSession(): Promise<Session | null> {
-  if (env.adminDevSession === "1") {
+  if (devStubEnabled()) {
     // シードで投入した owner の id（scripts/seed.ts の appUsers 参照）
     return {
       userId: "aaaaaaaa-0000-4000-8000-000000000001",
@@ -29,7 +39,7 @@ export async function getDevSession(): Promise<Session | null> {
 export async function getTherapistDevSession(
   slug?: string,
 ): Promise<Session | null> {
-  if (env.adminDevSession !== "1") {
+  if (!devStubEnabled()) {
     const session = await getDefaultSessionProvider().getSession();
     return session?.role === "therapist" ? session : null;
   }

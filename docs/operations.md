@@ -84,7 +84,13 @@ DATABASE_URL="<接続文字列>" pnpm db:seed      # 段階投入シード
 
 本番 `/admin`・`/mypage` は Supabase Auth（email+パスワード）でログインする。
 アカウントは既存 `app_users` に auth ユーザーを紐付けて発行する（ローカルは
-`ADMIN_DEV_SESSION=1` のスタブ認証のまま。本番では絶対に設定しない）。
+`ADMIN_DEV_SESSION=1` のスタブ認証のまま。本番では絶対に設定しない。仮に本番
+Vercel で誤設定しても `VERCEL_ENV=production` ではスタブを拒否する二重の歯止めあり）。
+
+0. **前提: Supabase Dashboard で Email の public signup を無効化**（Authentication →
+   Providers/Sign In。招待/bootstrap 経由のみ許可）。未紐付けの auth ユーザーは
+   middleware を通過し画面枠だけは見える（データは RLS で拒否）ため、第三者の
+   セルフ登録を塞ぐ。
 
 1. 発行対象を JSON で用意（`bootstrap-users.json`。**コミットしない**）:
    ```json
@@ -101,6 +107,8 @@ DATABASE_URL="<接続文字列>" pnpm db:seed      # 段階投入シード
      pnpm tsx scripts/bootstrap-auth.ts bootstrap-users.json
    ```
 3. 出力された初期パスワードを各人へ安全に配布。初回ログイン後に Supabase 側で変更。
+   **スクリプトは初期パスワードを標準出力に一度だけ表示する**ため、ログ収集される
+   CI/共有端末では実行せず、手元の端末でのみ実行しスクロールバックを残さないこと。
 4. `https://<本番>/login` から email+パスワードでログイン → `/admin` が表示されれば完了。
 
 冪等: 既に紐付いた `app_users` はスキップ。同 email の auth ユーザーは再利用する。

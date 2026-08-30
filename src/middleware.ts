@@ -12,7 +12,11 @@ import { createServerClient } from "@supabase/ssr";
 export async function middleware(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (process.env.ADMIN_DEV_SESSION === "1" || !url || !anon) {
+  // 本番 Vercel（VERCEL_ENV=production）では ADMIN_DEV_SESSION を無視して必ずゲートする。
+  const devStub =
+    process.env.ADMIN_DEV_SESSION === "1" &&
+    process.env.VERCEL_ENV !== "production";
+  if (devStub || !url || !anon) {
     return NextResponse.next();
   }
 
@@ -40,7 +44,7 @@ export async function middleware(req: NextRequest) {
 
   if (!user) {
     const redirectUrl = new URL("/login", req.url);
-    redirectUrl.searchParams.set("next", req.nextUrl.pathname);
+    redirectUrl.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
     return NextResponse.redirect(redirectUrl);
   }
 

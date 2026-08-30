@@ -67,6 +67,10 @@ async function main() {
         continue;
       }
 
+      if (t.password && t.password.length < 12) {
+        console.log(`FAIL  ${t.email}: password は 12 文字以上にしてください`);
+        continue;
+      }
       const password = t.password ?? genPassword();
       let authUserId: string | undefined;
 
@@ -76,9 +80,14 @@ async function main() {
         email_confirm: true,
       });
       if (created.error) {
-        // 既存 email 等 → 一覧から引いて再利用
-        const list = await admin.auth.admin.listUsers();
-        const found = list.data.users.find((u) => u.email === t.email);
+        // 既存 email 等 → ページ走査で引いて再利用（既定 50 件/ページの取りこぼし対策）
+        let found: { id: string; email?: string } | undefined;
+        for (let page = 1; ; page++) {
+          const list = await admin.auth.admin.listUsers({ page, perPage: 200 });
+          if (list.error) break;
+          found = list.data.users.find((u) => u.email === t.email);
+          if (found || list.data.users.length < 200) break;
+        }
         if (!found) {
           console.log(`FAIL  ${t.email}: ${created.error.message}`);
           continue;
