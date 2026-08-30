@@ -261,6 +261,12 @@ export async function usePoints(
           ok: false,
           error: `ポイント残高が不足しています（利用可能: ${outcome.available}P）`,
         };
+      case 'revenue_already_posted':
+        return {
+          ok: false,
+          error:
+            'この予約は売上計上済みのためポイントを利用できません（計上前に利用してください）',
+        };
       case 'invalid':
         return { ok: false, error: '入力が不正です' };
     }
