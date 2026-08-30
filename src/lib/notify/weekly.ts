@@ -8,6 +8,20 @@ import { addDays, format } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 
 /**
+ * スタッフ宛通知の宛先解決（v1後(a) メール配線）。
+ * 運用先メール ops_email が設定されていれば実メール配信先、未設定なら
+ * reception_phone にフォールバック（sender はスタブ 'sent'）。両方空なら ""。
+ */
+export function pickWeeklyRecipient(
+  opsEmail: string | undefined,
+  receptionPhone: string | undefined,
+): string {
+  const email = (opsEmail ?? "").trim();
+  const phone = (receptionPhone ?? "").trim();
+  return email !== "" ? email : phone;
+}
+
+/**
  * 週次レポートの生成（フェーズ20 / 受入 L1133「先週分の数字で生成される」）。
  *
  * - 集計元: revenue_lines（売上）・payout_lines（バック）・
@@ -51,16 +65,17 @@ export async function generateWeeklyReport(
 
   return withUser(sql, session, async (tx) => {
     // 1. オーナーの宛先解決
-    // TODO(②): メール列が付いたら email を recipient にする。
-    // v1 の app_users には phone/email 列が無い（spec L16「CTI 契約は v1 外」）。
-    // site_settings の reception_phone をオーナー宛先の暫定識別子とする。
-    // 実メール配線時にここを差し替える。
-    const settingRows = await tx<{ value: unknown }[]>`
-      select value from site_settings where key = 'reception_phone' limit 1
+    // 運用先メール ops_email が設定されていれば実メール配信先（sender が SMTP 送信）。
+    // 未設定なら従来どおり reception_phone を暫定識別子に（sender はスタブ 'sent'）。
+    const settingRows = await tx<{ key: string; value: unknown }[]>`
+      select key, value from site_settings where key in ('ops_email', 'reception_phone')
     `;
-    const ownerPhone = (settingRows[0]?.value as string | undefined) ?? null;
-    if (!ownerPhone) {
-      // TODO(②): reception_phone が未設定のため通知できない。サイト設定で電話番号を登録してください
+    const byKey = Object.fromEntries(
+      settingRows.map((r) => [r.key, (r.value as string | undefined) ?? ""]),
+    );
+    const recipient = pickWeeklyRecipient(byKey.ops_email, byKey.reception_phone);
+    if (!recipient) {
+      // ops_email も reception_phone も未設定＝通知先が無い。サイト設定で登録すること。
       return { notificationId: null };
     }
 
@@ -161,7 +176,7 @@ export async function generateWeeklyReport(
         (channel, kind, recipient, subject, body,
          status, scheduled_for, dedupe_key, created_by)
       values
-        ('email', 'weekly_report'::notification_kind, ${ownerPhone},
+        ('email', 'weekly_report'::notification_kind, ${recipient},
          ${built.subject}, ${built.body},
          'pending', ${now}::timestamptz,
          ${dedupeKey},
@@ -183,7 +198,7 @@ export async function generateWeeklyReport(
     const outcome = await sendNotification({
       id: notifId,
       channel: "email",
-      recipient: ownerPhone,
+      recipient,
       subject: built.subject,
       body: built.body,
     });
