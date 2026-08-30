@@ -4,7 +4,7 @@ import { getSiteContext, getPublishedPage, getPublicTherapistFields, label } fro
 import { listPublicTherapists } from "@/lib/public/queries";
 import { buildTherapistCards } from "@/lib/public/therapist-view";
 import { getPublicMediaMap } from "@/lib/public/queries";
-import { earliestSlotForTherapist } from "@/lib/availability/earliest";
+import type { EarliestSlotInfo } from "@/lib/availability/earliest";
 import { localDateISO } from "@/domain/availability";
 import Link from "next/link";
 import { renderBlock, collectBlockImageIds } from "./_components/block-renderer";
@@ -26,14 +26,6 @@ import { HeroBanner } from "./_components/hero-banner";
  * DB 非依存で高速配信する（spec の「60秒以内に反映」許容内・空き枠は最大30秒の概算ずれを許容）。
  */
 export const dynamic = "force-dynamic";
-
-/** 4秒でタイムアウト（空き枠計算が詰まってもデータ生成を止めない） */
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-  ]);
-}
 
 /** サイト共通文言＋home ページ（メタデータ用・30秒キャッシュ） */
 const loadSiteAndPage = unstable_cache(
@@ -61,19 +53,13 @@ const loadHomeData = unstable_cache(
     const mediaMap = await getPublicMediaMap(collectBlockImageIds(page.blocks), {
       requireConsent: false,
     });
-    // 空き枠計算はタイムアウト付き（遅い/ハング時は null＝「調整中」）
-    const earliestEntries = await Promise.all(
-      cards.map(
-        async (c) =>
-          [
-            c.slug,
-            await withTimeout(
-              earliestSlotForTherapist(c.slug).catch(() => null),
-              4000,
-              null,
-            ),
-          ] as const,
-      ),
+    // ★トップの空き枠計算は一旦停止（earliestForDate/computeAvailableSlots が本番の
+    //   ある条件で暴走し 300 秒ハング＝トップだけ落ちる事故があった。純関数が
+    //   イベントループをブロックすると setTimeout ベースのタイムアウトも発火しない）。
+    //   「最短枠」は placeholder（調整中）にし、まずトップを確実に描画させる。
+    //   再開時は反復回数の上限・入力健全性の検証を入れてから戻すこと。
+    const earliestEntries: [string, EarliestSlotInfo | null][] = cards.map(
+      (c) => [c.slug, null],
     );
     return {
       ctx,
