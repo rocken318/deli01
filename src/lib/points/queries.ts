@@ -173,7 +173,8 @@ export type UsePointsOutcome =
   | { kind: "invalid" }
   | { kind: "below_min"; min: number }
   | { kind: "above_max"; max: number }
-  | { kind: "insufficient"; available: number };
+  | { kind: "insufficient"; available: number }
+  | { kind: "revenue_already_posted" };
 
 export async function spendPointsCore(
   sql: Sql,
@@ -189,6 +190,23 @@ export async function spendPointsCore(
     // 同一顧客のポイント操作を直列化（二重消費の防止）
     const customer = await resolveCustomerForUpdate(tx, params, true);
     if (!customer) return { kind: "customer_not_found" } as const;
+
+    // 予約の売上が既に計上済みなら、ポイント利用は point_use の値引行として
+    // 反映できない（フェーズ17 は再計上不可）。台帳だけ減って売上が過大に固定
+    // されるのを防ぐため拒否する（reviewer B1 / spec L847）。運用順序は
+    // 「done → usePoints → postReservationRevenue」。
+    if (params.reservationId) {
+      const posted = await tx`
+        select 1 from revenue_lines
+        where reservation_id = ${params.reservationId}::uuid
+          and reversal_of is null
+          and line_type in ('course', 'option', 'nomination', 'transport', 'midnight')
+        limit 1
+      `;
+      if (posted.length > 0) {
+        return { kind: "revenue_already_posted" } as const;
+      }
+    }
 
     const lots = await selectLots(tx, customer.id);
     const available = lots

@@ -669,3 +669,137 @@ export const therapistCourses = pgTable(
     pk: primaryKey({ columns: [t.therapistId, t.courseId] }),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// フェーズ17: 売上台帳・支払内訳・回数券・経費
+// （0015_revenue_tickets_expenses.sql の写像。追記専用・部分 unique・RLS は
+//   手書き SQL 側で定義。reservations / customers への FK は素の uuid 列）
+// ---------------------------------------------------------------------------
+
+/** 売上行の種別（spec 10章 L856。値引行 discount/point_use は負で記帳） */
+export const revenueLineType = pgEnum("revenue_line_type", [
+  "course",
+  "option",
+  "nomination",
+  "transport",
+  "midnight",
+  "discount",
+  "point_use",
+  "ticket_redeem",
+]);
+
+/** 支払方法（spec L855。1予約で併用可） */
+export const paymentMethod = pgEnum("payment_method", [
+  "cash",
+  "card",
+  "emoney",
+  "ticket",
+  "point",
+]);
+
+/** 回数券台帳の仕訳種別（spec L857） */
+export const ticketEntryType = pgEnum("ticket_entry_type", [
+  "purchase",
+  "redeem",
+  "expire",
+  "reverse",
+  "adjust",
+]);
+
+/** 経費カテゴリ（spec L868） */
+export const expenseCategory = pgEnum("expense_category", [
+  "oil",
+  "supplies",
+  "parking",
+  "ads",
+  "other",
+]);
+
+/**
+ * 売上追記専用台帳 ★（spec L856・L858「集計は revenue_lines だけを読む」）。
+ * 独立行で計上（合算しない）。update/delete は grant なし。修正は reversalOf
+ * つき逆仕訳行の追記。二重計上は部分 unique（core/singleton/option）が DB 層で防止。
+ */
+export const revenueLines = pgTable("revenue_lines", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  reservationId: uuid("reservation_id"),
+  lineType: revenueLineType("line_type").notNull(),
+  /** 円・整数。売上行は正、discount/point_use は負。0 行は立てない */
+  amount: integer("amount").notNull(),
+  /** 集計軸（期間 × エリア × セラピスト / spec L860）。計上時に予約から写す */
+  areaId: uuid("area_id").references(() => areas.id, { onDelete: "set null" }),
+  therapistId: uuid("therapist_id").references(() => therapists.id, {
+    onDelete: "set null",
+  }),
+  /** option 行のみ（(予約, option) 単位の二重計上防止キー） */
+  optionId: uuid("option_id").references(() => options.id, {
+    onDelete: "restrict",
+  }),
+  /** 計上日基準の日時。予約由来の行は start_at（施術日基準） */
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  /** 逆仕訳: 元行（revenue_lines.id）。逆仕訳行は符号規約の対象外 */
+  reversalOf: bigint("reversal_of", { mode: "bigint" }),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/** 支払方法の内訳（spec L855）。1予約に複数行可（現金＋回数券など）。追記専用 */
+export const payments = pgTable("payments", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  reservationId: uuid("reservation_id").notNull(),
+  method: paymentMethod("method").notNull(),
+  /** 円・整数。修正は負額の追記 */
+  amount: integer("amount").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/**
+ * 回数券追記専用台帳 ★（spec L857）。残回数 = sum(count) / 前受金残高 = sum(amount)。
+ * ロット = purchase 行（count>0・lotId null）。redeem/expire は負で lotId 必須。
+ * 端数配分（受入 L1092）は amount で表す（10,000円3回券 → −3,333/−3,333/−3,334）。
+ */
+export const ticketEntries = pgTable("ticket_entries", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  customerId: uuid("customer_id").notNull(),
+  type: ticketEntryType("type").notNull(),
+  /** 回数の増減。purchase:+N / redeem:−1 / expire:−残回数 */
+  count: integer("count").notNull(),
+  /** 前受金の増減（円・整数）。purchase:+券面総額 / redeem:−配分額 */
+  amount: integer("amount").notNull(),
+  /** 名目単価（表示用・任意）。正は amount（端数配分のため単価は一意でない） */
+  unitPrice: integer("unit_price"),
+  reservationId: uuid("reservation_id"),
+  reason: text("reason"),
+  /** 失効期限（purchase ロット単位） */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  /** 消化/失効/逆仕訳の対象ロット（ticket_entries.id） */
+  lotId: bigint("lot_id", { mode: "bigint" }),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/** 経費（spec L868。突合 11-6 の「経費」の出所）。入力データなので編集可 */
+export const expenses = pgTable("expenses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  category: expenseCategory("category").notNull(),
+  /** 円・整数・正 */
+  amount: integer("amount").notNull(),
+  spentOn: date("spent_on").notNull(),
+  areaId: uuid("area_id").references(() => areas.id, { onDelete: "set null" }),
+  note: text("note"),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
