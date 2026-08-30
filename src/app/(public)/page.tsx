@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { unstable_cache } from "next/cache";
 import { getSiteContext, getPublishedPage, getPublicTherapistFields, label } from "@/lib/public/content";
 import { listPublicTherapists } from "@/lib/public/queries";
 import { buildTherapistCards } from "@/lib/public/therapist-view";
@@ -18,16 +19,76 @@ import { HeroBanner } from "./_components/hero-banner";
  * - いま出勤中のセラピスト（published therapists）をカードで
  * - 最短案内時間は空き枠エンジン（spec 5-4）で代表エリア概算し、前提を明記する
  *
- * キャッシュ（spec 2-7）: プロフィール・本文は ISR。空き枠は本来キャッシュしないが、
- * force-dynamic だと本番でリクエスト毎に全セラピストの空き枠を再計算し、サーバレスの
- * 再利用接続が凍結後 stale になってページごとハング→画像が出ない事故が発生した。
- * ISR(revalidate=30) にして描画結果をキャッシュ配信し、DB 依存をリクエストから切り離す
- * （spec の「60秒以内に反映」許容内。空き枠は最大30秒の概算ずれを許容）。
+ * キャッシュ（spec 2-7）: ページ自体は force-dynamic（ビルド時に DB を要求しない＝
+ * feedback-no-over-configuration）。ただし本番でリクエスト毎の DB 読取（特に全セラピストの
+ * 空き枠計算）がサーバレスの stale 接続で詰まり、ページごとハング→画像が出ない事故が発生した。
+ * そこで DB 読取一式を unstable_cache（revalidate=30）で実行時キャッシュし、大半のリクエストを
+ * DB 非依存で高速配信する（spec の「60秒以内に反映」許容内・空き枠は最大30秒の概算ずれを許容）。
  */
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
+
+/** 4秒でタイムアウト（空き枠計算が詰まってもデータ生成を止めない） */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
+/** サイト共通文言＋home ページ（メタデータ用・30秒キャッシュ） */
+const loadSiteAndPage = unstable_cache(
+  async () => {
+    const [ctx, page] = await Promise.all([
+      getSiteContext(),
+      getPublishedPage("home"),
+    ]);
+    return { ctx, page };
+  },
+  ["home-site-and-page-v1"],
+  { revalidate: 30 },
+);
+
+/** トップの読取一式（文言・セラピスト・メディア・空き枠）を1回にまとめて30秒キャッシュ */
+const loadHomeData = unstable_cache(
+  async () => {
+    const [ctx, page, therapists, fields] = await Promise.all([
+      getSiteContext(),
+      getPublishedPage("home"),
+      listPublicTherapists(),
+      getPublicTherapistFields(),
+    ]);
+    const cards = await buildTherapistCards(therapists, fields);
+    const mediaMap = await getPublicMediaMap(collectBlockImageIds(page.blocks), {
+      requireConsent: false,
+    });
+    // 空き枠計算はタイムアウト付き（遅い/ハング時は null＝「調整中」）
+    const earliestEntries = await Promise.all(
+      cards.map(
+        async (c) =>
+          [
+            c.slug,
+            await withTimeout(
+              earliestSlotForTherapist(c.slug).catch(() => null),
+              4000,
+              null,
+            ),
+          ] as const,
+      ),
+    );
+    return {
+      ctx,
+      page,
+      cards,
+      mediaMapEntries: [...mediaMap.entries()],
+      earliestEntries,
+    };
+  },
+  ["home-data-v1"],
+  { revalidate: 30 },
+);
 
 export async function generateMetadata(): Promise<Metadata> {
-  const [ctx, page] = await Promise.all([getSiteContext(), getPublishedPage("home")]);
+  const { ctx, page } = await loadSiteAndPage();
   return {
     title: page.seoTitle || ctx.brandName || " ",
     description: page.seoDescription || ctx.footerNote || undefined,
@@ -35,44 +96,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function HomePage() {
-  const [ctx, page, therapists, fields] = await Promise.all([
-    getSiteContext(),
-    getPublishedPage("home"),
-    listPublicTherapists(),
-    getPublicTherapistFields(),
-  ]);
-
-  const cards = await buildTherapistCards(therapists, fields);
-  const mediaMap = await getPublicMediaMap(collectBlockImageIds(page.blocks), {
-    requireConsent: false,
-  });
-
-  // 各セラピストの最短案内時刻（代表エリア概算 / spec 5-4）。都度計算・キャッシュしない。
-  // 失敗しても null に倒し、カードは placeholder のまま出す（公開ページを落とさない）。
-  // ★重要: 空き枠計算が本番プーラーで詰まるとページ本体（ヒーロー・画像・コース紹介）
-  //   ごと描画が止まる事故があったため、各計算に上限時間を設ける。遅い/ハング時は
-  //   null（「調整中」表示）に倒し、画像を含むページ本体は必ず即描画させる。
-  const AVAILABILITY_TIMEOUT_MS = 4000;
-  const withTimeout = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
-    Promise.race([
-      p,
-      new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
-    ]);
-  const earliestBySlug = new Map(
-    await Promise.all(
-      cards.map(
-        async (c) =>
-          [
-            c.slug,
-            await withTimeout(
-              earliestSlotForTherapist(c.slug).catch(() => null),
-              AVAILABILITY_TIMEOUT_MS,
-              null,
-            ),
-          ] as const,
-      ),
-    ),
-  );
+  const { ctx, page, cards, mediaMapEntries, earliestEntries } =
+    await loadHomeData();
+  const mediaMap = new Map(mediaMapEntries);
+  const earliestBySlug = new Map(earliestEntries);
   // 署名要素（セクション見出し）は、いま案内できる中で最も早い枠を代表として出す
   const sectionEarliest = [...earliestBySlug.values()]
     .filter((e): e is NonNullable<typeof e> => e !== null)
