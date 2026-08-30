@@ -98,6 +98,8 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       // トップ
       therapists_section_title: "いま案内できるセラピスト",
       view_all_therapists: "セラピストをすべて見る",
+      // プレイ内容ブロックの項目見出しプレフィックス（「プレイ1」「プレイ2」…）
+      play_item_label: "プレイ",
       empty_home_title: "準備中です",
       empty_home_body: "公開ページの内容は管理画面から設定します。",
       // ヒーロー下のコンセプトコピー画像（underhero.png）の代替テキストと、
@@ -328,6 +330,16 @@ const pageSeeds = [
         imageId: "bbbbbbbb-0000-4000-8000-000000000001",
         ctaLabel: "空き枠を確認する",
         ctaHref: "/booking",
+      },
+      {
+        id: "home-play-1",
+        type: "play",
+        visible: true,
+        heading: "プレイ内容",
+        items: [
+          { body: "オイルトリートメント：全身をやさしくほぐす基本のコースです。" },
+          { body: "リンパケア：巡りを促し、疲れを流します。" },
+        ],
       },
       {
         id: "home-cta-1",

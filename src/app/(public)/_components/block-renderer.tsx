@@ -9,6 +9,7 @@ import type {
   FaqBlock,
   NoticeBlock,
   CtaBlock,
+  PlayBlock,
 } from "@/domain/cms/blocks";
 import type { PublicMedia } from "@/lib/public/queries";
 import { PublicImage } from "./public-image";
@@ -151,6 +152,31 @@ function Notice({ block }: { block: NoticeBlock }) {
   );
 }
 
+function Play({ block, itemLabel }: { block: PlayBlock; itemLabel: string }) {
+  const items = block.items.filter((it) => it.body.trim().length > 0);
+  if (items.length === 0 && !block.heading) return null;
+  return (
+    <section className="mx-auto max-w-2xl px-6 py-8">
+      {block.heading && (
+        <h2 className="mb-4 font-heading text-xl text-pub-text">{block.heading}</h2>
+      )}
+      <div className="space-y-4">
+        {items.map((item, i) => (
+          <div key={i} className="rounded border border-pub-border bg-pub-surface p-4">
+            <p className="font-heading text-base text-pub-primary">
+              {itemLabel}
+              {i + 1}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap leading-relaxed text-pub-text">
+              {item.body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Cta({ block }: { block: CtaBlock }) {
   if (!block.label || !block.href) return null;
   return (
@@ -169,7 +195,7 @@ function Cta({ block }: { block: CtaBlock }) {
 /** 1ブロックを描画（未対応 type は何も出さない） */
 export function renderBlock(
   block: Block,
-  opts: { media: BlockMediaMap; brandName: string; index: number },
+  opts: { media: BlockMediaMap; brandName: string; index: number; playItemLabel?: string },
 ): React.ReactNode {
   if (!block.visible) return null;
   const priority = opts.index === 0;
@@ -190,6 +216,8 @@ export function renderBlock(
       return <Notice key={block.id} block={block} />;
     case "cta":
       return <Cta key={block.id} block={block} />;
+    case "play":
+      return <Play key={block.id} block={block} itemLabel={opts.playItemLabel ?? ""} />;
     // therapist_picks / course_list はデータがフェーズ6-7で揃うため本フェーズは非描画
     default:
       return null;

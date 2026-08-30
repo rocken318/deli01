@@ -10,8 +10,9 @@ import { getDevSession } from "@/lib/cms/dev-session";
 import { can } from "@/domain/auth";
 import { toActor } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/cms/actions";
-import type { HeroBlock } from "@/domain/cms/blocks";
+import type { HeroBlock, PlayBlock } from "@/domain/cms/blocks";
 import { PublishForm } from "./publish-form";
+import { PlayEditor } from "./play-editor";
 
 export const metadata: Metadata = { title: "ページ編集" };
 
@@ -49,6 +50,7 @@ export default async function PageEditorPage({ params }: Props) {
   };
 
   const heroBlock = page.draftBlocks.find((b): b is HeroBlock => b.type === "hero");
+  const playBlock = page.draftBlocks.find((b): b is PlayBlock => b.type === "play");
 
   async function handleSaveFields(formData: FormData) {
     "use server";
@@ -235,6 +237,18 @@ export default async function PageEditorPage({ params }: Props) {
           )}
         </section>
       )}
+
+      {/* プレイ内容エディタ（繰り返し項目・＋ボタンで追加） */}
+      <section className="bg-adm-surface border border-adm-border rounded p-6 space-y-4">
+        <h2 className="text-base font-semibold text-adm-text border-b border-adm-border pb-2">
+          プレイ内容
+        </h2>
+        <PlayEditor
+          slug={slug}
+          initialHeading={playBlock?.heading ?? ""}
+          initialItems={playBlock?.items ?? []}
+        />
+      </section>
 
       {/* ブロック一覧（読み取り専用） */}
       <section className="bg-adm-surface border border-adm-border rounded p-6 space-y-4">

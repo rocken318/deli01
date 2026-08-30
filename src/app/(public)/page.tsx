@@ -85,7 +85,12 @@ export default async function HomePage() {
       {/* pages(home) published ブロック（未公開なら空状態） */}
       {page.isPublished && page.blocks.length > 0 ? (
         page.blocks.map((block, i) =>
-          renderBlock(block, { media: mediaMap, brandName: ctx.brandName, index: i }),
+          renderBlock(block, {
+            media: mediaMap,
+            brandName: ctx.brandName,
+            index: i,
+            playItemLabel: label(ctx, "play_item_label"),
+          }),
         )
       ) : (
         <EmptyState
