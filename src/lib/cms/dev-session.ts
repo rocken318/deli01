@@ -1,47 +1,37 @@
 import "server-only";
 import type { Session } from "@/lib/auth/session";
+import { getDefaultSessionProvider } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 /**
- * 開発・デモ用のセッション取得（フェーズ2〜3）。
+ * セッション取得。名前は互換のため据え置くが、挙動は二段:
+ * - ADMIN_DEV_SESSION=1（ローカル/CI）: シードの owner を返す（従来のスタブ）。
+ * - それ以外（本番）: Supabase Auth（getDefaultSessionProvider）。未ログイン/未紐付けは null。
  *
- * 【暫定措置】live Supabase Auth 配線（フェーズ1後半〜）までの間、
- * 環境変数 ADMIN_DEV_SESSION=1 が設定されている場合のみシードの owner を返す。
- * 未設定（本番・プレビュー）では null を返し、全アクション・ページは 403 相当になる。
- *
- * TODO(live 配線フェーズ): src/lib/auth/index.ts の getDefaultSessionProvider() に差し替える。
- * 本番環境では ADMIN_DEV_SESSION を絶対に設定しないこと。
+ * 本番では ADMIN_DEV_SESSION を絶対に設定しないこと（設定すると認証を素通りする）。
  */
 export async function getDevSession(): Promise<Session | null> {
-  // 厳格化: 明示的に "1" のときだけ有効。"0"・"false"・"true" 等の曖昧値では
-  // 有効化しない（本番で誤って任意の非空値を設定しても発火しないよう安全側）。
-  if (env.adminDevSession !== "1") {
-    return null;
+  if (env.adminDevSession === "1") {
+    // シードで投入した owner の id（scripts/seed.ts の appUsers 参照）
+    return {
+      userId: "aaaaaaaa-0000-4000-8000-000000000001",
+      role: "owner",
+    };
   }
-  // シードで投入した owner の id（scripts/seed.ts の appUsers 参照）
-  return {
-    userId: "aaaaaaaa-0000-4000-8000-000000000001",
-    role: "owner",
-  };
+  return getDefaultSessionProvider().getSession();
 }
 
 /**
- * 開発専用: セラピスト本人セッションを解決するヘルパ（マイページ用）。
- *
- * ADMIN_DEV_SESSION=1 のときのみ有効。本番では必ず null。
- * slug が指定されれば app_users.therapist_id ↔ therapists.slug で解決する。
- * slug 省略時は therapist_id が紐付いた最初の therapist ロール app_user を返す。
- *
- * 前提: seed の therapist_id 紐付け（aoi/ren）が完了していること。
- *
- * TODO(live Auth): src/lib/auth/ の live SessionProvider に差し替える。
- * 本番環境では ADMIN_DEV_SESSION を絶対に設定しないこと。
+ * セラピスト本人セッション（マイページ用）。
+ * - ADMIN_DEV_SESSION=1: ?as=<slug> のなりすまし解決（dev 専用）。
+ * - 本番: ログイン中ユーザーが therapist ロールなら自分自身。slug は無視。
  */
 export async function getTherapistDevSession(
   slug?: string,
 ): Promise<Session | null> {
   if (env.adminDevSession !== "1") {
-    return null;
+    const session = await getDefaultSessionProvider().getSession();
+    return session?.role === "therapist" ? session : null;
   }
 
   const { getClient } = await import("@/lib/db-client");
