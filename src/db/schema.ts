@@ -1058,3 +1058,49 @@ export const flashDeals = pgTable("flash_deals", {
     onDelete: "set null",
   }),
 });
+
+// ---------------------------------------------------------------------------
+// フェーズ21: CMS内AIアシスタント（spec 19章 / 0018_ai_actions.sql）
+// ---------------------------------------------------------------------------
+
+/** AI 操作の種別（spec 19-1 L1248-L1251） */
+export const aiActionType = pgEnum("ai_action_type", [
+  "generate",           // 下書き生成（プロフィール/キャッチ/お知らせ/FAQ/SEO）
+  "rewrite",            // リライト・トーン調整
+  "banned_word_suggest", // 禁止語検出＋言い換え提案
+  "terminology_suggest", // 用語辞書の表記ゆれ統一案
+  "structure_change",   // 構造変更提案（差分プレビュー→承認必須 / 受入 L1125）
+]);
+
+/** AI 操作の審査状態 */
+export const aiActionStatus = pgEnum("ai_action_status", [
+  "proposed", // AI 出力あり・未審査（初期状態）
+  "approved", // owner/admin が承認 → draft にのみ反映済み
+  "rejected", // owner/admin が却下（何も適用しない）
+  "failed",   // AI 呼び出し失敗（ANTHROPIC_API_KEY 未設定を含む）
+]);
+
+/**
+ * AI 操作履歴（追記専用 / フェーズ21 / spec L433・受入 L1126）。
+ * - request/output/action_type/created_by は不変
+ * - status/reviewed_by の更新のみ許す（承認/却下は owner/admin のみ）
+ * - delete は grant しない（AI が何を出力したかの事実を消させない）
+ * - AI の出力は必ず proposed → 承認で draft のみ反映（published は絶対触らない / 受入 L1124）
+ * - structure_change は差分プレビュー→承認を経てから draft に適用（受入 L1125）
+ */
+export const aiActions = pgTable("ai_actions", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  actionType: aiActionType("action_type").notNull(),
+  /** 対象 entity/slug 等（例: "record:therapist:aoi" / "page:home"）。全体提案は null */
+  entity: text("entity"),
+  /** 依頼内容（プロンプト/対象テキスト/種別など）。不変 */
+  request: jsonb("request").notNull(),
+  /** AI 出力（提案）。failed の場合は { error: "..." }。不変 */
+  output: jsonb("output"),
+  /** 審査状態。初期 proposed */
+  status: aiActionStatus("status").notNull().default("proposed"),
+  createdBy: uuid("created_by").references(() => appUsers.id, { onDelete: "set null" }),
+  reviewedBy: uuid("reviewed_by").references(() => appUsers.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
