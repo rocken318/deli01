@@ -11,6 +11,7 @@ import {
 } from './actions';
 import type { OrderFormData, AvailableTherapistOption } from './actions';
 import type { PublicSlotView } from '@/lib/availability/public-slots';
+import { getPointBalance, usePoints as spendPoints } from '@/lib/points/actions';
 
 interface Therapist {
   id: string;
@@ -97,6 +98,15 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
   const [showOverride, setShowOverride] = useState(false);
   const [provisionalHotelLoading, setProvisionalHotelLoading] = useState(false);
 
+  // ポイント関連 state
+  const [customerPointBalance, setCustomerPointBalance] = useState<number | null>(null);
+  const [confirmedReservationId, setConfirmedReservationId] = useState<string | null>(null);
+  const [pointUseDone, setPointUseDone] = useState(false);
+  const [confirmedCustomerPhone, setConfirmedCustomerPhone] = useState<string | null>(null);
+  const [usePointsInput, setUsePointsInput] = useState('');
+  const [usePointsMsg, setUsePointsMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [usePointsLoading, setUsePointsLoading] = useState(false);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const candidateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,6 +124,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!/^0[0-9]{9,10}$/.test(phone)) {
       setCustomerLookupMsg('');
+      setCustomerPointBalance(null);
       return;
     }
     debounceRef.current = setTimeout(async () => {
@@ -126,8 +137,17 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
         // 推奨9: note を preferences に自動補完
         if (c.note) setPreferences((prev) => prev || (c.note ?? ''));
         setCustomerLookupMsg(`リピーター（${c.name}様）の情報を自動入力しました`);
+        // ポイント残高を電話番号で取得
+        void getPointBalance({ phone }).then((balRes) => {
+          if (balRes.ok && balRes.data) {
+            setCustomerPointBalance(balRes.data.balance);
+          } else {
+            setCustomerPointBalance(null);
+          }
+        });
       } else {
         setCustomerLookupMsg('');
+        setCustomerPointBalance(null);
       }
     }, 400);
     return () => {
@@ -251,6 +271,15 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     setCandidateTherapists([]);
     setTherapistSelectMode('specific');
     setHotelNotFound(false);
+    // ポイント state は確定後フローで使うため、confirmedReservationId/Phone は
+    // handleUsePoints 完了後か次の注文開始時（successMsg クリア）にリセットする。
+    // フォーム項目だけリセット。
+    setCustomerPointBalance(null);
+    setUsePointsInput('');
+    setUsePointsMsg(null);
+    // confirmedReservationId / confirmedCustomerPhone は resetForm ではクリアしない
+    // （successMsg に紐づくポイント利用UIが残るため）。
+    // 次の「予約する」でhandleSubmitが走るときにクリアする。
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -258,6 +287,11 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
+    // 前回の確定情報をクリア
+    setConfirmedReservationId(null);
+    setConfirmedCustomerPhone(null);
+    setUsePointsInput('');
+    setUsePointsMsg(null);
 
     // セラピスト必須チェック
     if (!selectedTherapistId || !selectedTherapistSlug) {
@@ -292,7 +326,11 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     setLoading(false);
 
     if (result.ok) {
-      setSuccessMsg(`予約が完了しました（ID: ${result.data?.reservationId ?? ''}）`);
+      const resId = result.data?.reservationId ?? null;
+      const phoneForPoints = phone; // ポイント利用のために保持（resetForm で上書きされる前に取得）
+      setSuccessMsg(`予約が完了しました（ID: ${resId ?? ''}）`);
+      setConfirmedReservationId(resId);
+      setConfirmedCustomerPhone(phoneForPoints);
       resetForm();
     } else {
       setErrorMsg(result.error ?? '予約の作成に失敗しました');
@@ -319,6 +357,47 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     }
   };
 
+  /**
+   * 確定済み予約へのポイント利用（確定後フロー）。
+   * confirmedCustomerPhone を使って顧客を特定する。
+   * 会計への実値引きはフェーズ17で実装。ここでは台帳記録のみ。
+   */
+  const handleUsePoints = async () => {
+    const requested = parseInt(usePointsInput, 10);
+    if (!Number.isInteger(requested) || requested <= 0) {
+      setUsePointsMsg({ ok: false, text: 'ポイント数を正の整数で入力してください' });
+      return;
+    }
+    if (!confirmedReservationId) {
+      setUsePointsMsg({ ok: false, text: '予約IDが見つかりません' });
+      return;
+    }
+    if (!confirmedCustomerPhone) {
+      setUsePointsMsg({ ok: false, text: '電話番号が取得できません。ポイント管理画面から手動で操作してください' });
+      return;
+    }
+    setUsePointsLoading(true);
+    setUsePointsMsg(null);
+    const res = await spendPoints({
+      phone: confirmedCustomerPhone,
+      requestedPoints: requested,
+      reservationId: confirmedReservationId,
+      reason: '電話注文ポイント利用',
+    });
+    setUsePointsLoading(false);
+    if (res.ok && res.data) {
+      setUsePointsMsg({
+        ok: true,
+        text: `${res.data.used}P 利用を台帳に記録しました（残高: ${res.data.balance}P）。会計の値引きはフェーズ17で反映されます。`,
+      });
+      setCustomerPointBalance(res.data.balance);
+      // 同一予約への二重記録を防ぐ（成功後は入力を締める / reviewer S3）
+      setPointUseDone(true);
+    } else {
+      setUsePointsMsg({ ok: false, text: res.error ?? 'ポイント利用に失敗しました' });
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Fixed price summary bar（表示用のみ / サーバ側が正） */}
@@ -335,8 +414,47 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
       </div>
 
       {successMsg && (
-        <div className="bg-green-50 border border-green-200 text-green-800 rounded p-3 text-sm">
-          {successMsg}
+        <div className="bg-green-50 border border-green-200 text-green-800 rounded p-3 text-sm space-y-2">
+          <p>{successMsg}</p>
+          {confirmedReservationId && confirmedCustomerPhone && (
+            <div className="pt-2 border-t border-green-200">
+              <p className="text-xs text-green-700 mb-2">
+                ポイントを利用する場合は以下に入力してください。
+                <span className="font-medium">
+                  会計への値引き反映はフェーズ17で対応します。
+                </span>
+              </p>
+              <div className="flex gap-2 items-center flex-wrap">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={usePointsInput}
+                  onChange={(e) => setUsePointsInput(e.target.value)}
+                  placeholder="利用P数"
+                  disabled={pointUseDone}
+                  className="border border-green-300 rounded px-2 py-1 text-sm w-28 focus:outline-none disabled:opacity-50"
+                />
+                {customerPointBalance !== null && (
+                  <span className="text-xs text-green-700">
+                    （残高: {customerPointBalance.toLocaleString()}P）
+                  </span>
+                )}
+                <button
+                  onClick={() => { void handleUsePoints(); }}
+                  disabled={usePointsLoading || pointUseDone}
+                  className="bg-green-700 text-white px-3 py-1 rounded text-xs disabled:opacity-50"
+                >
+                  {usePointsLoading ? '記録中…' : pointUseDone ? '記録済み' : '利用を記録'}
+                </button>
+              </div>
+              {usePointsMsg && (
+                <p className={`text-xs mt-1 ${usePointsMsg.ok ? 'text-green-700' : 'text-red-600'}`}>
+                  {usePointsMsg.text}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
       {errorMsg && (
@@ -361,6 +479,11 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
           />
           {customerLookupMsg && (
             <p className="text-xs text-adm-primary mt-1">{customerLookupMsg}</p>
+          )}
+          {customerPointBalance !== null && (
+            <p className="text-xs text-adm-primary font-medium mt-0.5">
+              ポイント残高: {customerPointBalance.toLocaleString()}P
+            </p>
           )}
         </div>
 

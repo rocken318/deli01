@@ -18,6 +18,7 @@ import { nextStatus, canTransition } from '@/domain/dispatch-board';
 import type { DispatchStatus } from '@/domain/dispatch-board';
 import { advanceMyReservationStatus } from '@/lib/dispatch-board/therapist-portal-actions';
 import type { TherapistTimelineItem, AdvanceTarget } from '@/lib/dispatch-board/queries';
+import HandoverSection from './HandoverSection';
 
 const APP_TZ = 'Asia/Tokyo';
 
@@ -274,6 +275,13 @@ export default function TimelineView({ initialItems, asSlug }: Props) {
                   {state.error}
                 </div>
               )}
+
+              {/* 引き継ぎメモ（フェーズ16 / spec 9章 L810-814） */}
+              <HandoverSection
+                reservationId={item.reservationId}
+                status={currentStatus}
+                asSlug={asSlug}
+              />
 
               {/* ワンタップ前進ボタン */}
               {!isDone && canAdv && toSt && (
