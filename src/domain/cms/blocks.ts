@@ -16,6 +16,7 @@ export const BLOCK_TYPES = [
   "faq",
   "notice",
   "cta",
+  "play",
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -89,6 +90,17 @@ export const ctaBlockSchema = blockBase.extend({
   subtext: z.string().default(""),
 });
 
+/**
+ * プレイ内容ブロック（自動採番の繰り返し項目）。
+ * heading = セクション見出し（例「プレイ内容」）。items = 各プレイの内容本文。
+ * 公開側は「{play_item_label}{n}」の見出し（label は用語辞書由来）＋ body を描画する。
+ */
+export const playBlockSchema = blockBase.extend({
+  type: z.literal("play"),
+  heading: z.string().default(""),
+  items: z.array(z.object({ body: z.string() })).default([]),
+});
+
 export const blockSchema = z.discriminatedUnion("type", [
   heroBlockSchema,
   textBlockSchema,
@@ -100,6 +112,7 @@ export const blockSchema = z.discriminatedUnion("type", [
   faqBlockSchema,
   noticeBlockSchema,
   ctaBlockSchema,
+  playBlockSchema,
 ]);
 
 export const blocksArraySchema = z.array(blockSchema);
@@ -114,4 +127,5 @@ export type StepsBlock = z.infer<typeof stepsBlockSchema>;
 export type FaqBlock = z.infer<typeof faqBlockSchema>;
 export type NoticeBlock = z.infer<typeof noticeBlockSchema>;
 export type CtaBlock = z.infer<typeof ctaBlockSchema>;
+export type PlayBlock = z.infer<typeof playBlockSchema>;
 export type Block = z.infer<typeof blockSchema>;

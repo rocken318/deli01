@@ -83,6 +83,49 @@ export async function savePageBlocks(slug: string, blocks: Block[], locale = "ja
   }
 }
 
+const playInputSchema = z.object({
+  heading: z.string().max(200).default(""),
+  items: z.array(z.object({ body: z.string().max(5000) })).max(50).default([]),
+});
+
+export type PlayInput = z.infer<typeof playInputSchema>;
+
+/**
+ * ページの「プレイ内容」ブロックを保存する（繰り返し項目の追加/編集/削除）。
+ * 既存の play ブロックがあれば heading/items を差し替え、無ければ末尾に追加する。
+ * 他のブロックは保持。draft に保存し、公開は既存の publish フローに乗せる。
+ */
+export async function savePlayBlock(
+  slug: string,
+  input: PlayInput,
+  locale = "ja",
+): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: "認証が必要です" };
+  if (!can(toActor(session), "manage_cms")) return { ok: false, error: "権限がありません" };
+
+  const parsed = playInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors.map((e) => e.message).join(", ") };
+  }
+  // 空本文の項目は保存時に落とす（＋で増やして未入力のまま残さない）
+  const items = parsed.data.items.filter((it) => it.body.trim().length > 0);
+
+  const page = await getPage(slug, locale);
+  if (!page) return { ok: false, error: "ページが見つかりません" };
+
+  const existing = page.draftBlocks.find((b) => b.type === "play");
+  const playBlock: Block = existing
+    ? { ...existing, heading: parsed.data.heading, items }
+    : { id: `${slug}-play-1`, type: "play", visible: true, heading: parsed.data.heading, items };
+
+  const updated: Block[] = page.draftBlocks.some((b) => b.type === "play")
+    ? page.draftBlocks.map((b) => (b.type === "play" ? playBlock : b))
+    : [...page.draftBlocks, playBlock];
+
+  return savePageBlocks(slug, updated, locale);
+}
+
 export interface PublishPageResult { warnings: string[] }
 
 export async function publishPage(slug: string, locale = "ja"): Promise<ActionResult<PublishPageResult>> {
