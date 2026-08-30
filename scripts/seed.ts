@@ -100,6 +100,12 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       view_all_therapists: "セラピストをすべて見る",
       empty_home_title: "準備中です",
       empty_home_body: "公開ページの内容は管理画面から設定します。",
+      // ヒーロー下のコンセプトコピー画像（underhero.png）の代替テキストと、
+      // 画像内文言の転記（sr-only で読み上げ・検索エンジン向け。ページ実内容の説明）。
+      under_hero_alt:
+        "王様の休日 — ここは、とある王国の宮殿。王様を癒す派遣型リラクゼーション。最短60分から、ご自宅やホテルへ厳選されたセラピストがお伺いします。",
+      under_hero_seo:
+        "ここは、とある王国の宮殿。多忙な王様に訪れた、久しぶりの休日。王の間には、マッサージの得意な美女たちが集う。王様は今日のセラピストを選び、やさしく微笑みかける。そう、王様に仕える美女たちの喜びは——王様を癒すこと。その手に、心に、すべてを込めて。国王と美女の間に起こる、束の間の休息をあなたにも。派遣型リラクゼーション。最短60分からお好きな時間にご利用いただけます。ご自宅やホテルへ、セラピストがご指定の場所へお伺いします。厳選された美女、経験豊富なセラピストが極上の癒しをお届けします。さあ、特別なひとときをお楽しみください。",
       // 一覧
       therapists_page_title: "セラピスト",
       therapists_page_lead: "得意な施術から選べます。",
@@ -407,24 +413,6 @@ const bannedWordSeeds = [
 // ---------------------------------------------------------------------------
 
 /**
- * セラピストプレースホルダ画像（spec 3-7: 実在人物写真は使用不可）。
- * 各セラピストにイニシャル入りの抽象 SVG を使う。
- */
-function therapistSvgDataUri(initial: string, from: string, to: string): string {
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-label="セラピストシルエット">` +
-    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
-    `<stop offset="0%" stop-color="${from}"/><stop offset="100%" stop-color="${to}"/>` +
-    `</linearGradient></defs>` +
-    `<rect width="800" height="800" fill="url(#g)"/>` +
-    `<circle cx="400" cy="300" r="160" fill="#ffffff" opacity="0.15"/>` +
-    `<ellipse cx="400" cy="600" rx="220" ry="180" fill="#ffffff" opacity="0.10"/>` +
-    `<text x="400" y="380" text-anchor="middle" font-family="serif" font-size="200" fill="#ffffff" opacity="0.6">${initial}</text>` +
-    `</svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
-
-/**
  * セラピスト用メディアシード（プレースホルダ）。
  * bbbbbbbb-0001〜: セラピスト写真枠。
  * 同意フラグの違いで publishTherapistProfile の掲載同意ゲートをデモできる。
@@ -433,20 +421,19 @@ const therapistMediaSeeds = [
   // あおい: 同意あり（公開可能）
   {
     id: "bbbbbbbb-0001-4000-8000-000000000001",
-    url: therapistSvgDataUri("蒼", "#8a7ead", "#5e8fa8"),
-    alt: "セラピスト「あおい」プレースホルダー（本番公開前に差し替えること）",
+    url: "/therapists/001.jpg",
+    alt: "セラピスト「あおい」ダミー写真（本番公開前に差し替えること）",
     tags: ["placeholder", "therapist", "aoi"],
     consent_flag: true,
     consent_date: "2026-01-01",
-    // 目線入り（spec 3-7）の表示デモ。公開ページで .eye-overlay の帯が乗る。
-    face_visibility: "eyes",
+    face_visibility: "face",
     is_placeholder: true,
   },
   // みなと: 同意なし（publishTherapistProfile のゲートデモ用）
   {
     id: "bbbbbbbb-0001-4000-8000-000000000002",
-    url: therapistSvgDataUri("湊", "#7eadad", "#5e8f7e"),
-    alt: "セラピスト「みなと」プレースホルダー（掲載同意未取得 / 本番公開前に差し替えること）",
+    url: "/therapists/003.jpg",
+    alt: "セラピスト「みなと」ダミー写真（掲載同意未取得 / 本番公開前に差し替えること）",
     tags: ["placeholder", "therapist", "minato"],
     consent_flag: false,
     consent_date: null,
@@ -456,8 +443,8 @@ const therapistMediaSeeds = [
   // ひなた: 同意あり（退職済みのためis_hiddenデモ用）
   {
     id: "bbbbbbbb-0001-4000-8000-000000000003",
-    url: therapistSvgDataUri("陽", "#ada87e", "#a88e5e"),
-    alt: "セラピスト「ひなた」プレースホルダー（退職済み / 本番公開前に差し替えること）",
+    url: "/therapists/004.jpg",
+    alt: "セラピスト「ひなた」ダミー写真（退職済み / 本番公開前に差し替えること）",
     tags: ["placeholder", "therapist", "hinata"],
     consent_flag: true,
     consent_date: "2026-01-01",
@@ -467,12 +454,12 @@ const therapistMediaSeeds = [
   // れん: 同意あり（フェーズ8: 出勤表で「全域対応」のデモに使う公開セラピスト）
   {
     id: "bbbbbbbb-0001-4000-8000-000000000004",
-    url: therapistSvgDataUri("蓮", "#7e9ead", "#8a5e8f"),
-    alt: "セラピスト「れん」プレースホルダー（本番公開前に差し替えること）",
+    url: "/therapists/002.jpg",
+    alt: "セラピスト「れん」ダミー写真（本番公開前に差し替えること）",
     tags: ["placeholder", "therapist", "ren"],
     consent_flag: true,
     consent_date: "2026-01-01",
-    face_visibility: "none",
+    face_visibility: "face",
     is_placeholder: true,
   },
 ] as const;

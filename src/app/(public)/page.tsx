@@ -10,6 +10,7 @@ import { renderBlock, collectBlockImageIds } from "./_components/block-renderer"
 import { EmptyState } from "./_components/empty-state";
 import { TherapistCard } from "./_components/therapist-card";
 import { EarliestSlot } from "./_components/earliest-slot";
+import { HeroBanner } from "./_components/hero-banner";
 
 /**
  * 公開トップ（spec 2-1）。
@@ -74,6 +75,13 @@ export default async function HomePage() {
 
   return (
     <div>
+      {/* ヒーローバナー（スマホ/PC で別画像・アートディレクション＋コンセプトコピー画像） */}
+      <HeroBanner
+        brandName={ctx.brandName}
+        underHeroAlt={label(ctx, "under_hero_alt")}
+        underHeroSeo={label(ctx, "under_hero_seo")}
+      />
+
       {/* pages(home) published ブロック（未公開なら空状態） */}
       {page.isPublished && page.blocks.length > 0 ? (
         page.blocks.map((block, i) =>
