@@ -80,6 +80,40 @@ DATABASE_URL="<接続文字列>" pnpm db:seed      # 段階投入シード
 
 上記はローカル docker での実演。**本番 Supabase での復旧リハーサルは、復元先に別 Supabase プロジェクト（or ローカル）を用意して同手順で1回行い、この表に追記すること**（本番 DB を復元先に使わない＝上書き事故防止）。所要時間はデータ量（顧客・予約の本体シード投入後）で変わるため、本体シード投入後に再計測して更新する。
 
+## 管理者アカウントの発行（Supabase Auth / 初回・追加）
+
+本番 `/admin`・`/mypage` は Supabase Auth（email+パスワード）でログインする。
+アカウントは既存 `app_users` に auth ユーザーを紐付けて発行する（ローカルは
+`ADMIN_DEV_SESSION=1` のスタブ認証のまま。本番では絶対に設定しない。仮に本番
+Vercel で誤設定しても `VERCEL_ENV=production` ではスタブを拒否する二重の歯止めあり）。
+
+0. **前提: Supabase Dashboard で Email の public signup を無効化**（Authentication →
+   Providers/Sign In。招待/bootstrap 経由のみ許可）。未紐付けの auth ユーザーは
+   middleware を通過し画面枠だけは見える（データは RLS で拒否）ため、第三者の
+   セルフ登録を塞ぐ。
+
+1. 発行対象を JSON で用意（`bootstrap-users.json`。**コミットしない**）:
+   ```json
+   [
+     { "appUserId": "aaaaaaaa-0000-4000-8000-000000000001", "email": "owner@example.com" },
+     { "appUserId": "aaaaaaaa-0000-4000-8000-000000000002", "email": "admin@example.com" }
+   ]
+   ```
+   `appUserId` は seed の各ロール ID（owner=…0001 / admin=…0002 / reception=…0003 /
+   therapist あおい=…0004 / れん=…0005）。
+2. 本番向けに実行（`SUPABASE_SERVICE_ROLE_KEY`・`DATABASE_URL`=5432 session pooler）:
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... DATABASE_URL=... \
+     pnpm tsx scripts/bootstrap-auth.ts bootstrap-users.json
+   ```
+3. 出力された初期パスワードを各人へ安全に配布。初回ログイン後に Supabase 側で変更。
+   **スクリプトは初期パスワードを標準出力に一度だけ表示する**ため、ログ収集される
+   CI/共有端末では実行せず、手元の端末でのみ実行しスクロールバックを残さないこと。
+4. `https://<本番>/login` から email+パスワードでログイン → `/admin` が表示されれば完了。
+
+冪等: 既に紐付いた `app_users` はスキップ。同 email の auth ユーザーは再利用する。
+無効化は `app_users.is_active=false`（ログイン即失効）。
+
 ## 関連インシデント記録
 
 - **2026-08-31 本番全ページ500（DB down）**: Vercel `DATABASE_URL` のパスワードがローテート後に古いままで 28P01（認証失敗）。DB 自体は Healthy。対処＝Vercel env のパスワード更新＋再デプロイ。詳細と教訓は運用メモに記録済み。**db:down でも Supabase が Healthy なら pause でなく Vercel 側の認証を疑い、まず runtime logs で errcode を見る。**
