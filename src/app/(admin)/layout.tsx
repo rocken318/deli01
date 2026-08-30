@@ -8,6 +8,8 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getDevSession } from "@/lib/cms/dev-session";
+import { signOut } from "@/app/login/actions";
 
 export const metadata: Metadata = {
   title: {
@@ -41,11 +43,12 @@ const navItems = [
   { href: "/admin/ai", label: "AI" },
 ] as const;
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await getDevSession();
   return (
     <div className="min-h-screen bg-adm-bg text-adm-text">
       {/* ナビゲーションバー */}
@@ -66,6 +69,22 @@ export default function AdminLayout({
               </Link>
             ))}
           </nav>
+          <div className="ml-auto flex items-center gap-3 text-sm">
+            <span className="text-adm-text/70">
+              {session ? session.role : "未ログイン"}
+            </span>
+            {session ? (
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 border border-adm-border hover:bg-adm-bg"
+                  style={{ borderRadius: "4px" }}
+                >
+                  ログアウト
+                </button>
+              </form>
+            ) : null}
+          </div>
         </div>
       </header>
 
