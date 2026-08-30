@@ -267,6 +267,12 @@ export const therapists = pgTable("therapists", {
   canUseCar: boolean("can_use_car").notNull().default(true),
   /** 徒歩上限の個人差（m）。null = walk_settings.cap_meters の既定（spec 5-1） */
   walkCapMeters: integer("walk_cap_meters"),
+  /** ランク（報酬レートの既定値に使う / spec L415・18-4。0016 で追加） */
+  rankId: uuid("rank_id"),
+  /** 適格請求書発行事業者の登録番号。null = 未登録（spec L935。0016 で追加） */
+  invoiceRegNo: text("invoice_reg_no"),
+  /** 源泉徴収フラグ。既定オフ（spec L936。額の自動判定はしない / 16章） */
+  withholding: boolean("withholding").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -802,4 +808,155 @@ export const expenses = pgTable("expenses", {
   }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// フェーズ18: 報酬（業務委託バック）・締め・支払（spec 11章 / 0016_payouts.sql）
+// ---------------------------------------------------------------------------
+
+/** 報酬レートの対象種別（spec 11-1 L884-885） */
+export const payoutTargetType = pgEnum("payout_target_type", [
+  "course",
+  "option",
+  "nomination",
+  "transport",
+  "late_night",
+  "cancel_fee",
+]);
+
+/** payout_lines の区分（target 種別 + 手動調整 / spec L905-906） */
+export const payoutCategory = pgEnum("payout_category", [
+  "course",
+  "option",
+  "nomination",
+  "transport",
+  "late_night",
+  "cancel_fee",
+  "adjustment",
+]);
+
+/** fixed = 円（整数） / rate = 率（整数%）（spec L887。numeric は使わない） */
+export const payoutCalcType = pgEnum("payout_calc_type", ["fixed", "rate"]);
+
+export const payoutStatus = pgEnum("payout_status", ["open", "closed", "paid"]);
+
+/** 控除の種類（立替・備品・貸付 / spec L930。withholding = 源泉の手入力 / L936） */
+export const payoutDeductionKind = pgEnum("payout_deduction_kind", [
+  "advance",
+  "supplies",
+  "loan",
+  "withholding",
+  "other",
+]);
+
+/** セラピストのランク（報酬レートの既定値に使う / spec L415・18-4） */
+export const therapistRanks = pgTable("therapist_ranks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 報酬レート（spec 11-1）。優先順位 = 個別（therapistId）> ランク別（rankId）>
+ * 既定（両方 null）。適用期間 [effectiveFrom, effectiveTo)。
+ * value は calcType='fixed' なら円、'rate' なら整数%（0〜100）。
+ * レート改定は「打ち切り + 新規行」。過去の確定報酬は変わらない（受入 L1094）。
+ */
+export const payoutRates = pgTable("payout_rates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  therapistId: uuid("therapist_id").references(() => therapists.id, {
+    onDelete: "cascade",
+  }),
+  rankId: uuid("rank_id").references(() => therapistRanks.id, {
+    onDelete: "cascade",
+  }),
+  targetType: payoutTargetType("target_type").notNull(),
+  /** コースID・オプションID など。null = その種別の全対象 */
+  targetId: uuid("target_id"),
+  calcType: payoutCalcType("calc_type").notNull(),
+  /** fixed: 円（整数） / rate: 整数%（0〜100） */
+  value: integer("value").notNull(),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/**
+ * 締め済みの支払（spec 11-4）。status='closed' でロック（DB トリガ）。
+ * closed 後に許すのは closed→paid のみ。修正は payout_lines の逆仕訳のみ。
+ * 期間の重複はセラピスト単位の exclusion 制約（0016）で拒否。
+ */
+export const payouts = pgTable("payouts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  therapistId: uuid("therapist_id").notNull(),
+  /** 期間は日付の閉区間 [periodStart, periodEnd] */
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  /** 円・整数。gross = Σ payout_lines（期間内・逆仕訳込み） */
+  gross: integer("gross").notNull().default(0),
+  deductions: integer("deductions").notNull().default(0),
+  /** net = gross − deductions（DB check で担保） */
+  net: integer("net").notNull().default(0),
+  status: payoutStatus("status").notNull().default("open"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  /** 締め時点のスナップショット（インボイス区分 / 源泉フラグ。spec L935-936） */
+  invoiceRegNo: text("invoice_reg_no"),
+  withholding: boolean("withholding").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/**
+ * 報酬の追記専用台帳 ★（spec 11-2）。修正は reversalOf の逆仕訳のみ。
+ * calcNote に使ったレート・元金額・計算式のスナップショットを必ず残す
+ * （spec L913・受入 L1098）。therapist は自分の行のみ select（RLS / 受入 L1134）。
+ * 締め済み期間への insert は DB トリガが拒否（受入 L1094・L1097）。
+ */
+export const payoutLines = pgTable("payout_lines", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  therapistId: uuid("therapist_id").notNull(),
+  /** 営業日（Asia/Tokyo の start_at の日付。逆仕訳・調整は計上日） */
+  businessDate: date("business_date").notNull(),
+  reservationId: uuid("reservation_id"),
+  category: payoutCategory("category").notNull(),
+  /** option 行のみ（(予約, option) 単位の二重計上防止キー） */
+  optionId: uuid("option_id").references(() => options.id, {
+    onDelete: "restrict",
+  }),
+  /** 円・整数。報酬行は正。adjustment と逆仕訳のみ負を許す */
+  amount: integer("amount").notNull(),
+  /** ★計算根拠（PayoutCalcNote / src/domain/payout）。jsonb not null */
+  calcNote: jsonb("calc_note").notNull(),
+  /** 逆仕訳: 元行（payout_lines.id） */
+  reversalOf: bigint("reversal_of", { mode: "bigint" }),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/** 控除（立替・備品・貸付・源泉手入力 / spec L930）。親 payout が open の間のみ可変 */
+export const payoutDeductions = pgTable("payout_deductions", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  payoutId: uuid("payout_id").notNull(),
+  kind: payoutDeductionKind("kind").notNull(),
+  /** 円・整数・正 */
+  amount: integer("amount").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
 });

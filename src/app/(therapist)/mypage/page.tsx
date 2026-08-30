@@ -4,6 +4,7 @@ import { toZonedTime } from 'date-fns-tz';
 import { getMyTimeline } from '@/lib/dispatch-board/therapist-portal-actions';
 import TimelineView from './TimelineView';
 import EmergencyButton from './EmergencyButton';
+import EarningsSection from './EarningsSection';
 
 export const metadata: Metadata = {
   title: '今日の予定',
@@ -24,7 +25,7 @@ const APP_TZ = 'Asia/Tokyo';
  * - 打診返答: フェーズ後続
  * - 出退勤打刻: attendances テーブルが別フェーズ
  * - 引き継ぎメモ: フェーズ16
- * - 稼ぎ・支払明細: フェーズ18
+ * - 稼ぎ・支払明細: フェーズ18（実装済み: EarningsSection）
  * - 通知受信: フェーズ20
  */
 export default async function MyPage({
@@ -125,6 +126,11 @@ export default async function MyPage({
             />
           </section>
         )}
+
+        {/* 稼ぎ（フェーズ18） */}
+        <section aria-label="今月の稼ぎ">
+          <EarningsSection asSlug={asSlug} />
+        </section>
 
         {/* 緊急連絡ボタン（常時表示） */}
         <section aria-label="緊急連絡">
