@@ -37,6 +37,7 @@ const navItems = [
   { href: "/admin/shifts", label: "出勤設定" },
   { href: "/admin/media", label: "メディア" },
   { href: "/admin/preview/home", label: "プレビュー" },
+  { href: "/admin/ai", label: "AI" },
 ] as const;
 
 export default function AdminLayout({
