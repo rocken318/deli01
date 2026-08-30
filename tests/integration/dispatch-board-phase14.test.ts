@@ -588,6 +588,8 @@ describe("advanceReservationStatusCore: 追加検証", () => {
 // =====================================================================
 describe("getTherapistTimelineCore: 電話番号なし・住所監査", () => {
   let timelineResId: string;
+  // 予約の start_at の JST 日付で問い合わせる（日跨ぎフレーク対策・上と同趣旨）
+  let timelineDate: string;
 
   beforeAll(async () => {
     // ren の 170min 後スロット（ゲート内・本人確認テストの 350min とは被らない）。
@@ -599,6 +601,10 @@ describe("getTherapistTimelineCore: 電話番号なし・住所監査", () => {
       startOffsetMin: 170, // ゲート内（180分未満）
       addressIdOverride: addrT,
     });
+    const startRow = await sql<{ start_at: Date }[]>`
+      select start_at from reservations where id = ${timelineResId}::uuid
+    `;
+    timelineDate = formatInTimeZone(startRow[0]!.start_at, TZ, "yyyy-MM-dd");
   });
 
   afterAll(async () => {
@@ -610,7 +616,7 @@ describe("getTherapistTimelineCore: 電話番号なし・住所監査", () => {
   });
 
   it("返却データに phone / customerPhone フィールドが存在しない（ren セッション）", async () => {
-    const outcome = await getTherapistTimelineCore(sql, renSession, todayISO);
+    const outcome = await getTherapistTimelineCore(sql, renSession, timelineDate);
     expect(outcome.kind).toBe("ok");
     if (outcome.kind !== "ok") return;
 
@@ -633,19 +639,19 @@ describe("getTherapistTimelineCore: 電話番号なし・住所監査", () => {
     };
 
     const before = await count();
-    await getTherapistTimelineCore(sql, renSession, todayISO);
+    await getTherapistTimelineCore(sql, renSession, timelineDate);
     const after1 = await count();
     // ゲート内（170分後）の予約 + 住所 → audit が増える
     expect(after1).toBeGreaterThanOrEqual(before);
 
     // 2回目でさらに増える（実装: 毎回 insert）
-    await getTherapistTimelineCore(sql, renSession, todayISO);
+    await getTherapistTimelineCore(sql, renSession, timelineDate);
     const after2 = await count();
     expect(after2).toBeGreaterThanOrEqual(after1);
   });
 
   it("delayed・exitOverdue フラグが存在し、未来確定予約は両方 false（ren）", async () => {
-    const outcome = await getTherapistTimelineCore(sql, renSession, todayISO);
+    const outcome = await getTherapistTimelineCore(sql, renSession, timelineDate);
     if (outcome.kind !== "ok") return;
 
     const item = outcome.items.find((i) => i.reservationId === timelineResId);
@@ -658,7 +664,7 @@ describe("getTherapistTimelineCore: 電話番号なし・住所監査", () => {
   });
 
   it("addressVisibleFromISO が start_at の 180分前（ren）", async () => {
-    const outcome = await getTherapistTimelineCore(sql, renSession, todayISO);
+    const outcome = await getTherapistTimelineCore(sql, renSession, timelineDate);
     if (outcome.kind !== "ok") return;
     const item = outcome.items.find((i) => i.reservationId === timelineResId);
     if (!item) return;
@@ -825,6 +831,9 @@ describe("recordEmergency（therapist-portal 相当の DB 直検証）", () => {
 // =====================================================================
 describe("本人が予定を見られる（受入 L1066 完了条件）", () => {
   let myResId: string;
+  // 予約が属する JST 日付で問い合わせる（now+350min が深夜に日跨ぎしても落ちないよう、
+  // "today" ではなく予約の start_at の JST 日付を使う / タイムゾーン境界のフレーク対策）
+  let myResDate: string;
 
   beforeAll(async () => {
     // ren の 350min 後スロット（タイムライン describe の 170min と被らない）。
@@ -836,6 +845,10 @@ describe("本人が予定を見られる（受入 L1066 完了条件）", () => 
       startOffsetMin: 350,
       addressIdOverride: addrM,
     });
+    const startRow = await sql<{ start_at: Date }[]>`
+      select start_at from reservations where id = ${myResId}::uuid
+    `;
+    myResDate = formatInTimeZone(startRow[0]!.start_at, TZ, "yyyy-MM-dd");
   });
 
   afterAll(async () => {
@@ -847,7 +860,7 @@ describe("本人が予定を見られる（受入 L1066 完了条件）", () => 
   });
 
   it("getTherapistTimelineCore: 本人（ren）の当日予定が返り必須フィールドを含む", async () => {
-    const outcome = await getTherapistTimelineCore(sql, renSession, todayISO);
+    const outcome = await getTherapistTimelineCore(sql, renSession, myResDate);
     expect(outcome.kind).toBe("ok");
     if (outcome.kind !== "ok") return;
 
@@ -871,13 +884,13 @@ describe("本人が予定を見られる（受入 L1066 完了条件）", () => 
   });
 
   it("getTherapistTimelineCore: staff（reception）セッションは forbidden", async () => {
-    const outcome = await getTherapistTimelineCore(sql, receptionSession, todayISO);
+    const outcome = await getTherapistTimelineCore(sql, receptionSession, myResDate);
     expect(outcome.kind).toBe("forbidden");
   });
 
   it("getTherapistTimelineCore: 自分のものでない therapist（aoi）のデータは含まれない", async () => {
     // ren のタイムラインに aoi の予約は出ない（RLS: therapist_id で絞り込み）
-    const outcome = await getTherapistTimelineCore(sql, renSession, todayISO);
+    const outcome = await getTherapistTimelineCore(sql, renSession, myResDate);
     if (outcome.kind !== "ok") return;
     // aoi 専用のアドレス名が ren のタイムラインに含まれていない
     const json = JSON.stringify(outcome.items);

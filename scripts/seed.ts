@@ -948,6 +948,248 @@ const shiftSeeds: {
   })),
 ];
 
+// ---------------------------------------------------------------------------
+// フェーズ18: セラピストランク・報酬レート（spec 18-4・18-5 / 冪等）
+// ---------------------------------------------------------------------------
+
+const therapistRankSeeds: { id: string; name: string; sortOrder: number }[] = [
+  { id: "f1f1f1f1-0000-4000-8000-000000000001", name: "プレミア", sortOrder: 10 },
+  { id: "f1f1f1f1-0000-4000-8000-000000000002", name: "レギュラー", sortOrder: 20 },
+  { id: "f1f1f1f1-0000-4000-8000-000000000003", name: "新人", sortOrder: 30 },
+];
+
+const therapistRankAssignments: { slug: string; rankName: string }[] = [
+  { slug: "aoi",    rankName: "プレミア" },
+  { slug: "ren",    rankName: "レギュラー" },
+  { slug: "minato", rankName: "新人" },
+  { slug: "hinata", rankName: "新人" }, // 退職済だが履歴データ用に割当
+];
+
+type PayoutRateSeed = {
+  id: string;
+  /** 直接指定する therapist UUID。null の場合は therapistSlug から解決する */
+  therapistId: string | null;
+  /** slug で解決する個別特例。therapistId が null のとき使う */
+  therapistSlug?: string;
+  rankId: string | null;
+  targetType: "course" | "option" | "nomination" | "transport" | "late_night" | "cancel_fee";
+  calcType: "fixed" | "rate";
+  value: number;
+  effectiveFrom: string;
+  note: string | null;
+};
+
+const payoutRateSeeds: PayoutRateSeed[] = [
+  // ---- 新人ランク (f1f1f1f1-0000-4000-8000-000000000003) ----
+  {
+    id: "a1a1a1a1-0001-4000-8000-000000000001",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000003",
+    targetType: "course",
+    calcType: "rate",
+    value: 50,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0002-4000-8000-000000000001",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000003",
+    targetType: "option",
+    calcType: "rate",
+    value: 50,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0003-4000-8000-000000000001",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000003",
+    targetType: "nomination",
+    calcType: "rate",
+    value: 100,
+    effectiveFrom: "2026-01-01",
+    note: "指名料は全額バック",
+  },
+  {
+    id: "a1a1a1a1-0004-4000-8000-000000000001",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000003",
+    targetType: "transport",
+    calcType: "rate",
+    value: 100,
+    effectiveFrom: "2026-01-01",
+    note: "交通費は全額バック",
+  },
+  {
+    id: "a1a1a1a1-0005-4000-8000-000000000001",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000003",
+    targetType: "late_night",
+    calcType: "rate",
+    value: 50,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0006-4000-8000-000000000001",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000003",
+    targetType: "cancel_fee",
+    calcType: "rate",
+    value: 0,
+    effectiveFrom: "2026-01-01",
+    note: "キャンセル料はバックなし",
+  },
+  // ---- レギュラーランク (f1f1f1f1-0000-4000-8000-000000000002) ----
+  {
+    id: "a1a1a1a1-0001-4000-8000-000000000002",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000002",
+    targetType: "course",
+    calcType: "rate",
+    value: 55,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0002-4000-8000-000000000002",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000002",
+    targetType: "option",
+    calcType: "rate",
+    value: 55,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0003-4000-8000-000000000002",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000002",
+    targetType: "nomination",
+    calcType: "rate",
+    value: 100,
+    effectiveFrom: "2026-01-01",
+    note: "指名料は全額バック",
+  },
+  {
+    id: "a1a1a1a1-0004-4000-8000-000000000002",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000002",
+    targetType: "transport",
+    calcType: "rate",
+    value: 100,
+    effectiveFrom: "2026-01-01",
+    note: "交通費は全額バック",
+  },
+  {
+    id: "a1a1a1a1-0005-4000-8000-000000000002",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000002",
+    targetType: "late_night",
+    calcType: "rate",
+    value: 55,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0006-4000-8000-000000000002",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000002",
+    targetType: "cancel_fee",
+    calcType: "rate",
+    value: 0,
+    effectiveFrom: "2026-01-01",
+    note: "キャンセル料はバックなし",
+  },
+  // ---- プレミアランク (f1f1f1f1-0000-4000-8000-000000000001) ----
+  {
+    id: "a1a1a1a1-0001-4000-8000-000000000003",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000001",
+    targetType: "course",
+    calcType: "rate",
+    value: 65,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0002-4000-8000-000000000003",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000001",
+    targetType: "option",
+    calcType: "rate",
+    value: 65,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0003-4000-8000-000000000003",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000001",
+    targetType: "nomination",
+    calcType: "rate",
+    value: 100,
+    effectiveFrom: "2026-01-01",
+    note: "指名料は全額バック",
+  },
+  {
+    id: "a1a1a1a1-0004-4000-8000-000000000003",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000001",
+    targetType: "transport",
+    calcType: "rate",
+    value: 100,
+    effectiveFrom: "2026-01-01",
+    note: "交通費は全額バック",
+  },
+  {
+    id: "a1a1a1a1-0005-4000-8000-000000000003",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000001",
+    targetType: "late_night",
+    calcType: "rate",
+    value: 65,
+    effectiveFrom: "2026-01-01",
+    note: null,
+  },
+  {
+    id: "a1a1a1a1-0006-4000-8000-000000000003",
+    therapistId: null,
+    rankId: "f1f1f1f1-0000-4000-8000-000000000001",
+    targetType: "cancel_fee",
+    calcType: "rate",
+    value: 0,
+    effectiveFrom: "2026-01-01",
+    note: "キャンセル料はバックなし",
+  },
+  // ---- 個別特例 (spec 18-5) ----
+  // aoi: コースのバック率を70%に（交渉済み特例）
+  {
+    id: "a1a1a1a1-0101-4000-8000-000000000001",
+    therapistId: null,
+    therapistSlug: "aoi",
+    rankId: null,
+    targetType: "course",
+    calcType: "rate",
+    value: 70,
+    effectiveFrom: "2026-03-01",
+    note: "特例: アオイは交渉済みで70%",
+  },
+  // minato: 交通費を上限500円固定
+  {
+    id: "a1a1a1a1-0102-4000-8000-000000000001",
+    therapistId: null,
+    therapistSlug: "minato",
+    rankId: null,
+    targetType: "transport",
+    calcType: "fixed",
+    value: 500,
+    effectiveFrom: "2026-01-01",
+    note: "特例: 交通費は上限500円固定",
+  },
+];
+
 async function main() {
   const sql = postgres(url as string, { max: 1, onnotice: () => {} });
   try {
@@ -1606,8 +1848,71 @@ async function main() {
       `;
     }
 
+    // -----------------------------------------------------------------------
+    // フェーズ18: セラピストランク・報酬レート（spec 18-4・18-5 / 冪等）
+    // -----------------------------------------------------------------------
+    // therapist_ranks はマイグレーション 0016 が固定UUIDで既に投入済み。
+    // seed 側は名前で衝突させず（migration の行を正とする）、以降は名前→id を DB から引く。
+    for (const rank of therapistRankSeeds) {
+      await sql`
+        insert into therapist_ranks (id, name, sort_order)
+        values (${rank.id}::uuid, ${rank.name}, ${rank.sortOrder})
+        on conflict (name) do nothing
+      `;
+    }
+    // 実際に有効なランクの id を名前で解決（migration/seed どちらの UUID でも吸収）
+    const dbRanks = await sql<{ id: string; name: string }[]>`
+      select id, name from therapist_ranks
+    `;
+    const rankIdByName = new Map(dbRanks.map((r) => [r.name, r.id]));
+    const rankNameBySeedId = new Map(
+      therapistRankSeeds.map((r) => [r.id, r.name]),
+    );
+
+    for (const { slug, rankName } of therapistRankAssignments) {
+      await sql`
+        update therapists
+        set rank_id = (select id from therapist_ranks where name = ${rankName})
+        where slug = ${slug}
+      `;
+    }
+
+    for (const rate of payoutRateSeeds) {
+      // 個別特例: therapistSlug が指定されている場合は slug から UUID を解決する
+      let therapistId = rate.therapistId ?? null;
+      if (therapistId === null && rate.therapistSlug) {
+        const rows = await sql<{ id: string }[]>`
+          select id from therapists where slug = ${rate.therapistSlug} limit 1
+        `;
+        therapistId = rows[0]?.id ?? null;
+      }
+      // rank_id は seed の f1f1f1f1 UUID ではなく、名前経由で実DBの id に解決する
+      const resolvedRankId = rate.rankId
+        ? rankIdByName.get(rankNameBySeedId.get(rate.rankId) ?? "") ?? null
+        : null;
+      await sql`
+        insert into payout_rates
+          (id, therapist_id, rank_id, target_type, target_id, calc_type, value, effective_from, note)
+        values (
+          ${rate.id}::uuid,
+          ${therapistId},
+          ${resolvedRankId},
+          ${rate.targetType}::payout_target_type,
+          null,
+          ${rate.calcType}::payout_calc_type,
+          ${rate.value},
+          ${rate.effectiveFrom}::date,
+          ${rate.note ?? null}
+        )
+        on conflict (id) do update set
+          value          = excluded.value,
+          effective_from = excluded.effective_from,
+          note           = excluded.note
+      `;
+    }
+
     console.log(
-      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）/ phase12_customers ${phase12Customers.length} / phase12_reservations ${phase12Reservations.length} / lost_orders ${lostOrderSeeds.length} / message_templates ${messageTemplateSeeds.length}`,
+      `シード完了: terminology ${terminology.length} / site_settings ${siteSettings.length} / field_definitions ${fieldDefinitions.length} / app_users ${appUsers.length} / entity_records ${entityRecordSamples.length} / pages ${pageSeeds.length} / media ${mediaSeeds.length} / banned_words ${bannedWordSeeds.length} / therapists ${therapistSeeds.length} / areas ${areaSeeds.length} / area_travel_times ${carMatrixSeeds.length * 2} / travel_time_modifiers ${timeModifierSeeds.length} / bases ${baseSeeds.length} / travel_buffers ${travelBufferSeeds.length} / courses ${courseSeeds.length} / options ${optionSeeds.length} / option_availability ${optionAvailabilitySeeds.length} / hotels ${hotelSeeds.length} / shifts ${shiftSeeds.length}（基準日 ${seedToday} から5日分）/ phase12_customers ${phase12Customers.length} / phase12_reservations ${phase12Reservations.length} / lost_orders ${lostOrderSeeds.length} / message_templates ${messageTemplateSeeds.length} / therapist_ranks ${therapistRankSeeds.length} / therapist_rank_assignments ${therapistRankAssignments.length} / payout_rates ${payoutRateSeeds.length}`,
     );
   } finally {
     await sql.end({ timeout: 5 });

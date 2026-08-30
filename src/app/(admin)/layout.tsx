@@ -21,6 +21,7 @@ const navItems = [
   { href: "/admin/phone-confirm", label: "電話確認" },
   { href: "/admin/points", label: "ポイント" },
   { href: "/admin/accounting", label: "会計" },
+  { href: "/admin/payouts", label: "報酬" },
   { href: "/admin/dispatch-board", label: "配車ボード" },
   { href: "/admin/reservations", label: "予約管理" },
   { href: "/admin/waitlists", label: "キャンセル待ち" },
