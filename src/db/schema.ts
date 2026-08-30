@@ -960,3 +960,101 @@ export const payoutDeductions = pgTable("payout_deductions", {
     onDelete: "set null",
   }),
 });
+
+// ---------------------------------------------------------------------------
+// フェーズ20: 通知アウトボックス・直前割
+// （0017_notifications_flash_deals.sql の写像。unique(dedupe_key)・RLS・
+//   追記専用 grant・reservations への FK は手書き SQL 側で定義）
+// ---------------------------------------------------------------------------
+
+/** v1 は email 中心。line は将来（spec 16章: LINE 自動送信は v1 でやらない） */
+export const notificationChannel = pgEnum("notification_channel", [
+  "email",
+  "line",
+]);
+
+export const notificationKind = pgEnum("notification_kind", [
+  "reminder_prev_day",
+  "reminder_2h",
+  "waitlist_open",
+  "weekly_report",
+  "flash_deal",
+]);
+
+export const notificationStatus = pgEnum("notification_status", [
+  "pending",
+  "sent",
+  "failed",
+  "skipped",
+]);
+
+/**
+ * 送信アウトボックス（フェーズ20）。実配信はスタブ（src/lib/notify/sender.ts に
+ * 切り出し。②メール配線で差し替え）。dedupeKey の unique（手書き SQL 0017）が
+ * 重複送信の最終防衛線（受入 L1131）。delete は grant しない（記録を消させない）。
+ */
+export const notifications = pgTable("notifications", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  channel: notificationChannel("channel").notNull().default("email"),
+  kind: notificationKind("kind").notNull(),
+  /** 宛先識別（メールアドレス / 電話番号。v1 の顧客はメールを持たないため電話番号） */
+  recipient: text("recipient").notNull(),
+  reservationId: uuid("reservation_id"),
+  customerId: uuid("customer_id"),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  status: notificationStatus("status").notNull().default("pending"),
+  /** 送るべき時刻（リマインドなら start_at−24h / −2h） */
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  /** ★重複送信防止キー '{kind}:{参照ID}'（unique / 受入 L1131） */
+  dedupeKey: text("dedupe_key").notNull().unique(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});
+
+/**
+ * 通知テンプレ（kind ごとに1行・CMS 編集・{{変数}} / message_templates と同型）。
+ * 補間は domain/notify の buildNotification（未定義変数は空文字・落ちない）。
+ */
+export const notificationTemplates = pgTable("notification_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  kind: notificationKind("kind").notNull().unique(),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  locale: text("locale").notNull().default("ja"),
+  isActive: boolean("is_active").notNull().default(true),
+  updatedBy: uuid("updated_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * 直前割の適用履歴（spec L432・L650-654 / 追記専用）。
+ * 金銭計上は revenue_lines の discount 負行（revenueLineId が1:1で指す）。
+ * unique(reservationId) = 二重適用防止。appliedOn（JST 営業日）が
+ * 1日の適用上限（受入 L1120）の日次カウント根拠。
+ * 設定は site_settings.flash_deal_config（既定 enabled=false・雛形）。
+ */
+export const flashDeals = pgTable("flash_deals", {
+  id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+  reservationId: uuid("reservation_id").notNull().unique(),
+  /** 適用時の割引率スナップショット（整数% 1..100） */
+  ratePercent: integer("rate_percent").notNull(),
+  /** 割引額（円・整数・正で保持。revenue_lines 側は負行） */
+  amount: integer("amount").notNull(),
+  /** 適用日（Asia/Tokyo の営業日） */
+  appliedOn: date("applied_on").notNull(),
+  /** 対応する revenue_lines.id（discount 行） */
+  revenueLineId: bigint("revenue_line_id", { mode: "bigint" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => appUsers.id, {
+    onDelete: "set null",
+  }),
+});

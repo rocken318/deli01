@@ -7,6 +7,9 @@
  * ＝キャンセル待ちの契機になる。キャンセル料は cancellationFee（純関数）で算定して返すが、
  * 売上台帳への計上・バック配分はフェーズ17/18（ここでは金額算定と状態遷移まで）。
  * 権限: 受付/管理（manage_reservations）。顧客セルフ（URL+電話番号）導線は UI フェーズ。
+ *
+ * フェーズ20 追加: キャンセル成功後に enqueueWaitlistNotifications を best-effort で呼ぶ
+ * （通知失敗してもキャンセル自体は成立する）。
  */
 
 import { z } from 'zod';
@@ -21,6 +24,9 @@ import {
   DEFAULT_CANCELLATION_POLICY,
   type CancellationTier,
 } from '@/domain/booking/cancellation';
+import { enqueueWaitlistNotifications } from '@/lib/notify/waitlist';
+import { format } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -98,8 +104,14 @@ export async function cancelReservation(
       start_at: Date;
       total_amount: number;
       version: number;
+      area_id: string | null;
+      therapist_id: string | null;
+      course_id: string | null;
     }[]>`
-      select id, status::text, start_at, total_amount, version
+      select id, status::text, start_at, total_amount, version,
+             area_id::text as area_id,
+             therapist_id::text as therapist_id,
+             course_id::text as course_id
       from reservations where id = ${d.reservationId}::uuid limit 1
     `;
     const r = rows[0];
@@ -144,6 +156,21 @@ export async function cancelReservation(
         )
       `;
     });
+
+    // フェーズ20: キャンセルで空いた枠に対してキャンセル待ち通知を best-effort で発火
+    try {
+      const dateISO = format(toZonedTime(r.start_at, 'Asia/Tokyo'), 'yyyy-MM-dd');
+      await enqueueWaitlistNotifications(sql, session, {
+        dateISO,
+        areaId: r.area_id,
+        therapistId: r.therapist_id,
+        courseId: r.course_id,
+        now: new Date(),
+      });
+    } catch (notifyErr) {
+      // 通知失敗はキャンセル成立に影響しない（best-effort）
+      console.error('enqueueWaitlistNotifications failed (best-effort):', notifyErr);
+    }
 
     return {
       ok: true,
