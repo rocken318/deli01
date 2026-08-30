@@ -18,6 +18,7 @@ export const metadata: Metadata = {
 
 const navItems = [
   { href: "/admin/orders", label: "電話受付" },
+  { href: "/admin/cti", label: "着信" },
   { href: "/admin/phone-confirm", label: "電話確認" },
   { href: "/admin/points", label: "ポイント" },
   { href: "/admin/accounting", label: "会計" },
