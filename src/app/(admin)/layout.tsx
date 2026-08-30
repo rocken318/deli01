@@ -20,6 +20,8 @@ const navItems = [
   { href: "/admin/orders", label: "電話受付" },
   { href: "/admin/phone-confirm", label: "電話確認" },
   { href: "/admin/dispatch-board", label: "配車ボード" },
+  { href: "/admin/reservations", label: "予約管理" },
+  { href: "/admin/waitlists", label: "キャンセル待ち" },
   { href: "/admin/dispatch", label: "配車テキスト" },
   { href: "/admin/message-templates", label: "送信テンプレート" },
   { href: "/admin/fields", label: "フィールド定義" },

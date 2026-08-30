@@ -39,6 +39,18 @@ const siteSettings: { key: string; value: unknown }[] = [
       midnight_to_hour: 5,
     },
   },
+  // キャンセルポリシー（何時間前から何%。spec 6章 L648 の雛形 / フェーズ15。CMS 変更が正）
+  {
+    key: "cancellation_policy",
+    value: {
+      tiers: [
+        { min_hours_before: 24, percent: 0 }, // 前日まで無料
+        { min_hours_before: 3, percent: 30 }, // 3時間前まで 30%
+        { min_hours_before: 0, percent: 50 }, // 当日（開始前）50%
+      ],
+      // 開始後・無断キャンセルは全額（cancellation.ts の AFTER_START_PERCENT）
+    },
+  },
 ];
 
 /**
