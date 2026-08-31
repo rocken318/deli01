@@ -320,6 +320,80 @@ export async function getReconciliationCore(
 }
 
 // ---------------------------------------------------------------------------
+// getTherapistBreakdownCore
+// ---------------------------------------------------------------------------
+
+export interface TherapistBreakdownRow {
+  therapistId: string;
+  therapistName: string;
+  /** status = 'done' の件数 */
+  doneCount: number;
+  /** nomination_fee > 0 かつ status = 'done' の件数 */
+  nominationCount: number;
+  /** done の total_amount 合計（整数円） */
+  totalAmount: number;
+}
+
+export interface TherapistBreakdownResult {
+  rows: TherapistBreakdownRow[];
+}
+
+interface TherapistBreakdownDbRow {
+  therapist_id: string;
+  therapist_name: string;
+  done_count: number;
+  nomination_count: number;
+  total_amount: number;
+}
+
+/**
+ * セラピスト別集計（spec 管理側 集計機能）。
+ *
+ * 期間内の done 予約からセラピストごとに:
+ * - 完了件数・指名件数・売上合計を集計する。
+ * - ソートは売上降順。
+ * - 金額はすべて整数（円）。小数は使わない。
+ *
+ * @param params.from  期間開始（inclusive、timestamptz として比較）
+ * @param params.to    期間終了（exclusive、timestamptz として比較）
+ */
+export async function getTherapistBreakdownCore(
+  sql: Sql,
+  session: Session,
+  params: { from: Date; to: Date },
+): Promise<TherapistBreakdownResult> {
+  return withUser(sql, session, async (tx) => {
+    const dbRows = await tx<TherapistBreakdownDbRow[]>`
+      select
+        t.id as therapist_id,
+        coalesce(er.published->>'name', t.slug) as therapist_name,
+        count(*)::integer as done_count,
+        count(*) filter (where r.nomination_fee > 0)::integer as nomination_count,
+        coalesce(sum(r.total_amount), 0)::integer as total_amount
+      from reservations r
+      join therapists t on t.id = r.therapist_id
+      left join entity_records er
+             on er.entity = 'therapist' and er.slug = t.slug
+      where r.status = 'done'
+        and r.start_at >= ${params.from}
+        and r.start_at < ${params.to}
+      group by t.id, t.slug, er.published
+      order by total_amount desc
+    `;
+
+    const rows: TherapistBreakdownRow[] = dbRows.map((r) => ({
+      therapistId: r.therapist_id,
+      therapistName: r.therapist_name,
+      doneCount: r.done_count,
+      nominationCount: r.nomination_count,
+      totalAmount: r.total_amount,
+    }));
+
+    return { rows };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // getDemandHeatmapCore
 // ---------------------------------------------------------------------------
 

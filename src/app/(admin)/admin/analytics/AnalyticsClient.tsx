@@ -13,11 +13,13 @@
  */
 
 import { useState, useTransition, useCallback } from 'react';
-import { getReconciliation, getDemandHeatmap } from '@/lib/analytics/actions';
+import { formatInTimeZone } from 'date-fns-tz';
+import { getReconciliation, getDemandHeatmap, getTherapistBreakdown } from '@/lib/analytics/actions';
 import type {
   ReconciliationResult,
   HeatmapResult,
   AreaReconciliation,
+  TherapistBreakdownResult,
 } from '@/lib/analytics/actions';
 
 interface AreaOption { id: string; name: string }
@@ -44,6 +46,10 @@ function toISO(dateStr: string, startOfDay = true): string {
 
 function fmtMoney(n: number): string {
   return n.toLocaleString('ja-JP') + '円';
+}
+
+function todayJST(): string {
+  return formatInTimeZone(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 }
 
 const DOW_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -356,6 +362,61 @@ function CsvDownloadSection({
 }
 
 // ---------------------------------------------------------------------------
+// Section D: セラピスト別集計テーブル
+// ---------------------------------------------------------------------------
+
+function TherapistBreakdownTable({ data }: { data: TherapistBreakdownResult }) {
+  if (data.rows.length === 0) {
+    return <EmptyState message="該当するデータがありません" />;
+  }
+
+  const totalDone = data.rows.reduce((s, r) => s + r.doneCount, 0);
+  const totalNomination = data.rows.reduce((s, r) => s + r.nominationCount, 0);
+  const totalAmount = data.rows.reduce((s, r) => s + r.totalAmount, 0);
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="border-b border-adm-border bg-adm-bg">
+            <th className="text-left px-3 py-2 font-medium text-adm-text">セラピスト</th>
+            <th className="text-right px-3 py-2 font-medium text-adm-text">完了件数</th>
+            <th className="text-right px-3 py-2 font-medium text-adm-text">指名件数</th>
+            <th className="text-right px-3 py-2 font-medium text-adm-text">売上合計</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((row) => (
+            <tr
+              key={row.therapistId}
+              className="border-b border-adm-border bg-adm-surface hover:bg-adm-bg"
+            >
+              <td className="px-3 py-2 text-adm-text">{row.therapistName}</td>
+              <td className="px-3 py-2 text-right text-adm-text tabular-nums">
+                {row.doneCount}件
+              </td>
+              <td className="px-3 py-2 text-right text-adm-text tabular-nums">
+                {row.nominationCount}件
+              </td>
+              <td className="px-3 py-2 text-right text-adm-text tabular-nums">
+                {fmtMoney(row.totalAmount)}
+              </td>
+            </tr>
+          ))}
+          {/* 合計行 */}
+          <tr className="border-b border-adm-border font-semibold bg-adm-bg">
+            <td className="px-3 py-2 text-adm-text">合計</td>
+            <td className="px-3 py-2 text-right text-adm-text tabular-nums">{totalDone}件</td>
+            <td className="px-3 py-2 text-right text-adm-text tabular-nums">{totalNomination}件</td>
+            <td className="px-3 py-2 text-right text-adm-text tabular-nums">{fmtMoney(totalAmount)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -367,8 +428,10 @@ export function AnalyticsClient({ areas }: Props) {
 
   const [reconciliation, setReconciliation] = useState<ReconciliationResult | null>(null);
   const [heatmap, setHeatmap] = useState<HeatmapResult | null>(null);
+  const [therapistBreakdown, setTherapistBreakdown] = useState<TherapistBreakdownResult | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [heatError, setHeatError] = useState<string | null>(null);
+  const [therapistError, setTherapistError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -376,6 +439,7 @@ export function AnalyticsClient({ areas }: Props) {
     setHasSearched(true);
     setRecError(null);
     setHeatError(null);
+    setTherapistError(null);
     const fromISO = toISO(fromDate, true);
     const toISO_ = toISO(toDate, true);
     const params = {
@@ -384,9 +448,10 @@ export function AnalyticsClient({ areas }: Props) {
       areaId: areaId || null,
     };
     startTransition(async () => {
-      const [recResult, heatResult] = await Promise.all([
+      const [recResult, heatResult, therapistResult] = await Promise.all([
         getReconciliation(params),
         getDemandHeatmap(params),
+        getTherapistBreakdown({ fromISO, toISO: toISO_ }),
       ]);
       if (recResult.ok && recResult.data) {
         setReconciliation(recResult.data);
@@ -399,6 +464,12 @@ export function AnalyticsClient({ areas }: Props) {
       } else {
         setHeatmap(null);
         setHeatError(heatResult.error ?? 'ヒートマップの取得に失敗しました');
+      }
+      if (therapistResult.ok && therapistResult.data) {
+        setTherapistBreakdown(therapistResult.data);
+      } else {
+        setTherapistBreakdown(null);
+        setTherapistError(therapistResult.error ?? 'セラピスト別集計の取得に失敗しました');
       }
     });
   }, [fromDate, toDate, areaId]);
@@ -466,16 +537,41 @@ export function AnalyticsClient({ areas }: Props) {
             </select>
           </div>
 
+          {/* 当日ボタン */}
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-adm-text opacity-0 select-none" aria-hidden>
+              ショートカット
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const today = todayJST();
+                setFromDate(today);
+                setToDate(today);
+              }}
+              disabled={isPending}
+              className="px-3 py-1.5 text-sm border border-adm-border bg-adm-surface text-adm-text hover:bg-adm-bg transition-colors disabled:opacity-50"
+              style={{ borderRadius: '4px' }}
+            >
+              当日
+            </button>
+          </div>
+
           {/* 検索ボタン */}
-          <button
-            type="button"
-            onClick={handleSearch}
-            disabled={isPending}
-            className="px-4 py-1.5 text-sm bg-adm-primary text-white disabled:opacity-50 transition-colors hover:opacity-90"
-            style={{ borderRadius: '4px', backgroundColor: '#3F7A6B' }}
-          >
-            {isPending ? '集計中...' : '集計する'}
-          </button>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-adm-text opacity-0 select-none" aria-hidden>
+              実行
+            </span>
+            <button
+              type="button"
+              onClick={handleSearch}
+              disabled={isPending}
+              className="px-4 py-1.5 text-sm bg-adm-primary text-white disabled:opacity-50 transition-colors hover:opacity-90"
+              style={{ borderRadius: '4px', backgroundColor: '#3F7A6B' }}
+            >
+              {isPending ? '集計中...' : '集計する'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -516,6 +612,24 @@ export function AnalyticsClient({ areas }: Props) {
           ) : heatmap ? (
             <div className="border border-adm-border bg-adm-surface p-4" style={{ borderRadius: '4px' }}>
               <DemandHeatmap data={heatmap} />
+            </div>
+          ) : (
+            <EmptyState message="データがありません" />
+          )}
+        </section>
+      )}
+
+      {/* Section D: セラピスト別集計 */}
+      {!isPending && hasSearched && (
+        <section className="pt-2 border-t border-adm-border">
+          <h2 className="text-base font-semibold text-adm-text mb-3">
+            セラピスト別集計
+          </h2>
+          {therapistError ? (
+            <ErrorBanner message={therapistError} />
+          ) : therapistBreakdown ? (
+            <div className="border border-adm-border bg-adm-surface" style={{ borderRadius: '4px' }}>
+              <TherapistBreakdownTable data={therapistBreakdown} />
             </div>
           ) : (
             <EmptyState message="データがありません" />
