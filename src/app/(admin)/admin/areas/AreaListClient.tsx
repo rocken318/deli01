@@ -357,7 +357,7 @@ export function AreaListClient({ areas }: { areas: DispatchArea[] }) {
         className="border border-adm-border bg-adm-surface p-4 text-sm text-adm-text/70"
         style={{ borderRadius: "4px" }}
       >
-        ここで追加した有効エリアは、出勤設定の「対応エリア」チェックに自動で出ます。エリア間の移動時間は未設定間は暫定推定になります（後から調整可）。
+        ここで追加した有効エリアは、出勤登録の「対応エリア」チェックに自動で出ます。エリア間の移動時間は未設定間は暫定推定になります（後から調整可）。
       </div>
 
       {/* 追加フォーム */}

@@ -40,7 +40,7 @@ const navItems = [
   { href: "/admin/pages", label: "固定ページ" },
   { href: "/admin/therapists", label: "セラピスト" },
   { href: "/admin/areas", label: "派遣エリア" },
-  { href: "/admin/shifts", label: "出勤設定" },
+  { href: "/admin/shifts", label: "出勤登録" },
   { href: "/admin/media", label: "メディア" },
   { href: "/admin/preview/home", label: "プレビュー" },
   { href: "/admin/ai", label: "AI" },

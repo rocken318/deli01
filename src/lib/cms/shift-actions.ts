@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * 出勤設定の Server Actions（フェーズ8 / spec 3-3）。
+ * 出勤登録の Server Actions（フェーズ8 / spec 3-3）。
  *
  * - 全アクションは owner/admin のみ（can(actor, 'manage_cms')）+ audit_logs 記録
  * - withUser() 経由で RLS を有効にして実行する
@@ -100,7 +100,7 @@ interface ShiftRow {
   area_ids: string[] | null;
 }
 
-/** 指定日の出勤設定ボード（active セラピスト全員 + その日の shift + 選択肢） */
+/** 指定日の出勤登録ボード（active セラピスト全員 + その日の shift + 選択肢） */
 export async function getShiftBoard(dateISO: string): Promise<ShiftBoard> {
   const session = await requireCmsSession();
   const date = dateSchema.parse(dateISO);
