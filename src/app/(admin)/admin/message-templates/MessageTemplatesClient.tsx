@@ -189,7 +189,7 @@ export default function MessageTemplatesClient({ initialTemplates, isEditor }: P
                 value={forms[kind].name}
                 onChange={(e) => handleNameChange(kind, e.target.value)}
                 disabled={!isEditor || isPending}
-                className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary disabled:bg-adm-bg disabled:text-adm-muted"
+                className="w-full border border-adm-border rounded px-3 py-2 text-sm bg-adm-surface text-adm-text focus:outline-none focus:ring-1 focus:ring-adm-primary disabled:bg-adm-bg disabled:text-adm-muted"
                 style={{ borderRadius: '4px' }}
               />
             </div>
@@ -221,7 +221,7 @@ export default function MessageTemplatesClient({ initialTemplates, isEditor }: P
                 onChange={(e) => handleBodyChange(kind, e.target.value)}
                 disabled={!isEditor || isPending}
                 rows={8}
-                className="w-full border border-adm-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-adm-primary disabled:bg-adm-bg disabled:text-adm-muted resize-y"
+                className="w-full border border-adm-border rounded px-3 py-2 text-sm font-mono bg-adm-surface text-adm-text focus:outline-none focus:ring-1 focus:ring-adm-primary disabled:bg-adm-bg disabled:text-adm-muted resize-y"
                 style={{ borderRadius: '4px' }}
                 placeholder={
                   kind === 'inquiry'
