@@ -12,7 +12,8 @@
   4. `flashDeals` — 本日 confirmed 予約への直前割一括適用（`applyFlashDealCore`・設定 `enabled=false` なら skip・対象外は core が弾く）
   5. `weeklyReport` — **月曜のみ**先週分の週次レポート生成（`generateWeeklyReport`・`dedupe_key='weekly_report:{週頭}'` で1週1通）
 
-- **スケジュール**: `vercel.json` の `crons` に `{"path":"/api/cron","schedule":"0 * * * *"}`（毎時）。
+- **スケジュール**: `vercel.json` の `crons` に `{"path":"/api/cron","schedule":"0 9 * * *"}`（毎日 09:00 UTC = 18:00 JST）。
+  - **Hobby プランは日次より高頻度の cron を拒否する**（デプロイ自体が作られず失敗する）。そのため既定は日次。Pro なら `0 * * * *`（毎時）や 15分間隔へ上げてよい（全ジョブ冪等なので多重実行は安全）。
 
 ## 認証
 
