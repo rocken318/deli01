@@ -17,6 +17,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { can } from "@/domain/auth";
 import { shiftInstants } from "@/domain/availability";
+import { enumerateShiftDates } from "@/domain/shifts/dates";
 import { toActor } from "@/lib/auth/session";
 import type { Session } from "@/lib/auth/session";
 import { withUser } from "@/lib/auth/with-user";
@@ -268,8 +269,6 @@ export async function saveShiftAction(formData: FormData): Promise<void> {
 // 月/週まとめて入力（spec 3-3「繰り返しパターン」/ 判断ログ#17 の宿題）
 // ---------------------------------------------------------------------------
 
-const MAX_BULK_DAYS = 100;
-
 const bulkShiftSchema = z.object({
   therapistId: uuidSchema,
   rangeStart: dateSchema,
@@ -283,37 +282,6 @@ const bulkShiftSchema = z.object({
   note: z.string().max(500).nullable(),
   areaIds: z.array(uuidSchema).min(1, "対応エリアを1つ以上選択してください"),
 });
-
-/**
- * rangeStart..rangeEnd（両端含む）で weekdays（0=日〜6=土）に該当する
- * YYYY-MM-DD を列挙する。カレンダー日での増分＝タイムゾーン非依存。
- */
-export function enumerateShiftDates(
-  rangeStart: string,
-  rangeEnd: string,
-  weekdays: number[],
-): string[] {
-  const [ys, ms, ds] = rangeStart.split("-").map(Number);
-  const [ye, me, de] = rangeEnd.split("-").map(Number);
-  const start = new Date(ys!, ms! - 1, ds!);
-  const end = new Date(ye!, me! - 1, de!);
-  if (end < start) throw new Error("終了日は開始日以降にしてください");
-  const wd = new Set(weekdays);
-  const out: string[] = [];
-  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    if (wd.has(d.getDay())) {
-      out.push(
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-          d.getDate(),
-        ).padStart(2, "0")}`,
-      );
-      if (out.length > MAX_BULK_DAYS) {
-        throw new Error(`一度に登録できるのは${MAX_BULK_DAYS}日までです。期間を狭めてください`);
-      }
-    }
-  }
-  return out;
-}
 
 /**
  * 出勤予定の一括保存（form action）。期間×曜日パターンで該当する全日付に

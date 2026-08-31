@@ -4,10 +4,8 @@ import postgres from "postgres";
 // revalidatePath はリクエストコンテキスト外だと動かないため no-op 化
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-import {
-  enumerateShiftDates,
-  saveShiftsBulkAction,
-} from "@/lib/cms/shift-actions";
+import { saveShiftsBulkAction } from "@/lib/cms/shift-actions";
+import { enumerateShiftDates } from "@/domain/shifts/dates";
 
 const url =
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/deli01";
