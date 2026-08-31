@@ -28,33 +28,35 @@ export function HeroBanner({
 }) {
   return (
     <section className="w-full overflow-hidden bg-pub-bg">
-      {heroImageUrl ? (
-        /* CMS 設定画像（PC/スマホ共通1枚） */
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={heroImageUrl}
-          alt={brandName}
-          className="mx-auto block h-auto w-full object-cover"
-          fetchPriority="high"
-          decoding="async"
-        />
-      ) : (
-        /* フォールバック: スマホ/PC 別画像アートディレクション */
-        <picture>
-          <source media="(min-width: 768px)" srcSet="/hero/hero-pc.jpg" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+      <div className="relative">
+        {heroImageUrl ? (
+          /* CMS 設定画像（PC/スマホ共通1枚） */
+          // eslint-disable-next-line @next/next/no-img-element
           <img
-            src="/hero/hero-mobile.jpg"
+            src={heroImageUrl}
             alt={brandName}
             className="mx-auto block h-auto w-full object-cover"
             fetchPriority="high"
             decoding="async"
           />
-        </picture>
-      )}
+        ) : (
+          /* フォールバック: スマホ/PC 別画像アートディレクション */
+          <picture>
+            <source media="(min-width: 768px)" srcSet="/hero/hero-pc.jpg" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/hero/hero-mobile.jpg"
+              alt={brandName}
+              className="mx-auto block h-auto w-full object-cover"
+              fetchPriority="high"
+              decoding="async"
+            />
+          </picture>
+        )}
 
-      {/* ヒーロー画像（「今宵はいかがなさいますか？」）の直下に、スマホ限定の下へスクロールボタン（矢印のみ） */}
-      <HeroScrollButton />
+        {/* スマホ限定: 画像内の下部（「今宵はいかがなさいますか？」の下）にスクロール誘導オーバーレイ */}
+        <HeroScrollButton />
+      </div>
 
       {/* ヒーロー直下のコンセプトコピー画像（縦構図・全幅／PC は中央寄せ） */}
       <div className="mx-auto w-full max-w-[640px]">
