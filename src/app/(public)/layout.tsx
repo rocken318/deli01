@@ -55,7 +55,7 @@ export default async function PublicLayout({
 
   return (
     <div
-      className={`${heading.variable} ${body.variable} ${mono.variable} flex min-h-screen flex-col bg-pub-bg text-pub-text`}
+      className={`${heading.variable} ${body.variable} ${mono.variable} flex min-h-screen flex-col overflow-x-clip bg-pub-bg text-pub-text`}
     >
       <SiteHeader ctx={ctx} />
       {/* 画面下固定の予約バー分の余白を確保 */}
