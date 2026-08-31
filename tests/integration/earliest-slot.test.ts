@@ -12,7 +12,7 @@ import { earliestSlotForTherapist } from "@/lib/availability/earliest";
  *
  * 前提: pnpm db:reset 済み。シードは実行日基準 +0〜+4 日の shift を入れるため
  * now は実時刻のまま使う（今日の枠が締切後でも翌日の shift で値が出る）。
- * - aoi: published・徒歩派（車不可）・事務所（渋谷）発着・渋谷/恵比寿/目黒のみ対応
+ * - aoi: published・徒歩派（車不可）・事務所（国分町）発着・国分町/仙台駅前/一番町のみ対応
  * - minato: 未公開（出勤があっても公開側に出さない）
  */
 
@@ -25,10 +25,10 @@ let shibuyaId = "";
 
 beforeAll(async () => {
   const areas = await sql<{ id: string; name: string }[]>`
-    select id, name from areas where name in ('八王子市', '渋谷区')
+    select id, name from areas where name in ('名取', '国分町')
   `;
-  hachiojiId = areas.find((a) => a.name === "八王子市")?.id ?? "";
-  shibuyaId = areas.find((a) => a.name === "渋谷区")?.id ?? "";
+  hachiojiId = areas.find((a) => a.name === "名取")?.id ?? "";
+  shibuyaId = areas.find((a) => a.name === "国分町")?.id ?? "";
   expect(hachiojiId).not.toBe("");
   expect(shibuyaId).not.toBe("");
 });
@@ -43,10 +43,10 @@ describe("earliestSlotForTherapist（spec 5-4 / 最小配線）", () => {
     expect(info).not.toBeNull();
     // "HH:mm"・15分グリッド（spec 5-3 手順7）
     expect(info!.time).toMatch(/^([01]\d|2[0-3]):(00|15|30|45)$/);
-    // エリア未指定 → 代表エリア（sort_order 先頭 = 渋谷区）の概算で「〇〇区の場合」表示
+    // エリア未指定 → 代表エリア（sort_order 先頭 = 国分町）の概算で「〇〇区の場合」表示
     expect(info!.assumed).toBe(true);
     expect(info!.areaId).toBe(shibuyaId);
-    expect(info!.areaName).toBe("渋谷区");
+    expect(info!.areaName).toBe("国分町");
     expect(info!.dateISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
@@ -57,7 +57,7 @@ describe("earliestSlotForTherapist（spec 5-4 / 最小配線）", () => {
     expect(info!.areaId).toBe(shibuyaId);
   });
 
-  it("対応エリア外（aoi × 八王子市）は null（spec 5-3 手順2）", async () => {
+  it("対応エリア外（aoi × 名取）は null（spec 5-3 手順2）", async () => {
     const info = await earliestSlotForTherapist("aoi", { areaId: hachiojiId });
     expect(info).toBeNull();
   });

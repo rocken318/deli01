@@ -12,7 +12,7 @@ import { listDailySchedule, listScheduleAreas } from "@/lib/schedule/queries";
  * 検証の骨子:
  * - 完了条件「エリアで絞れる」: /schedule の元クエリ listDailySchedule が
  *   area 指定で結果を変える。**出勤していても対応エリア外なら一覧に出ない**
- *   （spec 15章。aoi は渋谷対応・八王子非対応のシード配置）
+ *   （spec 15章。aoi は国分町対応・名取非対応のシード配置）
  * - published のみ: minato は出勤していても未公開なので出ない
  * - 当日欠勤（is_day_off）は出ない
  * - 「60秒以内に反映」: force-dynamic + 毎リクエスト読取のため、更新が次の
@@ -121,25 +121,25 @@ describe("日別の派遣可能一覧（完了条件: エリアで絞れる / sp
     expect(slugs).not.toContain("hinata"); // 退職
   });
 
-  it("aoi の行: 出勤時間帯・上限本数・対応エリア（渋谷・恵比寿・目黒のみ）を持つ", async () => {
+  it("aoi の行: 出勤時間帯・上限本数・対応エリア（国分町・仙台駅前・一番町のみ）を持つ", async () => {
     const entries = await listDailySchedule(today);
     const aoi = entries.find((e) => e.slug === "aoi");
     expect(aoi).toBeDefined();
     expect(aoi?.maxBookings).toBe(3);
     expect(aoi?.startAt).toBeInstanceOf(Date);
     const areaNames = (aoi?.areas ?? []).map((a) => a.name).sort();
-    expect(areaNames).toEqual(["恵比寿駅", "渋谷区", "目黒区"].sort());
+    expect(areaNames).toEqual(["仙台駅前", "国分町", "一番町"].sort());
   });
 
-  it("渋谷区で絞ると aoi と ren が出る", async () => {
-    const entries = await listDailySchedule(today, areaOf("渋谷区"));
+  it("国分町で絞ると aoi と ren が出る", async () => {
+    const entries = await listDailySchedule(today, areaOf("国分町"));
     const slugs = entries.map((e) => e.slug);
     expect(slugs).toContain("aoi");
     expect(slugs).toContain("ren");
   });
 
-  it("★ 八王子市で絞ると ren だけ。aoi は出勤していても対応エリア外なので出ない", async () => {
-    const entries = await listDailySchedule(today, areaOf("八王子市"));
+  it("★ 名取で絞ると ren だけ。aoi は出勤していても対応エリア外なので出ない", async () => {
+    const entries = await listDailySchedule(today, areaOf("名取"));
     const slugs = entries.map((e) => e.slug);
     expect(slugs).toContain("ren"); // 全域対応
     expect(slugs).not.toContain("aoi"); // 出勤中だがエリア外（spec 15章）
@@ -178,9 +178,9 @@ describe("日別の派遣可能一覧（完了条件: エリアで絞れる / sp
 
   it("listScheduleAreas は is_active のエリアを sort_order 順で返す", async () => {
     const areas = await listScheduleAreas();
-    expect(areas.length).toBeGreaterThanOrEqual(10);
-    expect(areas.map((a) => a.name)).toContain("渋谷区");
-    expect(areas.map((a) => a.name)).toContain("八王子市");
+    expect(areas.length).toBeGreaterThanOrEqual(8);
+    expect(areas.map((a) => a.name)).toContain("国分町");
+    expect(areas.map((a) => a.name)).toContain("名取");
   });
 });
 

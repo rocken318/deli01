@@ -79,7 +79,7 @@ beforeAll(async () => {
   renId = therapists.find((t) => t.slug === "ren")?.id ?? "";
 
   const areas = await sql<{ id: string }[]>`
-    select id from areas where name = '渋谷区' limit 1
+    select id from areas where name = '国分町' limit 1
   `;
   shibuyaId = areas[0]?.id ?? "";
 
@@ -150,7 +150,7 @@ afterAll(async () => {
   await sql.end({ timeout: 5 });
 });
 
-/** 翌日の aoi の候補枠（渋谷・ショート + 指定オプション）。engine の生スロット込み */
+/** 翌日の aoi の候補枠（国分町・ショート + 指定オプション）。engine の生スロット込み */
 async function aoiSlots(optionIds: string[] = []) {
   const res = await getTherapistSlots({
     slug: aoiSlug,
@@ -168,7 +168,7 @@ function orderForm(overrides: Partial<Parameters<typeof createPhoneOrder>[0]> & 
   return {
     customerName: "テスト太郎",
     destinationType: "home" as const,
-    addressDetail: "東京都渋谷区テスト1-2-3",
+    addressDetail: "宮城県仙台市青葉区国分町テスト1-2-3",
     areaId: shibuyaId,
     therapistId: aoiId,
     therapistSlug: aoiSlug,
@@ -196,7 +196,7 @@ describe("(a) 電話番号で既存顧客の住所・note が自動補完で引�
         values (
           ${customers[0]!.id}::uuid,
           'home'::address_kind,
-          '東京都渋谷区テスト1-2-3',
+          '宮城県仙台市青葉区国分町テスト1-2-3',
           ${shibuyaId}::uuid
         )
       `;
@@ -207,7 +207,7 @@ describe("(a) 電話番号で既存顧客の住所・note が自動補完で引�
     expect(res.data).not.toBeNull();
     expect(res.data!.name).toBe("テスト太郎");
     expect(res.data!.note).toBe("強めのマッサージ希望");
-    expect(res.data!.addressDetail).toBe("東京都渋谷区テスト1-2-3");
+    expect(res.data!.addressDetail).toBe("宮城県仙台市青葉区国分町テスト1-2-3");
     expect(res.data!.areaId).toBe(shibuyaId);
   });
 

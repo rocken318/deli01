@@ -121,16 +121,16 @@ describe("シードの検証（spec 18-1・18-2・8-2 / DB 投入 = CMS から�
 
   it("hotels の予測入力（spec 8-2: 1〜2文字の前方一致で絞れる）", async () => {
     const rows = await sql<{ name: string }[]>`
-      select name from hotels where name like '渋谷%' or name_kana like 'しぶ%'
+      select name from hotels where name like '国分%' or name_kana like 'こく%'
     `;
-    expect(rows.map((r) => r.name)).toEqual(["渋谷ステイイン"]);
+    expect(rows.map((r) => r.name)).toEqual(["国分町ステイイン"]);
   });
 });
 
 describe("★完了条件: ホテルの館内移動時間が加算される（spec 8-2・5-2）", () => {
   it("DB の extra_minutes（大型ホテル12分）が到着バッファに加算され、住居より総到着時間が増える", async () => {
     const hotel = await sql<{ extra_minutes: number }[]>`
-      select extra_minutes from hotels where name = 'グランドタワーホテル東京'
+      select extra_minutes from hotels where name = '仙台グランドタワーホテル'
     `;
     expect(hotel[0]?.extra_minutes).toBe(12);
 
@@ -154,7 +154,7 @@ describe("★完了条件: ホテルの館内移動時間が加算される（sp
 
   it("extra_minutes=0（仮登録ホテル）は住居と同じ総到着時間（増えない）", async () => {
     const hotel = await sql<{ extra_minutes: number }[]>`
-      select extra_minutes from hotels where name = '（仮登録）中野ビジネスホテル'
+      select extra_minutes from hotels where name = '（仮登録）泉中央ビジネスホテル'
     `;
     expect(hotel[0]?.extra_minutes).toBe(0);
 
@@ -171,10 +171,10 @@ describe("★完了条件: ホテルの館内移動時間が加算される（sp
   it("is_blocked のホテルは予約対象外・通常ホテルは予約可（spec 15章）", async () => {
     const rows = await sql<{ name: string; is_blocked: boolean }[]>`
       select name, is_blocked from hotels
-      where name in ('ホテルノワール新宿', '渋谷ステイイン')
+      where name in ('ホテルノワール長町', '国分町ステイイン')
     `;
-    const blocked = rows.find((r) => r.name === "ホテルノワール新宿");
-    const normal = rows.find((r) => r.name === "渋谷ステイイン");
+    const blocked = rows.find((r) => r.name === "ホテルノワール長町");
+    const normal = rows.find((r) => r.name === "国分町ステイイン");
     expect(isHotelBookable({ isBlocked: blocked!.is_blocked })).toBe(false);
     expect(isHotelBookable({ isBlocked: normal!.is_blocked })).toBe(true);
   });
@@ -244,13 +244,13 @@ describe("courses / options / hotels の RLS（actor 別 / docs/auth-rls.md §4�
       await withUser(sql, sessionOf("admin"), async (tx) => {
         const rows = await tx<{ id: string }[]>`
           update hotels set extra_minutes = 15
-          where name = 'グランドタワーホテル東京' returning id
+          where name = '仙台グランドタワーホテル' returning id
         `;
         expect(rows.length).toBe(1);
       });
     } finally {
       // 後片付け（保守経路 = BYPASSRLS）でシード値へ戻す
-      await sql`update hotels set extra_minutes = 12 where name = 'グランドタワーホテル東京'`;
+      await sql`update hotels set extra_minutes = 12 where name = '仙台グランドタワーホテル'`;
     }
 
     const asTherapist = await withUser(sql, sessionOf("therapist"), async (tx) => {

@@ -56,10 +56,10 @@ describe("シードの検証（spec 5-1・5-2・18章）", () => {
     const rows = await sql<{ n: string }[]>`
       select count(*)::text as n from areas where center is not null
     `;
-    expect(Number(rows[0]?.n)).toBe(10);
-    expect(areaIds.get("渋谷区")).toBeTruthy();
-    expect(areaIds.get("八王子市")).toBeTruthy();
-    expect(areaIds.get("恵比寿駅")).toBeTruthy();
+    expect(Number(rows[0]?.n)).toBe(8);
+    expect(areaIds.get("国分町")).toBeTruthy();
+    expect(areaIds.get("名取")).toBeTruthy();
+    expect(areaIds.get("仙台駅前")).toBeTruthy();
   });
 
   it("walk_settings は単一行（迂回1.30 / 分速80 / 上限1600）", async () => {
@@ -79,24 +79,24 @@ describe("シードの検証（spec 5-1・5-2・18章）", () => {
     ).rejects.toThrow(/walk_settings_singleton|check constraint/);
   });
 
-  it("車マトリクスが双方向で入っている（渋谷↔八王子 60分 / 近隣は短い）", async () => {
-    const shibuya = areaOf("渋谷区");
-    const hachioji = areaOf("八王子市");
-    const ebisu = areaOf("恵比寿駅");
+  it("車マトリクスが双方向で入っている（国分町↔名取 35分 / 近隣は短い）", async () => {
+    const shibuya = areaOf("国分町");
+    const hachioji = areaOf("名取");
+    const ebisu = areaOf("仙台駅前");
     const far = await sql<{ minutes: number }[]>`
       select minutes from area_travel_times
       where (from_area_id = ${shibuya}::uuid and to_area_id = ${hachioji}::uuid)
          or (from_area_id = ${hachioji}::uuid and to_area_id = ${shibuya}::uuid)
     `;
     expect(far.length).toBe(2);
-    expect(far.every((r: { minutes: number }) => r.minutes === 60)).toBe(true);
+    expect(far.every((r: { minutes: number }) => r.minutes === 35)).toBe(true);
 
     const near = await sql<{ minutes: number }[]>`
       select minutes from area_travel_times
       where from_area_id = ${shibuya}::uuid and to_area_id = ${ebisu}::uuid
     `;
     expect(near[0]?.minutes).toBe(8);
-    expect(near[0]!.minutes).toBeLessThan(60);
+    expect(near[0]!.minutes).toBeLessThan(35);
   });
 
   it("travel_time_modifiers に深夜 0.75（<1）と朝夕 1.3〜1.5 が入っている", async () => {
@@ -108,14 +108,14 @@ describe("シードの検証（spec 5-1・5-2・18章）", () => {
     expect(values.some((v) => v >= 1.3 && v <= 1.5)).toBe(true); // 朝夕
   });
 
-  it("travel_buffers: 既定（10/15/5/10）と港区の駐車20分上書きが入っている", async () => {
+  it("travel_buffers: 既定（10/15/5/10）と国分町の駐車20分上書きが入っている", async () => {
     const def = await sql<
       { arrive_min: number; parking_min: number; before_min: number; after_min: number }[]
     >`select arrive_min, parking_min, before_min, after_min from travel_buffers where scope = 'default'`;
     expect(def.length).toBe(1);
     expect(def[0]).toMatchObject({ arrive_min: 10, parking_min: 15, before_min: 5, after_min: 10 });
 
-    const minato = areaOf("港区");
+    const minato = areaOf("国分町");
     const ovr = await sql<{ parking_min: number }[]>`
       select parking_min from travel_buffers where scope = 'area' and area_id = ${minato}::uuid
     `;
@@ -129,10 +129,10 @@ describe("シードの検証（spec 5-1・5-2・18章）", () => {
 });
 
 describe("PostGIS 距離 → 純粋関数の境界（完了条件: 徒歩と車が閾値で切り替わる）", () => {
-  it("目黒区の代表点 → 恵比寿駅 は徒歩上限内で walk になる", async () => {
+  it("一番町の代表点 → 仙台駅前 は徒歩上限内で walk になる", async () => {
     const meters = await distanceMetersBetweenAreas(
-      areaOf("目黒区"),
-      areaOf("恵比寿駅"),
+      areaOf("一番町"),
+      areaOf("仙台駅前"),
     );
     expect(meters).not.toBeNull();
     expect(meters!).toBeGreaterThan(0);
@@ -144,28 +144,28 @@ describe("PostGIS 距離 → 純粋関数の境界（完了条件: 徒歩と車�
     expect(minutes).toBeLessThanOrEqual(26); // 上限1600m ≒ 26分以内
   });
 
-  it("渋谷区 → 八王子市 は徒歩上限超。車可なら car、車不可なら unreachable", async () => {
+  it("国分町 → 名取 は徒歩上限超。車可なら car、車不可なら unreachable", async () => {
     const meters = await distanceMetersBetweenAreas(
-      areaOf("渋谷区"),
-      areaOf("八王子市"),
+      areaOf("国分町"),
+      areaOf("名取"),
     );
     expect(meters!).toBeGreaterThan(1600);
     expect(chooseMode(meters!, { capMeters: 1600, canUseCar: true })).toBe("car");
     expect(chooseMode(meters!, { capMeters: 1600, canUseCar: false })).toBe("unreachable");
   });
 
-  it("distanceMeters: 既知の2点間で妥当なメートル値を返す（新宿駅→渋谷区代表点 ≒ 3〜4km）", async () => {
+  it("distanceMeters: 既知の2点間で妥当なメートル値を返す（仙台駅前→長町代表点 ≒ 3〜4km）", async () => {
     const meters = await distanceMeters(
-      { lon: 139.7003, lat: 35.6896 },
-      { lon: 139.6982, lat: 35.664 },
+      { lon: 140.8823, lat: 38.2601 },
+      { lon: 140.886, lat: 38.2249 },
     );
     expect(meters).toBeGreaterThan(2500);
     expect(meters).toBeLessThan(4000);
   });
 
   it("DB のマトリクス + 係数 + バッファを通しで適用（深夜は短く・駐車は車のみ）", async () => {
-    const shibuya = areaOf("渋谷区");
-    const hachioji = areaOf("八王子市");
+    const shibuya = areaOf("国分町");
+    const hachioji = areaOf("名取");
     const base = await sql<{ minutes: number }[]>`
       select minutes from area_travel_times
       where from_area_id = ${shibuya}::uuid and to_area_id = ${hachioji}::uuid
@@ -184,8 +184,8 @@ describe("PostGIS 距離 → 純粋関数の境界（完了条件: 徒歩と車�
 
     const night = carMinutes(base[0]!.minutes, pickTimeModifier(modifiers, "01:00"));
     const noon = carMinutes(base[0]!.minutes, pickTimeModifier(modifiers, "13:00"));
-    expect(night).toBe(45); // 60 × 0.75
-    expect(noon).toBe(60);
+    expect(night).toBe(27); // ceil(35 × 0.75)
+    expect(noon).toBe(35);
     expect(night).toBeLessThan(noon);
 
     const def = await sql<
@@ -207,7 +207,7 @@ describe("areas / travel テーブルの RLS（actor 別 / docs/auth-rls.md §4�
     const visible = await withUser(sql, sessionOf("reception"), async (tx) => {
       return tx<{ id: string }[]>`select id from areas`;
     });
-    expect(visible.length).toBe(10);
+    expect(visible.length).toBe(8);
 
     await expect(
       withUser(sql, sessionOf("reception"), async (tx) => {
@@ -250,8 +250,8 @@ describe("areas / travel テーブルの RLS（actor 別 / docs/auth-rls.md §4�
   });
 
   it("owner は area_travel_times を更新できる / therapist は select のみ", async () => {
-    const shibuya = areaOf("渋谷区");
-    const shinjuku = areaOf("新宿区");
+    const shibuya = areaOf("国分町");
+    const shinjuku = areaOf("一番町");
 
     await withUser(sql, sessionOf("owner"), async (tx) => {
       const rows = await tx<{ minutes: number }[]>`
@@ -261,8 +261,9 @@ describe("areas / travel テーブルの RLS（actor 別 / docs/auth-rls.md §4�
       `;
       expect(rows.length).toBe(1);
     });
+    // 元のシード値（国分町↔一番町 = 4分）へ戻す
     await sql`
-      update area_travel_times set minutes = 15
+      update area_travel_times set minutes = 4
       where from_area_id = ${shibuya}::uuid and to_area_id = ${shinjuku}::uuid
     `;
 
