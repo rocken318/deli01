@@ -4,7 +4,10 @@ import { getSiteContext, getPublishedPage, getPublicTherapistFields, label } fro
 import { listPublicTherapists } from "@/lib/public/queries";
 import { buildTherapistCards } from "@/lib/public/therapist-view";
 import { getPublicMediaMap } from "@/lib/public/queries";
-import type { EarliestSlotInfo } from "@/lib/availability/earliest";
+import {
+  earliestSlotForTherapist,
+  type EarliestSlotInfo,
+} from "@/lib/availability/earliest";
 import { localDateISO } from "@/domain/availability";
 import Link from "next/link";
 import { renderBlock, collectBlockImageIds } from "./_components/block-renderer";
@@ -53,13 +56,23 @@ const loadHomeData = unstable_cache(
     const mediaMap = await getPublicMediaMap(collectBlockImageIds(page.blocks), {
       requireConsent: false,
     });
-    // ★トップの空き枠計算は一旦停止（earliestForDate/computeAvailableSlots が本番の
-    //   ある条件で暴走し 300 秒ハング＝トップだけ落ちる事故があった。純関数が
-    //   イベントループをブロックすると setTimeout ベースのタイムアウトも発火しない）。
-    //   「最短枠」は placeholder（調整中）にし、まずトップを確実に描画させる。
-    //   再開時は反復回数の上限・入力健全性の検証を入れてから戻すこと。
-    const earliestEntries: [string, EarliestSlotInfo | null][] = cards.map(
-      (c) => [c.slug, null],
+    // 最短案内時刻（代表エリア概算 / spec 5-4）。unstable_cache 内なので30秒に1回だけ
+    //   計算しキャッシュ配信（Neon で高速）。各計算は6秒の安全タイムアウト付き（遅い/失敗は
+    //   null＝「調整中」）。以前ハングしていた真因は空き枠でなく Supabase の stale 接続で、
+    //   Neon 移行で解消したため復活。
+    const earliestEntries: [string, EarliestSlotInfo | null][] = await Promise.all(
+      cards.map(
+        async (c) =>
+          [
+            c.slug,
+            await Promise.race([
+              earliestSlotForTherapist(c.slug).catch(() => null),
+              new Promise<EarliestSlotInfo | null>((resolve) =>
+                setTimeout(() => resolve(null), 6000),
+              ),
+            ]),
+          ] as [string, EarliestSlotInfo | null],
+      ),
     );
     return {
       ctx,
