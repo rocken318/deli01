@@ -7,7 +7,7 @@
  * - withUser() 経由で RLS を有効にして実行する
  * - center は ST_SetSRID(ST_MakePoint(lon, lat), 4326) で書く
  *   取り出しは ST_X(center::geometry) / ST_Y(center::geometry)
- * - is_active=true のエリアが出勤設定の対応エリアチェックに自動で出る（spec 3-3）
+ * - is_active=true のエリアが出勤登録の対応エリアチェックに自動で出る（spec 3-3）
  */
 
 import { revalidatePath } from "next/cache";
@@ -198,7 +198,7 @@ export async function createDispatchArea(input: {
 
 /**
  * エリアの is_active を切り替える（owner/admin のみ）。
- * 無効化したエリアは出勤設定の対応エリアチェックから消える（spec 3-3）。
+ * 無効化したエリアは出勤登録の対応エリアチェックから消える（spec 3-3）。
  */
 export async function setDispatchAreaActive(
   id: string,

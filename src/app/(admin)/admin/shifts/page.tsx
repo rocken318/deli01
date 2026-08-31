@@ -1,5 +1,5 @@
 /**
- * /admin/shifts — 出勤設定（フェーズ8 / spec 3-3・12-2）。
+ * /admin/shifts — 出勤登録（フェーズ8 / spec 3-3・12-2）。
  *
  * セラピスト×日付で出勤予定を追加・更新する最小画面:
  * - 出勤時間（日跨ぎは終了を翌日として扱う）
@@ -25,7 +25,7 @@ import {
   type ShiftBoardTherapist,
 } from "@/lib/cms/shift-actions";
 
-export const metadata = { title: "出勤設定" };
+export const metadata = { title: "出勤登録" };
 export const dynamic = "force-dynamic";
 
 function hhmm(at: Date): string {
@@ -391,7 +391,7 @@ export default async function AdminShiftsPage({
         className="border border-adm-danger p-4 text-sm text-adm-danger"
         style={{ borderRadius: "4px" }}
       >
-        <p className="font-medium">出勤設定の読み込みに失敗しました</p>
+        <p className="font-medium">出勤登録の読み込みに失敗しました</p>
         <p className="mt-1 text-xs">{msg}</p>
       </div>
     );
@@ -400,7 +400,7 @@ export default async function AdminShiftsPage({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-adm-text">出勤設定</h1>
+        <h1 className="text-xl font-semibold text-adm-text">出勤登録</h1>
         <div className="flex items-center gap-2">
           <Link
             href={`/admin/shifts?date=${addDaysISO(date, -1)}`}

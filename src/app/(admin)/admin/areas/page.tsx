@@ -2,7 +2,7 @@
  * /admin/areas — 派遣エリア台帳（spec 3-3 / 12-2）。
  *
  * areas テーブルを管理画面から追加・有効/無効・改名できる。
- * is_active=true のエリアが出勤設定（/admin/shifts）の対応エリアチェックに自動で出る。
+ * is_active=true のエリアが出勤登録（/admin/shifts）の対応エリアチェックに自動で出る。
  * マイグレーション不要（既存 RLS areas_owner_admin で owner/admin が CRUD 可）。
  *
  * デザイン: spec 12-2 / 白基調・角丸4pxまで・影なし罫線区切り・1280px 想定
@@ -66,7 +66,7 @@ export default async function AdminAreasPage() {
           className="border border-adm-border px-3 py-1.5 text-sm text-adm-text hover:border-adm-primary hover:text-adm-primary"
           style={{ borderRadius: "4px" }}
         >
-          出勤設定へ
+          出勤登録へ
         </Link>
       </div>
 
