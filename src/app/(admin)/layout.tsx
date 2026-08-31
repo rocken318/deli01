@@ -10,6 +10,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getDevSession } from "@/lib/cms/dev-session";
 import { signOut } from "@/app/login/actions";
+import { AdminNav } from "./_components/admin-nav";
 
 export const metadata: Metadata = {
   title: {
@@ -53,22 +54,14 @@ export default async function AdminLayout({
     <div className="min-h-screen bg-adm-bg text-adm-text">
       {/* ナビゲーションバー */}
       <header className="bg-adm-surface border-b border-adm-border">
-        <div className="max-w-[1280px] mx-auto px-6 h-14 flex items-center gap-6">
-          <span className="font-semibold text-adm-primary text-sm tracking-wide">
+        <div className="max-w-[1280px] mx-auto px-6 h-14 flex items-center gap-4">
+          <Link
+            href="/admin/orders"
+            className="font-semibold text-adm-primary text-sm tracking-wide shrink-0"
+          >
             管理画面
-          </span>
-          <nav className="flex items-center gap-1" aria-label="管理メニュー">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="px-3 py-1.5 text-sm rounded text-adm-text hover:bg-adm-bg hover:text-adm-primary transition-colors"
-                style={{ borderRadius: "4px" }}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          </Link>
+          <AdminNav items={[...navItems]} />
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="text-adm-text/70">
               {session ? session.role : "未ログイン"}
