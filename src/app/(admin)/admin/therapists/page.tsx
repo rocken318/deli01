@@ -156,6 +156,13 @@ async function TherapistListContent() {
                   >
                     プロフィール
                   </Link>
+                  <Link
+                    href={`/admin/therapists/${t.slug}/schedule`}
+                    className="text-xs px-2 py-1 rounded bg-adm-primary text-white hover:opacity-90 transition-opacity"
+                    style={{ borderRadius: "4px" }}
+                  >
+                    出勤・稼ぎ
+                  </Link>
                 </div>
               </td>
               <td className="px-4 py-3 text-right">
