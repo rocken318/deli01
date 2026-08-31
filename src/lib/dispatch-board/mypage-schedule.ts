@@ -47,6 +47,19 @@ export type MyReservationsOutcome =
   | { kind: "ok"; items: MyReservationItem[] }
   | { kind: "forbidden" };
 
+export interface MyServiceHistoryItem {
+  reservationId: string;
+  dateISO: string;
+  startHHmm: string;
+  courseName: string;
+  areaName: string | null;
+  totalAmount: number;
+}
+
+export type MyServiceHistoryOutcome =
+  | { kind: "ok"; items: MyServiceHistoryItem[] }
+  | { kind: "forbidden" };
+
 /** yearMonth("YYYY-MM") の月境界（JST）と当月/翌月頭の日付文字列を返す。 */
 function monthBounds(yearMonth: string): {
   startDateISO: string;
@@ -190,6 +203,51 @@ export async function getMyReservationsCore(
         courseName: r.course_name,
         areaName: r.area_name,
         hotelName: r.hotel_name,
+      })),
+    };
+  });
+}
+
+/**
+ * 本人の「接客履歴」（過去の done 予約）を新しい順に返す。RLS で本人限定。
+ */
+export async function getMyServiceHistoryCore(
+  sql: Sql,
+  session: Session,
+  limit = 100,
+): Promise<MyServiceHistoryOutcome> {
+  if (session.role !== "therapist" || !session.therapistId) {
+    return { kind: "forbidden" };
+  }
+  const cap = Math.min(Math.max(1, limit), 200);
+
+  return withUser<MyServiceHistoryOutcome>(sql, session, async (tx) => {
+    const rows = await tx<
+      {
+        id: string;
+        start_at: Date;
+        course_name: string;
+        area_name: string | null;
+        total_amount: number;
+      }[]
+    >`
+      select r.id, r.start_at, co.name as course_name, ar.name as area_name, r.total_amount
+      from reservations r
+      join courses co on co.id = r.course_id
+      left join areas ar on ar.id = r.area_id
+      where r.status = 'done'
+      order by r.start_at desc
+      limit ${cap}
+    `;
+    return {
+      kind: "ok",
+      items: rows.map((r) => ({
+        reservationId: r.id,
+        dateISO: formatInTimeZone(r.start_at, APP_TIME_ZONE, "yyyy-MM-dd"),
+        startHHmm: formatInTimeZone(r.start_at, APP_TIME_ZONE, "HH:mm"),
+        courseName: r.course_name,
+        areaName: r.area_name,
+        totalAmount: r.total_amount,
       })),
     };
   });

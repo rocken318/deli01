@@ -29,6 +29,7 @@ const navItems = [
   { href: "/admin/analytics", label: "集計" },
   { href: "/admin/dispatch-board", label: "配車ボード" },
   { href: "/admin/reservations", label: "予約管理" },
+  { href: "/admin/history", label: "接客履歴" },
   { href: "/admin/waitlists", label: "キャンセル待ち" },
   { href: "/admin/dispatch", label: "配車テキスト" },
   { href: "/admin/message-templates", label: "送信テンプレート" },
