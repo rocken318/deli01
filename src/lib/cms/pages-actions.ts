@@ -126,6 +126,27 @@ export async function savePlayBlock(
   return savePageBlocks(slug, updated, locale);
 }
 
+/** ページの hero ブロックの画像（imageId）を保存する（MediaPicker から） */
+export async function savePageHeroImage(
+  slug: string,
+  imageId: string | null,
+  locale = "ja",
+): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: "認証が必要です" };
+  if (!can(toActor(session), "manage_cms")) return { ok: false, error: "権限がありません" };
+
+  const page = await getPage(slug, locale);
+  if (!page) return { ok: false, error: "ページが見つかりません" };
+  const hasHero = page.draftBlocks.some((b) => b.type === "hero");
+  if (!hasHero) return { ok: false, error: "hero ブロックがありません" };
+
+  const updated: Block[] = page.draftBlocks.map((b) =>
+    b.type === "hero" ? { ...b, imageId: imageId && imageId.length > 0 ? imageId : null } : b,
+  );
+  return savePageBlocks(slug, updated, locale);
+}
+
 export interface PublishPageResult { warnings: string[] }
 
 export async function publishPage(slug: string, locale = "ja"): Promise<ActionResult<PublishPageResult>> {

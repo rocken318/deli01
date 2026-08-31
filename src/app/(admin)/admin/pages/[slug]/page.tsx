@@ -13,6 +13,7 @@ import type { ActionResult } from "@/lib/cms/actions";
 import type { HeroBlock, PlayBlock } from "@/domain/cms/blocks";
 import { PublishForm } from "./publish-form";
 import { PlayEditor } from "./play-editor";
+import { HeroImageEditor } from "./hero-image-editor";
 
 export const metadata: Metadata = { title: "ページ編集" };
 
@@ -81,19 +82,6 @@ export default async function PageEditorPage({ params }: Props) {
       }
       return b;
     });
-    await savePageBlocks(slug, updatedBlocks, "ja");
-  }
-
-  async function handleSaveHeroImage(formData: FormData) {
-    "use server";
-    // 選んだ media id を hero ブロックの imageId に反映（"" は未設定 = null）。
-    const raw = (formData.get("heroImageId") as string) ?? "";
-    const imageId = raw.length > 0 ? raw : null;
-    const currentPage = await getPage(slug, "ja");
-    if (!currentPage) return;
-    const updatedBlocks = currentPage.draftBlocks.map((b) =>
-      b.type === "hero" ? { ...b, imageId } : b,
-    );
     await savePageBlocks(slug, updatedBlocks, "ja");
   }
 
@@ -204,37 +192,15 @@ export default async function PageEditorPage({ params }: Props) {
             </button>
           </form>
 
-          {/* ヒーロー画像の紐づけ（メディアライブラリから選択 / spec 3-7） */}
-          <form action={handleSaveHeroImage} className="flex items-center gap-3 pt-2">
-            <label htmlFor="heroImageId" className="w-40 text-sm text-adm-text shrink-0">
-              ヒーロー画像
-            </label>
-            <select
-              id="heroImageId"
-              name="heroImageId"
-              defaultValue={heroBlock.imageId ?? ""}
-              className="flex-1 border border-adm-border rounded px-3 py-1.5 text-sm bg-adm-bg text-adm-text focus:outline-none focus:border-adm-primary"
-            >
-              <option value="">（画像なし）</option>
-              {mediaItems.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.alt}
-                  {m.tags.length > 0 ? ` [${m.tags.join(", ")}]` : ""}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className="px-3 py-1.5 text-sm bg-adm-primary text-white rounded hover:opacity-90"
-            >
-              保存
-            </button>
-          </form>
-          {heroBlock.imageId && (
-            <p className="text-xs text-adm-text opacity-60">
-              現在の画像 ID: <span className="font-mono">{heroBlock.imageId}</span>
-            </p>
-          )}
+          {/* ヒーロー画像（アップロード＋選択を内蔵 / spec 3-7） */}
+          <div className="pt-2">
+            <p className="mb-2 text-sm text-adm-text">ヒーロー画像</p>
+            <HeroImageEditor
+              slug={slug}
+              initialImageId={heroBlock.imageId}
+              initialMedia={mediaItems.map((m) => ({ id: m.id, url: m.url, alt: m.alt }))}
+            />
+          </div>
         </section>
       )}
 
