@@ -27,6 +27,14 @@ import type {
   AdvanceTarget,
   TherapistTimelineItem,
 } from './queries';
+import {
+  getMyMonthlyScheduleCore,
+  getMyReservationsCore,
+} from './mypage-schedule';
+import type {
+  MyScheduleDay,
+  MyReservationItem,
+} from './mypage-schedule';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -165,5 +173,59 @@ export async function recordEmergency(
   } catch (e) {
     console.error('recordEmergency failed:', e);
     return { ok: false, error: '緊急連絡の記録に失敗しました' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A1: 出勤カレンダー / 予約一覧（本人分のみ）
+// ---------------------------------------------------------------------------
+
+const monthSchema = z
+  .string()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, '月は YYYY-MM 形式です');
+
+/** 本人の指定月の出勤カレンダー（出勤の有無/時間 + 予約件数）。 */
+export async function getMyMonthlySchedule(
+  yearMonth: string,
+  asSlug?: string,
+): Promise<ActionResult<MyScheduleDay[]>> {
+  const session = await getTherapistDevSession(asSlug);
+  if (!session) return { ok: false, error: '認証が必要です（セラピスト）' };
+
+  const parsed = monthSchema.safeParse(yearMonth);
+  if (!parsed.success) return { ok: false, error: '月の形式が不正です' };
+
+  try {
+    const outcome = await getMyMonthlyScheduleCore(getClient(), session, parsed.data);
+    if (outcome.kind === 'forbidden') {
+      return { ok: false, error: 'セラピスト本人のみ利用できます' };
+    }
+    return { ok: true, data: outcome.days };
+  } catch (e) {
+    console.error('getMyMonthlySchedule failed:', e);
+    return { ok: false, error: '出勤カレンダーの取得に失敗しました' };
+  }
+}
+
+/** 本人の指定日(JST)以降の予約一覧（住所・電話番号は含めない）。 */
+export async function getMyReservations(
+  fromISO: string,
+  asSlug?: string,
+): Promise<ActionResult<MyReservationItem[]>> {
+  const session = await getTherapistDevSession(asSlug);
+  if (!session) return { ok: false, error: '認証が必要です（セラピスト）' };
+
+  const parsed = dateSchema.safeParse(fromISO);
+  if (!parsed.success) return { ok: false, error: '日付の形式が不正です' };
+
+  try {
+    const outcome = await getMyReservationsCore(getClient(), session, parsed.data);
+    if (outcome.kind === 'forbidden') {
+      return { ok: false, error: 'セラピスト本人のみ利用できます' };
+    }
+    return { ok: true, data: outcome.items };
+  } catch (e) {
+    console.error('getMyReservations failed:', e);
+    return { ok: false, error: '予約一覧の取得に失敗しました' };
   }
 }

@@ -5,6 +5,7 @@ import { getMyTimeline } from '@/lib/dispatch-board/therapist-portal-actions';
 import TimelineView from './TimelineView';
 import EmergencyButton from './EmergencyButton';
 import EarningsSection from './EarningsSection';
+import ScheduleSection from './ScheduleSection';
 
 export const metadata: Metadata = {
   title: '今日の予定',
@@ -126,6 +127,11 @@ export default async function MyPage({
             />
           </section>
         )}
+
+        {/* 出勤カレンダー・予約一覧（A1） */}
+        <section aria-label="出勤カレンダーと予約一覧">
+          <ScheduleSection asSlug={asSlug} />
+        </section>
 
         {/* 稼ぎ（フェーズ18） */}
         <section aria-label="今月の稼ぎ">
