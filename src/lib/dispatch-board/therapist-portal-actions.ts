@@ -30,10 +30,12 @@ import type {
 import {
   getMyMonthlyScheduleCore,
   getMyReservationsCore,
+  getMyServiceHistoryCore,
 } from './mypage-schedule';
 import type {
   MyScheduleDay,
   MyReservationItem,
+  MyServiceHistoryItem,
 } from './mypage-schedule';
 
 export interface ActionResult<T = void> {
@@ -227,5 +229,23 @@ export async function getMyReservations(
   } catch (e) {
     console.error('getMyReservations failed:', e);
     return { ok: false, error: '予約一覧の取得に失敗しました' };
+  }
+}
+
+/** 本人の接客履歴（過去の done 予約）。RLS で本人限定。 */
+export async function getMyServiceHistory(
+  asSlug?: string,
+): Promise<ActionResult<MyServiceHistoryItem[]>> {
+  const session = await getTherapistDevSession(asSlug);
+  if (!session) return { ok: false, error: '認証が必要です（セラピスト）' };
+  try {
+    const outcome = await getMyServiceHistoryCore(getClient(), session);
+    if (outcome.kind === 'forbidden') {
+      return { ok: false, error: 'セラピスト本人のみ利用できます' };
+    }
+    return { ok: true, data: outcome.items };
+  } catch (e) {
+    console.error('getMyServiceHistory failed:', e);
+    return { ok: false, error: '接客履歴の取得に失敗しました' };
   }
 }

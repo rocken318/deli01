@@ -6,6 +6,7 @@ import { toZonedTime } from 'date-fns-tz';
 import {
   getMyMonthlySchedule,
   getMyReservations,
+  getMyServiceHistory,
 } from '@/lib/dispatch-board/therapist-portal-actions';
 
 const APP_TZ = 'Asia/Tokyo';
@@ -36,8 +37,16 @@ interface ReservationItem {
   areaName: string | null;
   hotelName: string | null;
 }
+interface HistoryItem {
+  reservationId: string;
+  dateISO: string;
+  startHHmm: string;
+  courseName: string;
+  areaName: string | null;
+  totalAmount: number;
+}
 
-type View = 'calendar' | 'reservations';
+type View = 'calendar' | 'reservations' | 'history';
 
 function todayISO(): string {
   return format(toZonedTime(new Date(), APP_TZ), 'yyyy-MM-dd');
@@ -71,6 +80,7 @@ export default function ScheduleSection({ asSlug }: { asSlug?: string }) {
   const [yearMonth, setYearMonth] = useState(thisMonth());
   const [days, setDays] = useState<ScheduleDay[]>([]);
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,10 +110,20 @@ export default function ScheduleSection({ asSlug }: { asSlug?: string }) {
     setLoading(false);
   }, [asSlug]);
 
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const res = await getMyServiceHistory(asSlug);
+    if (res.ok && res.data) setHistory(res.data);
+    else setError(res.error ?? '取得に失敗しました');
+    setLoading(false);
+  }, [asSlug]);
+
   useEffect(() => {
     if (view === 'calendar') void loadCalendar(yearMonth);
-    else void loadReservations();
-  }, [view, yearMonth, loadCalendar, loadReservations]);
+    else if (view === 'reservations') void loadReservations();
+    else void loadHistory();
+  }, [view, yearMonth, loadCalendar, loadReservations, loadHistory]);
 
   const cells = useMemo(() => monthGrid(yearMonth), [yearMonth]);
   const today = todayISO();
@@ -126,6 +146,7 @@ export default function ScheduleSection({ asSlug }: { asSlug?: string }) {
           [
             ['calendar', '出勤カレンダー'],
             ['reservations', '予約一覧'],
+            ['history', '接客履歴'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -276,6 +297,38 @@ export default function ScheduleSection({ asSlug }: { asSlug?: string }) {
                     <div className="text-xs" style={{ color: '#6B7776' }}>
                       {r.hotelName ?? r.areaName ?? '—'}
                     </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* 接客履歴（過去の完了分） */}
+        {!loading && !error && view === 'history' && (
+          <div>
+            {history.length === 0 ? (
+              <p className="py-8 text-center text-sm" style={{ color: '#6B7776' }}>
+                接客履歴はまだありません。
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {history.map((h) => (
+                  <li
+                    key={h.reservationId}
+                    className="rounded p-3"
+                    style={{ border: '1px solid #ECEFEC', borderRadius: '4px' }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold" style={{ color: '#1C2321' }}>
+                        {h.dateISO.slice(5).replace('-', '/')} {h.startHHmm}
+                      </span>
+                      <span className="text-sm tabular-nums" style={{ color: '#3F7A6B' }}>
+                        ¥{h.totalAmount.toLocaleString('ja-JP')}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-sm" style={{ color: '#1C2321' }}>{h.courseName}</div>
+                    <div className="text-xs" style={{ color: '#6B7776' }}>{h.areaName ?? '—'}</div>
                   </li>
                 ))}
               </ul>
