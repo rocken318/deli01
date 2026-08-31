@@ -6,6 +6,7 @@
  */
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { formatInTimeZone } from 'date-fns-tz';
 import { addSameDayExtension } from '@/lib/booking/extension-actions';
 import { cancelReservation } from '@/lib/booking/cancel-actions';
@@ -14,6 +15,7 @@ export interface ReservationRow {
   id: string;
   customerName: string;
   therapistName: string;
+  therapistSlug: string;
   courseName: string;
   startAtISO: string;
   status: string;
@@ -98,7 +100,12 @@ export function ReservationsClient({
               <span className="font-semibold">
                 {formatInTimeZone(new Date(r.startAtISO), TZ, 'M/d HH:mm')}
               </span>
-              <span className="ml-3">{r.therapistName}</span>
+              <Link
+                href={`/admin/therapists/${r.therapistSlug}/schedule?date=${formatInTimeZone(new Date(r.startAtISO), TZ, 'yyyy-MM-dd')}`}
+                className="ml-3 hover:underline text-adm-primary"
+              >
+                {r.therapistName}
+              </Link>
               <span className="ml-3 text-adm-muted">
                 {r.customerName} / {r.courseName}
               </span>
@@ -109,7 +116,16 @@ export function ReservationsClient({
                 <span className="ml-3 text-xs text-adm-muted">オプション: {r.options}</span>
               )}
             </div>
-            <div className="text-sm text-adm-muted">¥{r.totalAmount.toLocaleString('en-US')}</div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-adm-muted">¥{r.totalAmount.toLocaleString('en-US')}</span>
+              <Link
+                href={`/admin/reservations/${r.id}`}
+                className="text-xs px-2 py-1 border border-adm-border text-adm-text hover:border-adm-primary hover:text-adm-primary transition-colors"
+                style={{ borderRadius: '4px' }}
+              >
+                詳細
+              </Link>
+            </div>
           </div>
 
           <div className="mt-3 flex items-end gap-3 flex-wrap">

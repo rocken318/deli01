@@ -63,6 +63,7 @@ export default async function ReservationsPage() {
     id: r.id,
     customerName: r.customer_name ?? '（未設定）',
     therapistName: r.therapist_name ?? r.therapist_slug,
+    therapistSlug: r.therapist_slug,
     courseName: r.course_name,
     startAtISO: r.start_at.toISOString(),
     status: r.status,

@@ -323,20 +323,21 @@ export default function DispatchBoardClient({ initialItems, initialDate, todayIS
           翌日 →
         </button>
 
-        {date !== todayISO && (
-          <button
-            onClick={() => changeDate(todayISO)}
-            disabled={isPending}
-            className="px-3 py-1.5 text-sm disabled:opacity-50"
-            style={{
-              borderRadius: '4px',
-              color: '#3F7A6B',
-              textDecoration: 'underline',
-            }}
-          >
-            今日に戻る
-          </button>
-        )}
+        <button
+          onClick={() => changeDate(todayISO)}
+          disabled={isPending || date === todayISO}
+          className="px-3 py-1.5 border text-sm disabled:opacity-40 transition-colors"
+          style={{
+            borderRadius: '4px',
+            borderColor: '#3F7A6B',
+            color: '#3F7A6B',
+            backgroundColor: date === todayISO ? '#F0F7F5' : 'transparent',
+          }}
+          aria-label="当日（今日）に移動"
+          aria-pressed={date === todayISO}
+        >
+          当日
+        </button>
 
         <span className="flex-1" />
 
