@@ -173,6 +173,12 @@ function TherapistShiftRow({
         <fieldset>
           <legend className="text-xs text-adm-text/70">
             対応エリア（その日に対応できるエリア。全域とは限らない）
+            <Link
+              href="/admin/areas"
+              className="ml-2 text-adm-primary underline hover:no-underline"
+            >
+              エリアを追加・編集
+            </Link>
           </legend>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
             {board.areas.map((a) => (
