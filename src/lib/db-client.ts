@@ -10,30 +10,38 @@ import { env } from "@/lib/env";
  * postgres.js の Sql インスタンスが必要。
  */
 let _client: ReturnType<typeof postgres> | undefined;
+/** 直近に getClient() を使った時刻（ms）。長いアイドル＝凍結の疑い＝接続を張り直す。 */
+let _lastAccess = 0;
+
+/**
+ * アイドルがこの時間を超えていたら、前のプールは freeze/thaw で死んでいる可能性が
+ * 高いので破棄して張り直す。毎リクエスト全新規のチャーンは避けつつ、cold な
+ * サーバレスインスタンスでは stale ソケットを掴まない（本命の cold ハング対策）。
+ */
+const STALE_AFTER_MS = 10_000;
+
+function createClient(): ReturnType<typeof postgres> {
+  // サーバレス×Supabaseプーラー(transaction/6543)向け。max は控えめ、接続確立は fail-fast。
+  return postgres(env.databaseUrl(), {
+    max: 3,
+    idle_timeout: 20,
+    connect_timeout: 10,
+    prepare: false,
+    onnotice: () => {},
+  });
+}
 
 export function getClient(): ReturnType<typeof postgres> {
+  const now = Date.now();
+  if (_client && now - _lastAccess > STALE_AFTER_MS) {
+    // 前回から間が空いた＝凍結の疑い。古いプールを破棄して張り直す。
+    const old = _client;
+    _client = undefined;
+    void old.end({ timeout: 1 }).catch(() => {});
+  }
+  _lastAccess = now;
   if (!_client) {
-    _client = postgres(env.databaseUrl(), {
-      // サーバレス×Supabaseプーラー（transaction/6543）向けの接続設定。
-      // 本番でトップ等の公開ページが 300 秒タイムアウトでハングした事故の是正:
-      // - max: 1 ＝サーバレスの1リクエストを単一接続に直列化する。並列クエリで複数
-      //   接続を掴むと、プール内の stale 接続（凍結インスタンスで死んだソケット）を
-      //   引いてページごとハングする事故があった（/api/health=単一クエリは動くのに
-      //   トップ=並列は詰まる）。単一接続なら health と同じ健全な経路を使い回せる。
-      // - idle_timeout/max_lifetime で古い接続を早く破棄→再接続（stale を掴まない）
-      // - connect_timeout で接続確立が詰まったら fail-fast
-      // ★接続を短命化し、凍結後に死んだソケットを再利用しないようにする（本命の是正）。
-      //   サーバレスは freeze/thaw で接続が死ぬが max_lifetime が長いと古い接続を
-      //   使い回してソケット無限待ち→300秒ハングになる。短命なら acquire 時に破棄→再接続。
-      // 注: statement_timeout は transaction プーラーがセッション毎にリセットするため
-      //   クライアント指定は効かない（プーラー既定 2min）。
-      max: 1,
-      idle_timeout: 5,
-      max_lifetime: 30,
-      connect_timeout: 10,
-      prepare: false,
-      onnotice: () => {},
-    });
+    _client = createClient();
   }
   return _client;
 }
