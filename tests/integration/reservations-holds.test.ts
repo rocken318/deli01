@@ -27,7 +27,7 @@ import { recordFunnelEvent } from "@/lib/booking/funnel";
  * - ファネル計測（hold / confirm がトランザクション内で記録される）
  * - RLS: therapist は他人の予約・顧客住所を取得できない（spec 15章「権限」）
  *
- * 前提: pnpm db:reset 済み。シードの aoi（公開・徒歩・渋谷事務所・翌日 10:00-19:00
+ * 前提: pnpm db:reset 済み。シードの aoi（公開・徒歩・国分町事務所・翌日 10:00-19:00
  * シフト・上限3本）を使う。
  */
 const url =
@@ -60,7 +60,7 @@ beforeAll(async () => {
   aoiId = therapists.find((t) => t.slug === "aoi")?.id ?? "";
   renId = therapists.find((t) => t.slug === "ren")?.id ?? "";
   const areas = await sql<{ id: string }[]>`
-    select id from areas where name = '渋谷区' limit 1
+    select id from areas where name = '国分町' limit 1
   `;
   shibuyaId = areas[0]?.id ?? "";
   const courses = await sql<{ id: string; name: string }[]>`
@@ -395,7 +395,7 @@ describe("確定 confirmReservation と楽観ロック（spec 4章・6章・15�
       version,
       customerName: "テスト太郎",
       customerPhone: phone,
-      addressDetail: "渋谷区テスト町0-0-0 テストマンション101",
+      addressDetail: "国分町テスト町0-0-0 テストマンション101",
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -459,7 +459,7 @@ describe("確定 confirmReservation と楽観ロック（spec 4章・6章・15�
       version: version + 7, // 古い/ズレた version
       customerName: "テスト花子",
       customerPhone: `${TEST_PHONE_PREFIX}002`,
-      addressDetail: "渋谷区テスト町1-1-1",
+      addressDetail: "国分町テスト町1-1-1",
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("version_conflict");
@@ -506,7 +506,7 @@ describe("確定 confirmReservation と楽観ロック（spec 4章・6章・15�
       version,
       customerName: "テスト次郎",
       customerPhone: `${TEST_PHONE_PREFIX}003`,
-      addressDetail: "渋谷区テスト町2-2-2",
+      addressDetail: "国分町テスト町2-2-2",
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("hold_not_found");
@@ -524,7 +524,7 @@ describe("確定 confirmReservation と楽観ロック（spec 4章・6章・15�
       version,
       customerName: "テスト三郎",
       customerPhone: `${TEST_PHONE_PREFIX}004`,
-      addressDetail: "渋谷区テスト町3-3-3",
+      addressDetail: "国分町テスト町3-3-3",
     });
     expect(res.ok).toBe(false);
     // 冒頭の release_expired_holds で行ごと消えるため hold_not_found、
@@ -558,7 +558,7 @@ describe("ファネル計測（付録B-2 / 完了条件「離脱地点が計測�
       version: hold.version,
       customerName: "テスト計測",
       customerPhone: `${TEST_PHONE_PREFIX}005`,
-      addressDetail: "渋谷区テスト町4-4-4",
+      addressDetail: "国分町テスト町4-4-4",
     });
 
     const steps = await sql<{ step: string }[]>`

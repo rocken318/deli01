@@ -79,7 +79,7 @@ beforeAll(async () => {
   expect(renId).not.toBe("");
 
   const areas = await sql<{ id: string }[]>`
-    select id from areas where name = '渋谷区' limit 1
+    select id from areas where name = '国分町' limit 1
   `;
   const shibuyaId = areas[0]?.id ?? "";
   expect(shibuyaId).not.toBe("");
@@ -114,7 +114,7 @@ beforeAll(async () => {
     insert into addresses (customer_id, kind, detail, area_id)
     values (
       ${webCustomers[0]!.id}::uuid, 'home'::address_kind,
-      '東京都渋谷区テスト1-2-3（dispatch）', ${shibuyaId}::uuid
+      '宮城県仙台市青葉区国分町テスト1-2-3（dispatch）', ${shibuyaId}::uuid
     )
     returning id
   `;
@@ -158,7 +158,7 @@ beforeAll(async () => {
     insert into addresses (customer_id, kind, detail, area_id)
     values (
       ${phoneCustomers[0]!.id}::uuid, 'home'::address_kind,
-      '東京都渋谷区サンプル4-5-6', ${shibuyaId}::uuid
+      '宮城県仙台市青葉区国分町サンプル4-5-6', ${shibuyaId}::uuid
     )
     returning id
   `;
@@ -300,7 +300,7 @@ describe("generateDispatchText – 打診出力に PII が含まれない（受�
     const res = await generateDispatchText(webUnconfirmedId, "inquiry");
     expect(res.ok).toBe(true);
     const text = res.data!.text;
-    // テスト用住所 "東京都渋谷区テスト1-2-3（dispatch）" の一部も出ない
+    // テスト用住所 "宮城県仙台市青葉区国分町テスト1-2-3（dispatch）" の一部も出ない
     expect(text).not.toContain("テスト1-2-3");
     expect(text).not.toContain("（dispatch）");
   });
