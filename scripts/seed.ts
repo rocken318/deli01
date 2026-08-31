@@ -102,6 +102,8 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       play_item_label: "プレイ",
       empty_home_title: "準備中です",
       empty_home_body: "公開ページの内容は管理画面から設定します。",
+      // ヒーロー直下（スマホ）の「下へスクロール」ボタン文言
+      hero_scroll_label: "スクロール",
       // ヒーロー下のコンセプトコピー画像（underhero.png）の代替テキストと、
       // 画像内文言の転記（sr-only で読み上げ・検索エンジン向け。ページ実内容の説明）。
       under_hero_alt:
