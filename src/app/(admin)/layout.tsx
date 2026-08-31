@@ -51,7 +51,7 @@ export default async function AdminLayout({
 }) {
   const session = await getDevSession();
   return (
-    <div className="min-h-screen bg-adm-bg text-adm-text">
+    <div className="min-h-screen bg-adm-bg text-adm-text [color-scheme:light]">
       {/* ナビゲーションバー */}
       <header className="bg-adm-surface border-b border-adm-border">
         <div className="max-w-[1280px] mx-auto px-6 h-14 flex items-center gap-4">
