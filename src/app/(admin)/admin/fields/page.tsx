@@ -1,5 +1,5 @@
 /**
- * /admin/fields — フィールド定義管理（spec 3-1 / フェーズ2）。
+ * /admin/fields — 入力項目管理（spec 3-1 / フェーズ2）。
  *
  * - entity（therapist / course / area / page）を選んでフィールド一覧を表示
  * - フィールドを追加できる（key/label/type/options/sort_order/is_public/is_required/group_label）
@@ -15,7 +15,7 @@ import { FIELD_TYPES } from "@/domain/cms";
 import { AddFieldForm } from "./add-field-form";
 import { FieldList } from "./field-list";
 
-export const metadata = { title: "フィールド定義" };
+export const metadata = { title: "入力項目" };
 
 const ENTITIES = ["therapist", "course", "area", "page"] as const;
 type Entity = (typeof ENTITIES)[number];
@@ -50,7 +50,7 @@ function FieldsError({ message }: { message: string }) {
       className="p-4 border border-adm-danger text-adm-danger text-sm rounded"
       style={{ borderRadius: "4px" }}
     >
-      <p className="font-medium">フィールド定義の取得に失敗しました</p>
+      <p className="font-medium">入力項目の取得に失敗しました</p>
       <p className="mt-1 text-xs">{message}</p>
     </div>
   );
@@ -60,7 +60,7 @@ function FieldsError({ message }: { message: string }) {
 function FieldsEmpty({ entity }: { entity: string }) {
   return (
     <div className="py-12 text-center text-sm text-adm-text/60">
-      <p>「{entity}」のフィールド定義がまだありません。</p>
+      <p>「{entity}」の入力項目がまだありません。</p>
       <p className="mt-1">下のフォームから最初のフィールドを追加してください。</p>
     </div>
   );
@@ -98,7 +98,7 @@ export default async function FieldsPage({
     <div className="space-y-6">
       {/* ページヘッダー */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-adm-text">フィールド定義</h1>
+        <h1 className="text-xl font-semibold text-adm-text">入力項目</h1>
         <p className="text-xs text-adm-text/60">
           項目を追加するとフォームに自動で反映されます（コード変更不要）
         </p>
