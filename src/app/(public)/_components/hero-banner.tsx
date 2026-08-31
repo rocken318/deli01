@@ -12,17 +12,22 @@
  * 順位を操作する用途ではなく、画像で提供している情報のテキスト等価物を与える。
  * LCP 要素になるため主画像は eager 読み込み＋高優先度で先読みする（spec 12）。
  */
+import { HeroScrollButton } from "./hero-scroll-button";
+
 export function HeroBanner({
   brandName,
   underHeroAlt,
   underHeroSeo,
   heroImageUrl,
+  scrollLabel,
 }: {
   brandName: string;
   underHeroAlt: string;
   underHeroSeo: string;
   /** CMS メディアライブラリから選択されたヒーロー画像 URL。未設定時は /hero/ の静的ファイルにフォールバック */
   heroImageUrl?: string | null;
+  /** ヒーロー直下（スマホ）の「下へスクロール」ボタン文言（用語辞書経由・空なら非表示） */
+  scrollLabel?: string;
 }) {
   return (
     <section className="w-full overflow-hidden bg-pub-bg">
@@ -50,6 +55,9 @@ export function HeroBanner({
           />
         </picture>
       )}
+
+      {/* ヒーロー画像（「今宵はいかがなさいますか？」）の直下に、スマホ限定の下へスクロールボタン */}
+      <HeroScrollButton label={scrollLabel ?? ""} />
 
       {/* ヒーロー直下のコンセプトコピー画像（縦構図・全幅／PC は中央寄せ） */}
       <div className="mx-auto w-full max-w-[640px]">

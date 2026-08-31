@@ -178,6 +178,7 @@ export default async function HomePage() {
         underHeroAlt={label(ctx, "under_hero_alt")}
         underHeroSeo={label(ctx, "under_hero_seo")}
         heroImageUrl={heroImageUrl}
+        scrollLabel={label(ctx, "hero_scroll_label")}
       />
 
       {/* pages(home) published ブロック（未公開なら空状態） */}
