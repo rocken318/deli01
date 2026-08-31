@@ -2,7 +2,7 @@
 
 /**
  * ヒーロー画像内（スマホ）に重ねる「scroll」誘導。
- * 画像下部（「今宵はいかがなさいますか？」の下・下から約1/5）に絶対配置し、
+ * 画像下部（「今宵はいかがなさいますか？」の下・下から約1/4）に絶対配置し、
  * タップで1画面ぶん下へスムーズスクロールする。
  * スマホ限定（md 未満のみ表示）＝PC のレイアウトには影響しない。
  * 文言は英語「scroll」（公開側テンプレに直書き日本語を置かない / spec 13-1）。
@@ -19,7 +19,7 @@ export function HeroScrollButton() {
       onClick={onClick}
       aria-label="scroll down"
       className="absolute left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 text-pub-accent transition-opacity hover:opacity-80 md:hidden"
-      style={{ bottom: "15%" }}
+      style={{ bottom: "25%" }}
     >
       <span className="text-sm tracking-[0.3em] uppercase">scroll</span>
       <svg
