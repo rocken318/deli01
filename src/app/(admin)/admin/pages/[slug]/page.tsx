@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { getPage, savePageFields, savePageBlocks, publishPage } from "@/lib/cms/pages-actions";
 import type { PublishPageResult } from "@/lib/cms/pages-actions";
 import { listMedia } from "@/lib/cms/media-actions";
@@ -19,10 +20,12 @@ export const metadata: Metadata = { title: "ページ編集" };
 
 interface Props {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ saved?: string }>;
 }
 
-export default async function PageEditorPage({ params }: Props) {
+export default async function PageEditorPage({ params, searchParams }: Props) {
   const { slug } = await params;
+  const { saved } = await searchParams;
 
   // 機微データの露出防止（本番・未 Auth では 403 相当）。
   const session = await getDevSession();
@@ -68,21 +71,37 @@ export default async function PageEditorPage({ params }: Props) {
       },
       "ja",
     );
+    revalidatePath(`/admin/pages/${slug}`);
+    redirect(`/admin/pages/${slug}?saved=fields`);
   }
 
   async function handleSaveHeroHeading(formData: FormData) {
     "use server";
     const newHeading = formData.get("heroHeading") as string ?? "";
-    // Update the hero block heading while preserving all other blocks
     const currentPage = await getPage(slug, "ja");
     if (!currentPage) return;
-    const updatedBlocks = currentPage.draftBlocks.map((b) => {
-      if (b.type === "hero") {
-        return { ...b, heading: newHeading };
-      }
-      return b;
-    });
-    await savePageBlocks(slug, updatedBlocks, "ja");
+    const hasHero = currentPage.draftBlocks.some((b) => b.type === "hero");
+    if (!hasHero) {
+      // hero ブロックがなければ先頭に追加する
+      const newHeroBlock = {
+        id: `${slug}-hero-1`,
+        type: "hero" as const,
+        visible: true,
+        heading: newHeading,
+        subheading: "",
+        imageId: null,
+        ctaLabel: "",
+        ctaHref: "",
+      };
+      await savePageBlocks(slug, [newHeroBlock, ...currentPage.draftBlocks], "ja");
+    } else {
+      const updatedBlocks = currentPage.draftBlocks.map((b) =>
+        b.type === "hero" ? { ...b, heading: newHeading } : b,
+      );
+      await savePageBlocks(slug, updatedBlocks, "ja");
+    }
+    revalidatePath(`/admin/pages/${slug}`);
+    redirect(`/admin/pages/${slug}?saved=heading`);
   }
 
   async function handlePublish(
@@ -106,6 +125,12 @@ export default async function PageEditorPage({ params }: Props) {
           </span>
         )}
       </div>
+
+      {saved && (
+        <div className="rounded border border-adm-primary bg-adm-primary/10 px-4 py-2 text-sm text-adm-primary">
+          保存しました。「このページを公開する」ボタンを押すと公開に反映されます。
+        </div>
+      )}
 
       {/* ページフィールドフォーム */}
       <section className="bg-adm-surface border border-adm-border rounded p-6 space-y-4">
