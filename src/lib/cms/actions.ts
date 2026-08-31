@@ -534,3 +534,128 @@ export async function publishEntityRecord(
     return { ok: false, error: msg };
   }
 }
+
+// ---------------------------------------------------------------------------
+// entity_records: 一覧＋名前だけで追加（コンテンツ画面の直感UX / #2）
+// ---------------------------------------------------------------------------
+
+export interface EntityRecordSummary {
+  slug: string;
+  name: string;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+/** 指定 entity の entity_records を一覧（表示名＝draft.name・無ければ slug）。 */
+export async function listEntityRecords(
+  entity: string,
+): Promise<ActionResult<EntityRecordSummary[]>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: "認証が必要です" };
+  if (!can(toActor(session), "manage_cms")) {
+    return { ok: false, error: "この操作には owner または admin のロールが必要です" };
+  }
+  const parsedEntity = entitySchema.safeParse(entity);
+  if (!parsedEntity.success) return { ok: false, error: "未知の種別です" };
+
+  const sql = getClient();
+  try {
+    const rows = await withUser(sql, session, async (tx) => {
+      return tx<{ slug: string; name: string | null; published_at: Date | null; updated_at: Date }[]>`
+        select slug,
+               nullif(draft->>'name', '') as name,
+               published_at,
+               updated_at
+        from entity_records
+        where entity = ${parsedEntity.data}
+        order by updated_at desc
+      `;
+    });
+    return {
+      ok: true,
+      data: rows.map((r) => ({
+        slug: r.slug,
+        name: r.name ?? r.slug,
+        publishedAt: r.published_at?.toISOString() ?? null,
+        updatedAt: r.updated_at.toISOString(),
+      })),
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "不明なエラー";
+    return { ok: false, error: msg };
+  }
+}
+
+const createByNameSchema = z.object({
+  entity: entitySchema,
+  name: z.string().trim().min(1, "名前は必須です").max(100, "名前は100文字以内で"),
+});
+
+/** ASCII 部分から slug 候補を作る（日本語のみなら空を返す）。 */
+function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+/**
+ * 名前だけで entity_records を新規作成する（slug はサーバーで自動採番）。
+ * draft は {name} の最小構成で入れる（残りは編集フォームで埋め、公開時に必須検証）。
+ * すでに同名 slug があれば -2, -3… で一意化。
+ */
+export async function createEntityRecordByName(
+  entity: string,
+  name: string,
+): Promise<ActionResult<{ slug: string }>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: "認証が必要です" };
+  if (!can(toActor(session), "manage_cms")) {
+    return { ok: false, error: "この操作には owner または admin のロールが必要です" };
+  }
+
+  const parsed = createByNameSchema.safeParse({ entity, name });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors.map((e) => e.message).join(", ") };
+  }
+  const cleanName = parsed.data.name;
+
+  const sql = getClient();
+  try {
+    const result = await withUser(sql, session, async (tx) => {
+      // 既存 slug を集めて一意な slug を決める（日本語のみは種別名 + 連番）
+      const existing = await tx<{ slug: string }[]>`
+        select slug from entity_records where entity = ${parsed.data.entity}
+      `;
+      const taken = new Set(existing.map((r) => r.slug));
+      const base = slugifyName(cleanName) || parsed.data.entity;
+      let slug = base;
+      for (let n = 2; taken.has(slug); n += 1) slug = `${base}-${n}`;
+
+      const rows = await tx<{ id: string }[]>`
+        insert into entity_records (entity, slug, draft)
+        values (${parsed.data.entity}, ${slug}, ${tx.json({ name: cleanName })})
+        returning id
+      `;
+      const row = rows[0];
+      if (!row) throw new Error("作成に失敗しました");
+
+      await tx`
+        insert into audit_logs (actor_user_id, action, entity, entity_id, after)
+        values (
+          ${session.userId}::uuid,
+          'create',
+          'entity_record',
+          ${row.id}::uuid,
+          ${tx.json({ entity: parsed.data.entity, slug, name: cleanName })}
+        )
+      `;
+      return slug;
+    });
+    return { ok: true, data: { slug: result } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "不明なエラー";
+    return { ok: false, error: msg };
+  }
+}

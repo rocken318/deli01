@@ -3,7 +3,7 @@
  *
  * - field_definitions から動的生成したフォームを表示
  * - entity_records.draft を保存する
- * - フィールド定義を追加すると、コード変更なしでフォームに新項目が出る
+ * - 入力項目を追加すると、コード変更なしでフォームに新項目が出る
  * - 空状態・ローディング・エラーの3状態を実装（spec 12章）
  */
 
@@ -54,14 +54,14 @@ function FormError({ message }: { message: string }) {
   );
 }
 
-// 空状態（フィールド定義がない）
+// 空状態（入力項目がない）
 function FormEmpty({ entity }: { entity: string }) {
   return (
     <div className="py-12 text-center text-sm text-adm-text/60">
-      <p>「{entity}」にはまだフィールド定義がありません。</p>
+      <p>「{entity}」にはまだ入力項目がありません。</p>
       <p className="mt-1">
         <Link href="/admin/fields" className="text-adm-primary underline hover:no-underline">
-          フィールド定義管理
+          入力項目管理
         </Link>
         から項目を追加してください。
       </p>
@@ -122,7 +122,7 @@ export default async function RecordEditPage({ params }: PageProps) {
           href="/admin/records"
           className="text-sm text-adm-text/50 hover:text-adm-primary transition-colors"
         >
-          ← レコード一覧
+          ← コンテンツ一覧
         </Link>
         <span className="text-adm-border">/</span>
         <h1 className="text-xl font-semibold text-adm-text">
@@ -136,7 +136,7 @@ export default async function RecordEditPage({ params }: PageProps) {
       <div className="bg-adm-surface border border-adm-border rounded p-6" style={{ borderRadius: "4px" }}>
         <div className="mb-4 pb-4 border-b border-adm-border">
           <p className="text-xs text-adm-text/50">
-            フィールド定義から自動生成されたフォームです。
+            入力項目から自動生成されたフォームです。
             <Link href="/admin/fields" className="text-adm-primary hover:underline ml-1">
               フィールドを追加
             </Link>

@@ -2,7 +2,7 @@
  * /admin/therapists/[slug] — セラピスト詳細・編集（spec 3-7・3-8 / フェーズ4）。
  *
  * - 内部情報フォーム（status / display_order / app_user_id）
- * - フィールド定義駆動の動的プロフィールフォーム（entity_records）
+ * - 入力項目駆動の動的プロフィールフォーム（entity_records）
  * - 公開ボタン（掲載同意ゲート）
  * - 退職ボタン（一括非公開）
  * - プレビューリンク
@@ -132,10 +132,10 @@ async function TherapistDetailContent({ slug }: { slug: string }) {
 
         {defs.length === 0 ? (
           <div className="py-8 text-center text-sm text-adm-text/60">
-            <p>「therapist」にはまだフィールド定義がありません。</p>
+            <p>「therapist」にはまだ入力項目がありません。</p>
             <p className="mt-1">
               <Link href="/admin/fields" className="text-adm-primary underline hover:no-underline">
-                フィールド定義管理
+                入力項目管理
               </Link>
               から項目を追加してください。
             </p>

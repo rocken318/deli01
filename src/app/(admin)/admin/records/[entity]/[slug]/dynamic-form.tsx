@@ -4,7 +4,7 @@
  * 動的フォーム（クライアントコンポーネント / spec 3-1）。
  *
  * field_definitions の配列から実行時にフォームを生成する。
- * フィールド定義を1つ追加するだけで、コード変更なしにフォームに新項目が現れる。
+ * 入力項目を1つ追加するだけで、コード変更なしにフォームに新項目が現れる。
  *
  * バリデーションは buildZodSchema() で定義から Zod スキーマを組み立てて行う。
  */
@@ -210,7 +210,7 @@ function FieldInput({
           ))}
           {choices.length === 0 && (
             <p className="text-xs text-adm-text/50">
-              選択肢がありません。フィールド定義で choices を設定してください。
+              選択肢がありません。入力項目で choices を設定してください。
             </p>
           )}
         </div>
@@ -285,7 +285,7 @@ export function DynamicForm({
 
   return (
     <div className="space-y-6">
-      <form action={formAction} className="space-y-6" aria-label="レコード編集フォーム">
+      <form action={formAction} className="space-y-6" aria-label="コンテンツ編集フォーム">
       {/* エラー / 成功メッセージ */}
       {state.error && (
         <div
@@ -308,7 +308,7 @@ export function DynamicForm({
 
       {activeDefs.length === 0 ? (
         <p className="text-sm text-adm-text/60 py-4">
-          表示できるフィールドがありません。フィールド定義を確認してください。
+          表示できるフィールドがありません。入力項目を確認してください。
         </p>
       ) : (
         /* フィールドをグループ別に描画 */
