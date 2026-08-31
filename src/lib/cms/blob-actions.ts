@@ -39,7 +39,9 @@ export async function uploadMedia(
       error: "画像が大きすぎます（4.5MB以下に縮小してください）",
     };
   }
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  // 接続済み Blob ストア（BLOB_STORE_ID）か明示トークンのどちらかがあれば put できる
+  //（新しい統合はトークンを env に出さず、接続ストア＋OIDC/実行時注入で認証する）。
+  if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
     return {
       ok: false,
       error:
