@@ -1,8 +1,9 @@
 /**
  * トップのヒーローバナー（公開側 / spec 12-1）。
  *
- * アートディレクション: スマホは縦構図、PC は横構図の別画像を出し分けるため
- * next/image ではなく <picture> を使う（同一画像のレスポンシブ最適化とは目的が違う）。
+ * CMS でヒーロー画像が設定されている場合はそれを優先表示する。
+ * 未設定時はアートディレクション用の静的ファイル（/hero/）にフォールバックする:
+ *   スマホは縦構図（hero-mobile.jpg）、PC は横構図（hero-pc.jpg）の別画像出し分け。
  * ヒーロー画像の下に、世界観を伝えるコンセプトコピー画像（under-hero）を重ねる。
  *
  * 文言は直書きしない（alt / SEO テキストは CMS ラベル経由 / spec 3-6・13-1）。
@@ -15,24 +16,40 @@ export function HeroBanner({
   brandName,
   underHeroAlt,
   underHeroSeo,
+  heroImageUrl,
 }: {
   brandName: string;
   underHeroAlt: string;
   underHeroSeo: string;
+  /** CMS メディアライブラリから選択されたヒーロー画像 URL。未設定時は /hero/ の静的ファイルにフォールバック */
+  heroImageUrl?: string | null;
 }) {
   return (
     <section className="w-full overflow-hidden bg-pub-bg">
-      <picture>
-        <source media="(min-width: 768px)" srcSet="/hero/hero-pc.jpg" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+      {heroImageUrl ? (
+        /* CMS 設定画像（PC/スマホ共通1枚） */
+        // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/hero/hero-mobile.jpg"
+          src={heroImageUrl}
           alt={brandName}
           className="mx-auto block h-auto w-full object-cover"
           fetchPriority="high"
           decoding="async"
         />
-      </picture>
+      ) : (
+        /* フォールバック: スマホ/PC 別画像アートディレクション */
+        <picture>
+          <source media="(min-width: 768px)" srcSet="/hero/hero-pc.jpg" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/hero/hero-mobile.jpg"
+            alt={brandName}
+            className="mx-auto block h-auto w-full object-cover"
+            fetchPriority="high"
+            decoding="async"
+          />
+        </picture>
+      )}
 
       {/* ヒーロー直下のコンセプトコピー画像（縦構図・全幅／PC は中央寄せ） */}
       <div className="mx-auto w-full max-w-[640px]">

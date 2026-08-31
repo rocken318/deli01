@@ -163,6 +163,13 @@ export default async function HomePage() {
   const weekdays = label(ctx, "schedule_weekdays");
   const bookingHref = ctx.labels["booking_href"] || "/booking";
 
+  // hero ブロックの imageId → media URL（CMS で差し替えた画像を使う）
+  const heroBlock = page.blocks.find((b) => b.type === "hero");
+  const heroImageUrl =
+    heroBlock && "imageId" in heroBlock && typeof heroBlock.imageId === "string"
+      ? (mediaMap.get(heroBlock.imageId)?.url ?? null)
+      : null;
+
   return (
     <div>
       {/* ヒーローバナー（スマホ/PC で別画像・アートディレクション＋コンセプトコピー画像） */}
@@ -170,6 +177,7 @@ export default async function HomePage() {
         brandName={ctx.brandName}
         underHeroAlt={label(ctx, "under_hero_alt")}
         underHeroSeo={label(ctx, "under_hero_seo")}
+        heroImageUrl={heroImageUrl}
       />
 
       {/* pages(home) published ブロック（未公開なら空状態） */}
