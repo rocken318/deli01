@@ -327,7 +327,9 @@ const pageSeeds = [
         visible: true,
         heading: "あなたに合った、癒しの時間を",
         subheading: "出張リラクゼーションで、ご自宅やホテルにお伺いします。",
-        imageId: "bbbbbbbb-0000-4000-8000-000000000001",
+        // null にして公開側の静的ヒーロー（/hero/hero-mobile.jpg・/hero/hero-pc.jpg）へ
+        // フォールバックさせる。プレースホルダー SVG を再seedで戻さないため（本番作替の罠回避）。
+        imageId: null,
         ctaLabel: "空き枠を確認する",
         ctaHref: "/booking",
       },
