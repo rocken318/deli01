@@ -208,6 +208,15 @@ export default async function TherapistDetailPage({ params }: PageProps) {
         <h1 className="text-xl font-semibold text-adm-text">
           {isNew ? "新規セラピスト" : slug}
         </h1>
+        {!isNew && (
+          <Link
+            href={`/admin/therapists/${slug}/schedule`}
+            className="ml-auto rounded bg-adm-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+            style={{ borderRadius: "4px" }}
+          >
+            出勤・予約・稼ぎを見る →
+          </Link>
+        )}
       </div>
 
       {isNew ? (
