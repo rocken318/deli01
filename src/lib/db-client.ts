@@ -37,3 +37,14 @@ export function getClient(): ReturnType<typeof postgres> {
   }
   return _client;
 }
+
+/**
+ * 現在のクライアント（プール）を破棄する。サーバレスの freeze/thaw で接続が
+ * 死んでクエリが無限待ちになったとき、呼び出し側がタイムアウト検知して本関数で
+ * リセットする→次回の getClient() が新しい接続を張り直す（自己回復）。
+ */
+export function resetClient(): void {
+  const c = _client;
+  _client = undefined;
+  if (c) void c.end({ timeout: 1 }).catch(() => {});
+}

@@ -73,17 +73,62 @@ const loadHomeData = unstable_cache(
   { revalidate: 30 },
 );
 
+/** タイムアウト時のフォールバック（DB 非依存。静的ヒーロー画像は描画される） */
+const EMPTY_HOME_DATA: Awaited<ReturnType<typeof loadHomeData>> = {
+  ctx: {
+    brandName: "",
+    receptionPhone: "",
+    receptionHours: "",
+    footerNote: "",
+    legalNote: "",
+    nav: [],
+    social: [],
+    terms: {},
+    labels: {},
+  },
+  page: {
+    slug: "home",
+    heading: "",
+    lead: "",
+    seoTitle: "",
+    seoDescription: "",
+    blocks: [],
+    isPublished: false,
+  },
+  cards: [],
+  mediaMapEntries: [],
+  earliestEntries: [],
+};
+
 export async function generateMetadata(): Promise<Metadata> {
-  const { ctx, page } = await loadSiteAndPage();
+  const meta = await Promise.race([
+    loadSiteAndPage(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+  ]);
+  const ctx = meta?.ctx;
+  const page = meta?.page;
   return {
-    title: page.seoTitle || ctx.brandName || " ",
-    description: page.seoDescription || ctx.footerNote || undefined,
+    title: page?.seoTitle || ctx?.brandName || " ",
+    description: page?.seoDescription || ctx?.footerNote || undefined,
   };
 }
 
 export default async function HomePage() {
+  // loadHomeData はキャッシュ済みなら即返る。未 populate＋stale 接続で詰まった場合に
+  // 備え 8秒でタイムアウトし、接続をリセットして自己回復させる（次リクエストで再接続）。
+  // タイムアウト時も静的ヒーロー画像は描画される（DB 非依存）。
+  const data = await Promise.race([
+    loadHomeData(),
+    new Promise<Awaited<ReturnType<typeof loadHomeData>> | null>((resolve) =>
+      setTimeout(() => resolve(null), 8000),
+    ),
+  ]);
+  if (!data) {
+    const { resetClient } = await import("@/lib/db-client");
+    resetClient();
+  }
   const { ctx, page, cards, mediaMapEntries, earliestEntries } =
-    await loadHomeData();
+    data ?? EMPTY_HOME_DATA;
   const mediaMap = new Map(mediaMapEntries);
   const earliestBySlug = new Map(earliestEntries);
   // 署名要素（セクション見出し）は、いま案内できる中で最も早い枠を代表として出す
