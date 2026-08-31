@@ -926,3 +926,101 @@ export async function upsertPayoutRateCore(
     return { kind: "ok", rateId: row.id, cappedCount: capped.length } as const;
   });
 }
+
+// ---------------------------------------------------------------------------
+// 6. 日払い用: 当日分のセラピスト別バック集計（spec 管理画面 daily-payouts）
+// ---------------------------------------------------------------------------
+
+export interface DailyPayoutRow {
+  therapistId: string;
+  therapistName: string;
+  /** payout_lines の当日合計（整数円） */
+  postedTotal: number;
+  /** payout_lines の当日行数 */
+  lineCount: number;
+  /** done/noshow だが payout_lines 未生成の件数 */
+  unpostedCount: number;
+}
+
+export interface DailyPayoutsResult {
+  businessDate: string;
+  rows: DailyPayoutRow[];
+  /** postedTotal の合計（整数円） */
+  grandTotal: number;
+}
+
+/**
+ * 指定業務日（Asia/Tokyo）のセラピスト別バック集計。
+ * - payout_lines の business_date = businessDate の合計を therapist ごとに返す
+ * - 加えて「その日に done/noshow になったが payout_lines 未生成」の件数も返す
+ * - postedTotal=0 かつ unpostedCount=0 のセラピストは除外（当日稼働のみ）
+ * - postedTotal 降順
+ */
+export async function getDailyPayoutsCore(
+  sql: Sql,
+  session: Session,
+  params: { businessDate: string },
+): Promise<DailyPayoutsResult> {
+  return withUser(sql, session, async (tx) => {
+    // ---- 1. payout_lines の当日集計 ----
+    const lineRows = await tx<
+      {
+        therapist_id: string;
+        therapist_name: string | null;
+        posted_total: number;
+        line_count: number;
+      }[]
+    >`
+      select
+        t.id as therapist_id,
+        coalesce(er.published->>'name', t.slug) as therapist_name,
+        coalesce(sum(pl.amount), 0)::integer as posted_total,
+        count(pl.id)::integer as line_count
+      from therapists t
+      left join entity_records er
+             on er.entity = 'therapist' and er.slug = t.slug
+      left join payout_lines pl
+             on pl.therapist_id = t.id
+            and pl.business_date = ${params.businessDate}::date
+      where t.status <> 'retired'
+      group by t.id, er.published, t.slug
+    `;
+
+    // ---- 2. 未計上（done/noshow だが payout_lines 未生成）の件数 ----
+    const unpostedRows = await tx<
+      { therapist_id: string; unposted_count: number }[]
+    >`
+      select
+        r.therapist_id,
+        count(*)::integer as unposted_count
+      from reservations r
+      where r.status in ('done', 'noshow')
+        and (r.start_at at time zone 'Asia/Tokyo')::date = ${params.businessDate}::date
+        and not exists (
+          select 1 from payout_lines pl
+          where pl.reservation_id = r.id
+        )
+      group by r.therapist_id
+    `;
+
+    const unpostedMap = new Map<string, number>();
+    for (const u of unpostedRows) {
+      unpostedMap.set(u.therapist_id, u.unposted_count);
+    }
+
+    const rows: DailyPayoutRow[] = lineRows
+      .map((r) => ({
+        therapistId: r.therapist_id,
+        therapistName: r.therapist_name ?? r.therapist_id,
+        postedTotal: r.posted_total,
+        lineCount: r.line_count,
+        unpostedCount: unpostedMap.get(r.therapist_id) ?? 0,
+      }))
+      .filter((r) => r.postedTotal !== 0 || r.unpostedCount !== 0)
+      .sort((a, b) => b.postedTotal - a.postedTotal);
+
+    const grandTotal = rows.reduce((s, r) => s + r.postedTotal, 0);
+
+    return { businessDate: params.businessDate, rows, grandTotal };
+  });
+}

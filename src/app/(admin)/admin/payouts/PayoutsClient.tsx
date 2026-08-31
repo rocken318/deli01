@@ -11,14 +11,16 @@
  */
 
 import { useState, useTransition } from 'react';
+import { formatInTimeZone } from 'date-fns-tz';
 import {
+  getDailyPayouts,
   postReservationPayout,
   getPayoutRatesGrid,
   upsertPayoutRate,
   closePayoutPeriod,
   markPayoutPaid,
 } from '@/lib/payout/actions';
-import type { PayoutRatesGrid } from '@/lib/payout/actions';
+import type { DailyPayoutsResult, PayoutRatesGrid } from '@/lib/payout/actions';
 
 // ---- ラベル定義 ----
 
@@ -119,6 +121,10 @@ function statusBadge(status: string) {
   return <span className="text-xs text-adm-muted">{label}</span>;
 }
 
+function todayJst(): string {
+  return formatInTimeZone(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+}
+
 export function PayoutsClient({
   grid: initialGrid,
   therapists,
@@ -126,6 +132,36 @@ export function PayoutsClient({
   initialPayouts,
   unpostedError,
 }: Props) {
+  // ====== Section 0: 当日分（日払い）======
+  const [dailyDate, setDailyDate] = useState<string>(todayJst);
+  const [dailyResult, setDailyResult] = useState<DailyPayoutsResult | null>(null);
+  const [dailyMsg, setDailyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [dailyPending, startDailyTransition] = useTransition();
+
+  function fetchDailyPayouts(date: string) {
+    setDailyMsg(null);
+    startDailyTransition(async () => {
+      const res = await getDailyPayouts({ businessDate: date });
+      if (res.ok && res.data) {
+        setDailyResult(res.data);
+      } else {
+        setDailyMsg({ ok: false, text: res.error ?? '取得に失敗しました' });
+        setDailyResult(null);
+      }
+    });
+  }
+
+  function handleDailyDateChange(newDate: string) {
+    setDailyDate(newDate);
+    fetchDailyPayouts(newDate);
+  }
+
+  function handleDailyToday() {
+    const today = todayJst();
+    setDailyDate(today);
+    fetchDailyPayouts(today);
+  }
+
   // ====== Section A: 未計上の完了予約 ======
   const [unposted, setUnposted] = useState<UnpostedReservation[]>(initialUnposted);
   const [postMsg, setPostMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -317,6 +353,111 @@ export function PayoutsClient({
 
   return (
     <div className="space-y-10">
+
+      {/* ===== Section 0: 当日分（日払い）===== */}
+      <section className="bg-adm-surface border border-adm-border rounded p-6 space-y-4" style={{ borderRadius: '4px' }}>
+        <h2 className="text-base font-semibold text-adm-text border-b border-adm-border pb-2">
+          当日分（日払い）
+        </h2>
+
+        {/* 日付入力 + 今日ボタン + 取得ボタン */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            type="date"
+            value={dailyDate}
+            onChange={(e) => setDailyDate(e.target.value)}
+            className="border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:border-adm-primary"
+            style={{ borderRadius: '4px' }}
+          />
+          <button
+            onClick={handleDailyToday}
+            className="border border-adm-border text-adm-muted px-3 py-2 rounded text-sm"
+            style={{ borderRadius: '4px' }}
+          >
+            今日
+          </button>
+          <button
+            onClick={() => fetchDailyPayouts(dailyDate)}
+            disabled={dailyPending}
+            className="bg-adm-primary text-white px-4 py-2 rounded text-sm disabled:opacity-50"
+            style={{ borderRadius: '4px' }}
+          >
+            {dailyPending ? '取得中…' : '表示'}
+          </button>
+        </div>
+
+        {/* エラー */}
+        {dailyMsg && !dailyMsg.ok && (
+          <p className="text-sm text-adm-danger">{dailyMsg.text}</p>
+        )}
+
+        {/* ローディング */}
+        {dailyPending && (
+          <p className="text-sm text-adm-muted">取得中…</p>
+        )}
+
+        {/* 空状態 */}
+        {!dailyPending && dailyResult !== null && dailyResult.rows.length === 0 && (
+          <p className="text-sm text-adm-muted py-4">
+            {dailyResult.businessDate} の稼働セラピストはいません
+          </p>
+        )}
+
+        {/* テーブル */}
+        {!dailyPending && dailyResult !== null && dailyResult.rows.length > 0 && (
+          <div className="overflow-x-auto space-y-3">
+            {/* 未計上注意書き */}
+            {dailyResult.rows.some((r) => r.unpostedCount > 0) && (
+              <p className="text-sm" style={{ color: '#C98A2B' }}>
+                未計上の予約があります。「未計上の完了予約」セクションで「報酬を計上」すると当日確定バックに反映されます。
+              </p>
+            )}
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-adm-border text-adm-muted text-left">
+                  <th className="py-1 pr-3">セラピスト</th>
+                  <th className="py-1 pr-3 text-right">当日確定バック</th>
+                  <th className="py-1 pr-3 text-right">明細数</th>
+                  <th className="py-1 pr-3 text-right">未計上</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyResult.rows.map((r) => (
+                  <tr key={r.therapistId} className="border-b border-adm-border last:border-0">
+                    <td className="py-1.5 pr-3">{r.therapistName}</td>
+                    <td className="py-1.5 pr-3 text-right font-mono font-medium">
+                      {r.postedTotal.toLocaleString('ja-JP')}円
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-adm-muted text-xs">
+                      {r.lineCount}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-xs">
+                      {r.unpostedCount > 0 ? (
+                        <span style={{ color: '#C98A2B' }} className="font-semibold">
+                          {r.unpostedCount} 件
+                        </span>
+                      ) : (
+                        <span className="text-adm-muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {/* 合計行 */}
+                <tr className="border-t-2 border-adm-border bg-adm-bg">
+                  <td className="py-2 pr-3 font-semibold text-adm-text">合計</td>
+                  <td className="py-2 pr-3 text-right font-mono font-bold text-adm-primary">
+                    {dailyResult.grandTotal.toLocaleString('ja-JP')}円
+                  </td>
+                  <td className="py-2 pr-3 text-right text-adm-muted text-xs">
+                    {dailyResult.rows.reduce((s, r) => s + r.lineCount, 0)}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-xs text-adm-muted">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* ===== Section A: 未計上の完了予約 ===== */}
       <section className="bg-adm-surface border border-adm-border rounded p-6 space-y-4" style={{ borderRadius: '4px' }}>

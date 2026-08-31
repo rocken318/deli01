@@ -18,6 +18,7 @@ import { loadBookingFees } from '@/lib/booking/holds';
 import { loadPayoutSettings } from './policy';
 import {
   closePayoutPeriodCore,
+  getDailyPayoutsCore,
   getMyEarningsCore,
   getPayoutRatesGridCore,
   markPayoutPaidCore,
@@ -25,7 +26,7 @@ import {
   reversePayoutLineCore,
   upsertPayoutRateCore,
 } from './queries';
-import type { MyEarnings, PayoutRatesGrid } from './queries';
+import type { DailyPayoutsResult, MyEarnings, PayoutRatesGrid } from './queries';
 import type { PayoutLineDraft, ReservationPayoutResult } from '@/domain/payout';
 
 export interface ActionResult<T = void> {
@@ -546,4 +547,36 @@ export async function listPayouts(): Promise<ActionResult<PayoutListItem[]>> {
   }
 }
 
-export type { MyEarnings, PayoutRatesGrid };
+// ---------------------------------------------------------------------------
+// 8. 日払い用: 当日分のセラピスト別バック集計
+// ---------------------------------------------------------------------------
+
+const dailyPayoutsSchema = z.object({
+  businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付は YYYY-MM-DD'),
+});
+
+/**
+ * 指定業務日（Asia/Tokyo）のセラピスト別バック集計。
+ * 認証ゲートは listUnpostedPayoutReservations / listPayouts と同じ。
+ */
+export async function getDailyPayouts(
+  input: z.infer<typeof dailyPayoutsSchema>,
+): Promise<ActionResult<DailyPayoutsResult>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+
+  const parsed = dailyPayoutsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: '日付は YYYY-MM-DD 形式で指定してください' };
+
+  try {
+    const result = await getDailyPayoutsCore(getClient(), session, {
+      businessDate: parsed.data.businessDate,
+    });
+    return { ok: true, data: result };
+  } catch (e) {
+    console.error('getDailyPayouts failed:', e);
+    return { ok: false, error: '当日分バックの取得に失敗しました' };
+  }
+}
+
+export type { DailyPayoutsResult, MyEarnings, PayoutRatesGrid };
