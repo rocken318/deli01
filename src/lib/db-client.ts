@@ -22,11 +22,14 @@ export function getClient(): ReturnType<typeof postgres> {
       //   トップ=並列は詰まる）。単一接続なら health と同じ健全な経路を使い回せる。
       // - idle_timeout/max_lifetime で古い接続を早く破棄→再接続（stale を掴まない）
       // - connect_timeout で接続確立が詰まったら fail-fast
+      // ★接続を短命化し、凍結後に死んだソケットを再利用しないようにする（本命の是正）。
+      //   サーバレスは freeze/thaw で接続が死ぬが max_lifetime が長いと古い接続を
+      //   使い回してソケット無限待ち→300秒ハングになる。短命なら acquire 時に破棄→再接続。
       // 注: statement_timeout は transaction プーラーがセッション毎にリセットするため
       //   クライアント指定は効かない（プーラー既定 2min）。
       max: 1,
-      idle_timeout: 20,
-      max_lifetime: 60 * 10,
+      idle_timeout: 5,
+      max_lifetime: 30,
       connect_timeout: 10,
       prepare: false,
       onnotice: () => {},
