@@ -534,7 +534,7 @@ const therapistRecordSeeds: {
     draft: {
       photo: ["bbbbbbbb-0001-4000-8000-000000000004"],
       name: "れん",
-      catch_copy: "都内全域、深めの指圧が持ち味です",
+      catch_copy: "仙台全域、深めの指圧が持ち味です",
       intro: "<p>広いエリアに車で伺えるセラピストです。</p>",
       good_at: ["指圧", "オイル"],
       years_of_experience: 7,
@@ -551,8 +551,8 @@ const therapistRecordSeeds: {
 /**
  * エリア（spec 3-8 / 4章）。center は代表点の経緯度（lon, lat / WGS84）。
  * 配置の意図:
- * - 目黒区の代表点と恵比寿駅は約1.2km（徒歩上限1.6km 以内 → walk になる例）
- * - 八王子市は他の全区から遠方（車 or unreachable になる例）
+ * - 国分町の代表点と一番町は約0.7kmで徒歩上限内（徒歩上限1.6km 以内 → walk になる例）
+ * - 名取は他の全エリアから遠方（車 or unreachable になる例）
  */
 const areaSeeds: {
   id: string;
@@ -562,16 +562,14 @@ const areaSeeds: {
   lat: number;
   sort_order: number;
 }[] = [
-  { id: "cccccccc-0000-4000-8000-000000000001", name: "渋谷区", kind: "ward", lon: 139.6982, lat: 35.664, sort_order: 10 },
-  { id: "cccccccc-0000-4000-8000-000000000002", name: "新宿区", kind: "ward", lon: 139.7034, lat: 35.6938, sort_order: 20 },
-  { id: "cccccccc-0000-4000-8000-000000000003", name: "港区", kind: "ward", lon: 139.7516, lat: 35.6581, sort_order: 30 },
-  { id: "cccccccc-0000-4000-8000-000000000004", name: "目黒区", kind: "ward", lon: 139.6982, lat: 35.6415, sort_order: 40 },
-  { id: "cccccccc-0000-4000-8000-000000000005", name: "世田谷区", kind: "ward", lon: 139.6532, lat: 35.6461, sort_order: 50 },
-  { id: "cccccccc-0000-4000-8000-000000000006", name: "品川区", kind: "ward", lon: 139.7302, lat: 35.6092, sort_order: 60 },
-  { id: "cccccccc-0000-4000-8000-000000000007", name: "中野区", kind: "ward", lon: 139.6638, lat: 35.7074, sort_order: 70 },
-  { id: "cccccccc-0000-4000-8000-000000000008", name: "豊島区", kind: "ward", lon: 139.7164, lat: 35.7263, sort_order: 80 },
-  { id: "cccccccc-0000-4000-8000-000000000009", name: "恵比寿駅", kind: "station", lon: 139.7101, lat: 35.6467, sort_order: 90 },
-  { id: "cccccccc-0000-4000-8000-000000000010", name: "八王子市", kind: "city", lon: 139.316, lat: 35.6664, sort_order: 100 },
+  { id: "cccccccc-0000-4000-8000-000000000001", name: "国分町", kind: "ward", lon: 140.8710, lat: 38.2640, sort_order: 10 },
+  { id: "cccccccc-0000-4000-8000-000000000002", name: "一番町", kind: "ward", lon: 140.8720, lat: 38.2610, sort_order: 20 },
+  { id: "cccccccc-0000-4000-8000-000000000003", name: "仙台駅前", kind: "station", lon: 140.8823, lat: 38.2601, sort_order: 30 },
+  { id: "cccccccc-0000-4000-8000-000000000004", name: "仙台市中心部", kind: "ward", lon: 140.8770, lat: 38.2625, sort_order: 40 },
+  { id: "cccccccc-0000-4000-8000-000000000005", name: "仙台市内", kind: "city", lon: 140.8694, lat: 38.2682, sort_order: 50 },
+  { id: "cccccccc-0000-4000-8000-000000000006", name: "泉中央", kind: "ward", lon: 140.8817, lat: 38.3253, sort_order: 60 },
+  { id: "cccccccc-0000-4000-8000-000000000007", name: "長町", kind: "ward", lon: 140.8860, lat: 38.2249, sort_order: 70 },
+  { id: "cccccccc-0000-4000-8000-000000000008", name: "名取", kind: "city", lon: 140.8912, lat: 38.1717, sort_order: 80 },
 ];
 
 /** エリア名 → id（マトリクス定義を読みやすくする） */
@@ -579,24 +577,24 @@ const areaId = new Map(areaSeeds.map((a) => [a.name, a.id]));
 
 /**
  * 車のエリア間移動時間マトリクス（分 / 双方向に同値で展開）。
- * 近隣 8〜20分、遠方（八王子）45〜60分の差をつける（spec 18章の現実的分布）。
- * 未登録ペア（例: 豊島区↔品川区）は暫定値経路（provisionalCarMinutes）のデモに残す。
+ * 近隣 4〜8分、遠方（名取）30〜35分の差をつける（spec 18章の現実的分布）。
+ * 未登録ペア（例: 泉中央↔名取）は暫定値経路（provisionalCarMinutes）のデモに残す。
  */
 const carMatrixSeeds: { from: string; to: string; minutes: number }[] = [
-  { from: "渋谷区", to: "新宿区", minutes: 15 },
-  { from: "渋谷区", to: "港区", minutes: 18 },
-  { from: "渋谷区", to: "目黒区", minutes: 12 },
-  { from: "渋谷区", to: "世田谷区", minutes: 16 },
-  { from: "渋谷区", to: "中野区", minutes: 20 },
-  { from: "渋谷区", to: "恵比寿駅", minutes: 8 },
-  { from: "新宿区", to: "中野区", minutes: 12 },
-  { from: "新宿区", to: "豊島区", minutes: 15 },
-  { from: "港区", to: "品川区", minutes: 15 },
-  { from: "目黒区", to: "品川区", minutes: 12 },
-  { from: "目黒区", to: "恵比寿駅", minutes: 8 },
-  { from: "渋谷区", to: "八王子市", minutes: 60 },
-  { from: "新宿区", to: "八王子市", minutes: 55 },
-  { from: "世田谷区", to: "八王子市", minutes: 45 },
+  { from: "国分町", to: "一番町", minutes: 4 },
+  { from: "国分町", to: "仙台駅前", minutes: 8 },
+  { from: "国分町", to: "仙台市中心部", minutes: 5 },
+  { from: "国分町", to: "仙台市内", minutes: 7 },
+  { from: "一番町", to: "仙台駅前", minutes: 7 },
+  { from: "仙台駅前", to: "仙台市中心部", minutes: 6 },
+  { from: "仙台市中心部", to: "仙台市内", minutes: 6 },
+  { from: "国分町", to: "泉中央", minutes: 25 },
+  { from: "仙台駅前", to: "泉中央", minutes: 25 },
+  { from: "国分町", to: "長町", minutes: 18 },
+  { from: "仙台駅前", to: "長町", minutes: 14 },
+  { from: "仙台駅前", to: "名取", minutes: 30 },
+  { from: "国分町", to: "名取", minutes: 35 },
+  { from: "長町", to: "名取", minutes: 15 },
 ];
 
 /** 時間帯係数（spec 5-1: 深夜 < 1、朝夕 1.3〜1.5）。深夜は日跨ぎ区間 */
@@ -646,14 +644,14 @@ const baseSeeds: {
   lon: number;
   lat: number;
 }[] = [
-  { id: "dddddddd-0000-4000-8000-000000000001", name: "事務所（渋谷）", kind: "office", lon: 139.7005, lat: 35.6595 },
-  { id: "dddddddd-0000-4000-8000-000000000002", name: "新宿駅 待機", kind: "station", lon: 139.7003, lat: 35.6896 },
-  { id: "dddddddd-0000-4000-8000-000000000003", name: "自宅待機（中野）", kind: "home", lon: 139.6657, lat: 35.7056 },
+  { id: "dddddddd-0000-4000-8000-000000000001", name: "事務所（国分町）", kind: "office", lon: 140.8712, lat: 38.2635 },
+  { id: "dddddddd-0000-4000-8000-000000000002", name: "仙台駅 待機", kind: "station", lon: 140.8820, lat: 38.2600 },
+  { id: "dddddddd-0000-4000-8000-000000000003", name: "自宅待機（長町）", kind: "home", lon: 140.8860, lat: 38.2250 },
 ];
 
 /**
  * 移動バッファ（spec 5-2）。既定: 到着前10・駐車15・施術前5・施術後10。
- * 都心（港区）は駐車バッファ20分に上書き（エリア別上書きの実証）。
+ * 中心部（国分町）は駐車バッファ20分に上書き（エリア別上書きの実証）。
  */
 const travelBufferSeeds: {
   id: string;
@@ -676,7 +674,7 @@ const travelBufferSeeds: {
   {
     id: "ffffffff-0000-4000-8000-000000000002",
     scope: "area",
-    area: "港区",
+    area: "国分町",
     arrive_min: 10,
     parking_min: 20,
     before_min: 5,
@@ -687,10 +685,10 @@ const travelBufferSeeds: {
 /** 徒歩上書きの例（spec 5-1: 川・線路等の分断区間は迂回係数が効かない） */
 const walkOverrideSeeds: { from: string; to: string; added_minutes: number; note: string }[] = [
   {
-    from: "品川区",
-    to: "港区",
-    added_minutes: 8,
-    note: "運河・橋を渡るため直線距離より時間がかかる区間",
+    from: "国分町",
+    to: "一番町",
+    added_minutes: 4,
+    note: "定禅寺通り・アーケードを渡るため直線距離より時間がかかる区間",
   },
 ];
 
@@ -814,12 +812,12 @@ const hotelSeeds: {
 }[] = [
   {
     id: "77777777-0000-4000-8000-000000000001",
-    name: "グランドタワーホテル東京",
-    name_kana: "ぐらんどたわーほてるとうきょう",
-    address: "東京都港区台場0-0-0",
-    area: "港区",
-    lon: 139.7516,
-    lat: 35.6585,
+    name: "仙台グランドタワーホテル",
+    name_kana: "せんだいぐらんどたわーほてる",
+    address: "仙台市青葉区中央0-0-0",
+    area: "仙台駅前",
+    lon: 140.8825,
+    lat: 38.2605,
     entry_note: "フロント経由が必要。内線で来訪者確認あり",
     parking_note: "地下駐車場あり（30分無料・以降有料）。入口からエレベーターまで遠い",
     extra_minutes: 12,
@@ -828,12 +826,12 @@ const hotelSeeds: {
   },
   {
     id: "77777777-0000-4000-8000-000000000002",
-    name: "渋谷ステイイン",
-    name_kana: "しぶやすているん",
-    address: "東京都渋谷区道玄坂0-0-0",
-    area: "渋谷区",
-    lon: 139.6985,
-    lat: 35.6578,
+    name: "国分町ステイイン",
+    name_kana: "こくぶんちょうすているん",
+    address: "仙台市青葉区国分町0-0-0",
+    area: "国分町",
+    lon: 140.8712,
+    lat: 38.2638,
     entry_note: "直接部屋へ可",
     parking_note: "駐車場なし。近隣コインパーキング利用",
     extra_minutes: 3,
@@ -842,12 +840,12 @@ const hotelSeeds: {
   },
   {
     id: "77777777-0000-4000-8000-000000000003",
-    name: "エビスパークホテル",
-    name_kana: "えびすぱーくほてる",
-    address: "東京都渋谷区恵比寿0-0-0",
-    area: "恵比寿駅",
-    lon: 139.7098,
-    lat: 35.6472,
+    name: "一番町パークホテル",
+    name_kana: "いちばんちょうぱーくほてる",
+    address: "仙台市青葉区一番町0-0-0",
+    area: "一番町",
+    lon: 140.8720,
+    lat: 38.2612,
     entry_note: "フロント経由が必要",
     parking_note: "提携駐車場あり（徒歩2分）",
     extra_minutes: 5,
@@ -856,12 +854,12 @@ const hotelSeeds: {
   },
   {
     id: "77777777-0000-4000-8000-000000000004",
-    name: "ホテルノワール新宿",
-    name_kana: "ほてるのわーるしんじゅく",
-    address: "東京都新宿区歌舞伎町0-0-0",
-    area: "新宿区",
-    lon: 139.7025,
-    lat: 35.695,
+    name: "ホテルノワール長町",
+    name_kana: "ほてるのわーるながまち",
+    address: "仙台市太白区長町0-0-0",
+    area: "長町",
+    lon: 140.8862,
+    lat: 38.2252,
     entry_note: null,
     parking_note: null,
     extra_minutes: 5,
@@ -870,7 +868,7 @@ const hotelSeeds: {
   },
   {
     id: "77777777-0000-4000-8000-000000000005",
-    name: "（仮登録）中野ビジネスホテル",
+    name: "（仮登録）泉中央ビジネスホテル",
     name_kana: null,
     address: null,
     area: null,
@@ -888,9 +886,9 @@ const hotelSeeds: {
 // フェーズ8: 出勤予定（spec 3-3・4章・14章 #8 / 冪等）
 //
 // 完了条件「エリアで絞れる」を実データで再現する配置:
-// - aoi（published・徒歩派）: 渋谷区・恵比寿駅・目黒区だけ対応。
-//   **渋谷は対応するが八王子は対応しない** → /schedule?area=八王子市 で消える
-// - ren（published・車で全域）: 全エリア対応。八王子で絞っても出る。
+// - aoi（published・徒歩派）: 国分町・一番町・仙台駅前だけ対応。
+//   **国分町は対応するが名取は対応しない** → /schedule?area=名取 で消える
+// - ren（published・車で全域）: 全エリア対応。名取で絞っても出る。
 //   +2日目は当日欠勤（is_day_off）の例 → その日は一覧から消える
 // - minato（active だが未公開）: 出勤していても published が無いので公開出勤表に出ない
 // 日付は常に「シード実行日（Asia/Tokyo）から5日分」の相対で入れる（いつ流してもデモが生きる）。
@@ -913,16 +911,16 @@ const shiftSeeds: {
   isDayOff: boolean;
   note: string | null;
 }[] = [
-  // aoi: 徒歩圏に濃く（渋谷・恵比寿・目黒のみ / spec 5-1「狭い範囲に濃く」）
+  // aoi: 徒歩圏に濃く（国分町・一番町・仙台駅前 / spec 5-1「狭い範囲に濃く」）
   ...[0, 1, 2, 3, 4].map((dayOffset) => ({
     slug: "aoi",
     dayOffset,
     start: "10:00",
     end: "19:00",
-    baseStart: "事務所（渋谷）",
-    baseEnd: "事務所（渋谷）",
+    baseStart: "事務所（国分町）",
+    baseEnd: "事務所（国分町）",
     maxBookings: 3,
-    areas: ["渋谷区", "恵比寿駅", "目黒区"] as string[] | "all",
+    areas: ["国分町", "一番町", "仙台駅前"] as string[] | "all",
     isDayOff: false,
     note: null,
   })),
@@ -932,8 +930,8 @@ const shiftSeeds: {
     dayOffset,
     start: "12:00",
     end: "22:00",
-    baseStart: "新宿駅 待機",
-    baseEnd: "新宿駅 待機",
+    baseStart: "仙台駅 待機",
+    baseEnd: "仙台駅 待機",
     maxBookings: null,
     areas: "all" as string[] | "all",
     isDayOff: dayOffset === 2,
@@ -945,10 +943,10 @@ const shiftSeeds: {
     dayOffset,
     start: "17:00",
     end: "23:30",
-    baseStart: "自宅待機（中野）",
-    baseEnd: "自宅待機（中野）",
+    baseStart: "自宅待機（長町）",
+    baseEnd: "自宅待機（長町）",
     maxBookings: 2,
-    areas: ["新宿区", "中野区"] as string[] | "all",
+    areas: ["長町", "仙台市内"] as string[] | "all",
     isDayOff: false,
     note: null,
   })),
@@ -1692,9 +1690,9 @@ async function main() {
       // Insert home address for auto-fill（冪等: 既に home 住所があれば追加しない）
       await sql`
         insert into addresses (customer_id, kind, detail, area_id)
-        select ${customerId}::uuid, 'home'::address_kind, '東京都渋谷区〇〇 1-2-3', a.id
+        select ${customerId}::uuid, 'home'::address_kind, '仙台市青葉区国分町〇〇 1-2-3', a.id
         from areas a
-        where a.name = '渋谷区'
+        where a.name = '国分町'
           and not exists (
             select 1 from addresses ex
             where ex.customer_id = ${customerId}::uuid and ex.kind = 'home'
@@ -1733,8 +1731,8 @@ async function main() {
       { id: "12120000-0000-4000-8000-000000000006", customerPhone: "09033333333", therapistSlug: "ren", source: "phone", phoneConfirmed: true, dayOffset: 4, start: "19:00", courseId: "99999999-0000-4000-8000-000000000001" },
     ];
 
-    const shibuyaAreaId = areaId.get("渋谷区");
-    if (!shibuyaAreaId) throw new Error("渋谷区のエリアが見つかりません");
+    const kokubunchoAreaId = areaId.get("国分町");
+    if (!kokubunchoAreaId) throw new Error("国分町のエリアが見つかりません");
 
     for (const r of phase12Reservations) {
       const workDate = addDaysISO(seedToday, r.dayOffset);
@@ -1756,7 +1754,7 @@ async function main() {
           source, phone_confirmed_at, phone_confirmed_by
         )
         select
-          ${r.id}::uuid, t.id, c.id, a.id, ${shibuyaAreaId}::uuid, ${r.courseId}::uuid,
+          ${r.id}::uuid, t.id, c.id, a.id, ${kokubunchoAreaId}::uuid, ${r.courseId}::uuid,
           ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt},
           15, 15, 30,
           'confirmed'::reservation_status, ${course.nomination_fee_default}, 0, ${total},
@@ -1774,9 +1772,9 @@ async function main() {
 
     // Phase 12: lost_orders seed
     const lostOrderSeeds = [
-      { phone: '09011111111', area: '渋谷区', reason: 'time', note: '20時以降は対応できないとのこと' },
-      { phone: '09044444444', area: '八王子市', reason: 'area', note: 'エリア外のため案内不可' },
-      { phone: null, area: '新宿区', reason: 'nomination', note: '指名セラピストが不在' },
+      { phone: '09011111111', area: '国分町', reason: 'time', note: '20時以降は対応できないとのこと' },
+      { phone: '09044444444', area: '石巻市', reason: 'area', note: 'エリア外（石巻）のため案内不可' },
+      { phone: null, area: '一番町', reason: 'nomination', note: '指名セラピストが不在' },
       { phone: '09055555555', area: null, reason: 'price', note: '料金が高いとのフィードバック' },
     ] as const;
 

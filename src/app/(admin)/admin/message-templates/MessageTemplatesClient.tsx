@@ -25,7 +25,7 @@ const DUMMY_VARS: Record<DispatchVarKey, string> = {
   セラピスト: '田中アリス',
   コース: '60分コース',
   オプション: 'アロマオイル',
-  場所: '東京都渋谷区〇〇1-2-3',
+  場所: '仙台市青葉区国分町〇〇1-2-3',
   部屋番号: '305号室',
   顧客名: '山田太郎',
   電話番号: '09012345678',
@@ -33,7 +33,7 @@ const DUMMY_VARS: Record<DispatchVarKey, string> = {
   合計金額: '¥12,000',
   バック額: '¥3,000',
   移動手段: '車',
-  エリア: '渋谷エリア',
+  エリア: '国分町エリア',
 };
 
 type KindType = 'inquiry' | 'confirmed';

@@ -534,7 +534,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
                 type="text"
                 value={addressDetail}
                 onChange={(e) => setAddressDetail(e.target.value)}
-                placeholder="東京都渋谷区〇〇 1-2-3 △△マンション 101号室"
+                placeholder="仙台市青葉区国分町〇〇 1-2-3 △△マンション 101号室"
                 className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
                 tabIndex={4}
               />
