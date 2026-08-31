@@ -19,6 +19,7 @@ import {
   deleteShiftAction,
   getShiftBoard,
   saveShiftAction,
+  saveShiftsBulkAction,
   setShiftDayOffAction,
   type ShiftBoard,
   type ShiftBoardTherapist,
@@ -221,6 +222,153 @@ function TherapistShiftRow({
 }
 
 // ---------------------------------------------------------------------------
+// 月・週まとめて入力（判断ログ#17 の宿題）
+// ---------------------------------------------------------------------------
+
+const WEEKDAYS: { value: number; label: string }[] = [
+  { value: 0, label: "日" },
+  { value: 1, label: "月" },
+  { value: 2, label: "火" },
+  { value: 3, label: "水" },
+  { value: 4, label: "木" },
+  { value: 5, label: "金" },
+  { value: 6, label: "土" },
+];
+
+function BulkShiftForm({ board, date }: { board: ShiftBoard; date: string }) {
+  return (
+    <details
+      className="border border-adm-border bg-adm-surface"
+      style={{ borderRadius: "4px" }}
+    >
+      <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-adm-text">
+        月・週まとめて入力（期間×曜日で一括登録）
+      </summary>
+      <form action={saveShiftsBulkAction} className="space-y-3 border-t border-adm-border p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block text-xs text-adm-text/70">
+            セラピスト
+            <select
+              name="therapistId"
+              required
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text"
+              style={{ borderRadius: "4px" }}
+            >
+              {board.therapists.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name || t.slug}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs text-adm-text/70">
+            開始日
+            <input
+              type="date"
+              name="rangeStart"
+              required
+              defaultValue={date}
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text"
+              style={{ borderRadius: "4px" }}
+            />
+          </label>
+          <label className="block text-xs text-adm-text/70">
+            終了日
+            <input
+              type="date"
+              name="rangeEnd"
+              required
+              defaultValue={addDaysISO(date, 30)}
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text"
+              style={{ borderRadius: "4px" }}
+            />
+          </label>
+        </div>
+
+        <fieldset>
+          <legend className="text-xs text-adm-text/70">曜日（この曜日の日をすべて登録）</legend>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
+            {WEEKDAYS.map((w) => (
+              <label key={w.value} className="flex items-center gap-1.5 text-sm text-adm-text">
+                <input
+                  type="checkbox"
+                  name="weekdays"
+                  value={w.value}
+                  defaultChecked={w.value >= 1 && w.value <= 5}
+                  className="accent-[#3F7A6B]"
+                />
+                {w.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block text-xs text-adm-text/70">
+            開始
+            <input type="time" name="start" required defaultValue="10:00"
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text" style={{ borderRadius: "4px" }} />
+          </label>
+          <label className="block text-xs text-adm-text/70">
+            終了（開始以前なら翌日扱い）
+            <input type="time" name="end" required defaultValue="19:00"
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text" style={{ borderRadius: "4px" }} />
+          </label>
+          <label className="block text-xs text-adm-text/70">
+            待機開始場所
+            <select name="baseStartId" defaultValue=""
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text" style={{ borderRadius: "4px" }}>
+              <option value="">未設定</option>
+              {board.bases.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
+            </select>
+          </label>
+          <label className="block text-xs text-adm-text/70">
+            待機終了場所
+            <select name="baseEndId" defaultValue=""
+              className="mt-1 block border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text" style={{ borderRadius: "4px" }}>
+              <option value="">未設定</option>
+              {board.bases.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
+            </select>
+          </label>
+          <label className="block text-xs text-adm-text/70">
+            上限本数（空欄 = 上限なし）
+            <input type="number" name="maxBookings" min={1}
+              className="mt-1 block w-28 border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text tabular-nums" style={{ borderRadius: "4px" }} />
+          </label>
+        </div>
+
+        <fieldset>
+          <legend className="text-xs text-adm-text/70">対応エリア（登録する全日に同じエリアを設定）</legend>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
+            {board.areas.map((a) => (
+              <label key={a.id} className="flex items-center gap-1.5 text-sm text-adm-text">
+                <input type="checkbox" name="areaIds" value={a.id} className="accent-[#3F7A6B]" />
+                {a.name}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="block flex-1 text-xs text-adm-text/70">
+            メモ（任意）
+            <input type="text" name="note"
+              className="mt-1 block w-full border border-adm-border bg-white px-2 py-1.5 text-sm text-adm-text" style={{ borderRadius: "4px" }} />
+          </label>
+          <button type="submit"
+            className="bg-adm-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90" style={{ borderRadius: "4px" }}>
+            まとめて登録
+          </button>
+        </div>
+        <p className="text-xs text-adm-text/50">
+          既に予定がある日は上書きします（当日欠勤は解除）。一度に登録できるのは最大100日です。
+        </p>
+      </form>
+    </details>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ページ
 // ---------------------------------------------------------------------------
 
@@ -294,6 +442,8 @@ export default async function AdminShiftsPage({
         </Link>
         へ反映されます（キャッシュ60秒以内 / spec 3-3）。
       </p>
+
+      {board.therapists.length > 0 && <BulkShiftForm board={board} date={date} />}
 
       {board.therapists.length === 0 ? (
         <div className="py-16 text-center text-sm text-adm-text/60">

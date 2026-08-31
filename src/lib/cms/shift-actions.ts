@@ -17,6 +17,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { can } from "@/domain/auth";
 import { shiftInstants } from "@/domain/availability";
+import { enumerateShiftDates } from "@/domain/shifts/dates";
 import { toActor } from "@/lib/auth/session";
 import type { Session } from "@/lib/auth/session";
 import { withUser } from "@/lib/auth/with-user";
@@ -252,6 +253,121 @@ export async function saveShiftAction(formData: FormData): Promise<void> {
         ${tx.json({
           therapistId: data.therapistId,
           workDate: data.workDate,
+          start: data.start,
+          end: data.end,
+          maxBookings: data.maxBookings,
+          areaIds: data.areaIds,
+        })}
+      )
+    `;
+  });
+
+  revalidatePath("/admin/shifts");
+}
+
+// ---------------------------------------------------------------------------
+// 月/週まとめて入力（spec 3-3「繰り返しパターン」/ 判断ログ#17 の宿題）
+// ---------------------------------------------------------------------------
+
+const bulkShiftSchema = z.object({
+  therapistId: uuidSchema,
+  rangeStart: dateSchema,
+  rangeEnd: dateSchema,
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1, "曜日を1つ以上選択してください"),
+  start: hhmmSchema,
+  end: hhmmSchema,
+  baseStartId: uuidSchema.nullable(),
+  baseEndId: uuidSchema.nullable(),
+  maxBookings: z.number().int().positive().nullable(),
+  note: z.string().max(500).nullable(),
+  areaIds: z.array(uuidSchema).min(1, "対応エリアを1つ以上選択してください"),
+});
+
+/**
+ * 出勤予定の一括保存（form action）。期間×曜日パターンで該当する全日付に
+ * 同じ内容の出勤を upsert する（既存日は上書き・冪等）。対応エリアは全置換。
+ */
+export async function saveShiftsBulkAction(formData: FormData): Promise<void> {
+  const session = await requireCmsSession();
+
+  const maxRaw = formData.get("maxBookings");
+  const maxStr = typeof maxRaw === "string" ? maxRaw.trim() : "";
+  const noteRaw = formData.get("note");
+  const noteStr = typeof noteRaw === "string" ? noteRaw.trim() : "";
+
+  const parsed = bulkShiftSchema.safeParse({
+    therapistId: formData.get("therapistId"),
+    rangeStart: formData.get("rangeStart"),
+    rangeEnd: formData.get("rangeEnd"),
+    weekdays: formData
+      .getAll("weekdays")
+      .filter((v): v is string => typeof v === "string")
+      .map(Number),
+    start: formData.get("start"),
+    end: formData.get("end"),
+    baseStartId: optionalUuid(formData.get("baseStartId")),
+    baseEndId: optionalUuid(formData.get("baseEndId")),
+    maxBookings: maxStr.length > 0 ? Number(maxStr) : null,
+    note: noteStr.length > 0 ? noteStr : null,
+    areaIds: formData.getAll("areaIds").filter((v): v is string => typeof v === "string"),
+  });
+  if (!parsed.success) {
+    throw new Error(parsed.error.errors.map((e) => e.message).join(", "));
+  }
+  const data = parsed.data;
+
+  const dates = enumerateShiftDates(data.rangeStart, data.rangeEnd, data.weekdays);
+  if (dates.length === 0) {
+    throw new Error("該当する日がありません（曜日と期間を確認してください）");
+  }
+
+  const sql = getClient();
+  await withUser(sql, session, async (tx) => {
+    for (const workDate of dates) {
+      const { startAt, endAt } = shiftInstants(workDate, data.start, data.end);
+      const rows = await tx<{ id: string }[]>`
+        insert into shifts
+          (therapist_id, work_date, start_at, end_at,
+           base_start_id, base_end_id, max_bookings, note)
+        values (
+          ${data.therapistId}::uuid, ${workDate},
+          ${startAt}, ${endAt},
+          ${data.baseStartId}::uuid, ${data.baseEndId}::uuid,
+          ${data.maxBookings}, ${data.note}
+        )
+        on conflict (therapist_id, work_date) do update set
+          start_at      = excluded.start_at,
+          end_at        = excluded.end_at,
+          base_start_id = excluded.base_start_id,
+          base_end_id   = excluded.base_end_id,
+          max_bookings  = excluded.max_bookings,
+          note          = excluded.note,
+          is_day_off    = false
+        returning id
+      `;
+      const shift = rows[0];
+      if (!shift) throw new Error("保存に失敗しました");
+
+      await tx`delete from shift_areas where shift_id = ${shift.id}::uuid`;
+      for (const areaId of data.areaIds) {
+        await tx`
+          insert into shift_areas (shift_id, area_id)
+          values (${shift.id}::uuid, ${areaId}::uuid)
+          on conflict do nothing
+        `;
+      }
+    }
+
+    await tx`
+      insert into audit_logs (actor_user_id, action, entity, entity_id, after)
+      values (
+        ${session.userId}::uuid, 'bulk_upsert', 'shift', null,
+        ${tx.json({
+          therapistId: data.therapistId,
+          rangeStart: data.rangeStart,
+          rangeEnd: data.rangeEnd,
+          weekdays: data.weekdays,
+          count: dates.length,
           start: data.start,
           end: data.end,
           maxBookings: data.maxBookings,
