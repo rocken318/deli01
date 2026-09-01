@@ -13,10 +13,14 @@ import { getTherapistDevSession } from "@/lib/cms/dev-session";
 import { getClient } from "@/lib/db-client";
 import { withUser } from "@/lib/auth/with-user";
 import { enumerateShiftDates } from "@/domain/shifts/dates";
+import { isRealDateISO } from "@/domain/availability";
 import { upsertMyShiftCore } from "@/lib/shifts/self-queries";
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "時刻は HH:MM 形式で入力してください");
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD 形式で入力してください");
+const dateStr = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "日付は YYYY-MM-DD 形式で入力してください")
+  .refine(isRealDateISO, "存在しない日付です");
 
 const singleInput = z.object({
   date: dateStr,
@@ -57,6 +61,10 @@ export async function saveMyShiftAction(input: z.infer<typeof singleInput>): Pro
     const tid = who[0]?.therapist_id;
     if (!tid) return { ok: false, reason: "no_therapist" };
     await upsertMyShiftCore(tx, tid, date, start, end);
+    await tx`
+      insert into audit_logs (actor_user_id, action, entity, entity_id, after)
+      values (${session.userId}, 'self_upsert', 'shift', null, ${tx.json({ workDate: date, start, end })})
+    `;
     return { ok: true, count: 1 };
   });
 
@@ -93,6 +101,13 @@ export async function saveMyShiftsBulkAction(
     for (const workDate of dates) {
       await upsertMyShiftCore(tx, tid, workDate, start, end);
     }
+    await tx`
+      insert into audit_logs (actor_user_id, action, entity, entity_id, after)
+      values (
+        ${session.userId}, 'self_bulk_upsert', 'shift', null,
+        ${tx.json({ rangeStart, rangeEnd, weekdays, start, end, count: dates.length })}
+      )
+    `;
     return { ok: true, count: dates.length };
   });
 

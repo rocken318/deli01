@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { withUser } from "@/lib/auth/with-user";
 import type { Session } from "@/lib/auth/session";
 import { upsertMyShiftCore } from "@/lib/shifts/self-queries";
+import { enumerateShiftDates } from "@/domain/shifts/dates";
 
 const url = process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5433/deli01";
 const sql = postgres(url, { max: 5, onnotice: () => {} });
@@ -11,12 +12,13 @@ const sql = postgres(url, { max: 5, onnotice: () => {} });
 const AOI: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000004", role: "therapist" };
 const REN: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000005", role: "therapist" };
 
-// 他テストと衝突しない未来日（bulk-b は 2027-03 を使うため避ける）
+// 他テストと衝突しない未来日（bulk-b は 2027-03 を使うため避ける）。全て 2029-11。
 const WD1 = "2029-11-13";
 const WD2 = "2029-11-14";
+const WD3 = "2029-11-15";
 
 afterAll(async () => {
-  await sql`delete from shifts where work_date in (${WD1}, ${WD2})`;
+  await sql`delete from shifts where work_date >= '2029-11-01' and work_date < '2029-12-01'`;
   await sql.end();
 });
 
@@ -63,5 +65,35 @@ describe("cast self shift (実Postgres)", () => {
     await expect(
       withUser(sql, REN, (tx) => upsertMyShiftCore(tx, aoi[0]!.id, WD2, "18:00", "23:00")),
     ).rejects.toThrow();
+  });
+
+  it("RLS: 他人の shift の shift_areas は追加できない", async () => {
+    const aoi = await sql<{ id: string }[]>`select id from therapists where slug='aoi' limit 1`;
+    // あおいが自分の shift を作る
+    await withUser(sql, AOI, (tx) => upsertMyShiftCore(tx, aoi[0]!.id, WD3, "18:00", "23:00"));
+    const shift = await sql<{ id: string }[]>`
+      select id from shifts where therapist_id = ${aoi[0]!.id} and work_date = ${WD3} limit 1
+    `;
+    const area = await sql<{ id: string }[]>`select id from areas where is_active = true limit 1`;
+    // れんセッションで あおいの shift に shift_areas を挿そうとしても with-check で拒否
+    await expect(
+      withUser(sql, REN, (tx) =>
+        tx`insert into shift_areas (shift_id, area_id) values (${shift[0]!.id}, ${area[0]!.id})`,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("一括: 期間×曜日で複数日ぶん登録される（enumerateShiftDates 展開）", async () => {
+    const aoi = await sql<{ id: string }[]>`select id from therapists where slug='aoi' limit 1`;
+    const dates = enumerateShiftDates("2029-11-19", "2029-11-30", [1, 4]); // 月・木
+    expect(dates.length).toBeGreaterThan(1);
+    await withUser(sql, AOI, async (tx) => {
+      for (const d of dates) await upsertMyShiftCore(tx, aoi[0]!.id, d, "18:00", "23:00");
+    });
+    const rows = await sql<{ c: number }[]>`
+      select count(*)::int c from shifts
+      where therapist_id = ${aoi[0]!.id} and work_date = any(${dates})
+    `;
+    expect(rows[0]!.c).toBe(dates.length);
   });
 });
