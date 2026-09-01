@@ -48,3 +48,6 @@ next-env.d.ts
 /preimages/
 
 .env*
+
+# brainstorming visual companion
+.superpowers/

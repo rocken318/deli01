@@ -48,4 +48,7 @@ export const env = {
   emailFrom: read("EMAIL_FROM"),
   /** 開発専用セッションスタブ有効化フラグ。本番では絶対に設定しない（spec フェーズ3 優先度0） */
   adminDevSession: read("ADMIN_DEV_SESSION"),
+  /** QR出退勤キオスクの署名秘密鍵（フェーズD）。未設定でもビルドは通る
+   *  （キオスク画面が「未設定」を表示し発行しない / feedback-no-over-configuration） */
+  attendanceQrSecret: read("ATTENDANCE_QR_SECRET"),
 } as const;
