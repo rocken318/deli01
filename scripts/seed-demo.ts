@@ -150,6 +150,65 @@ async function main() {
   }
   console.log(`confirmed 予約(当日+翌日): ~${confirmedCount}`);
 
+  // ---- 2.6) 当日タイムライン: 終わった仕事(done)+これからの仕事(confirmed) 混在 ----
+  // 案内表の「左=終わった / 右=これから」と「次案内可能〜何分まで可能か」を実データで確認する。
+  // yuna/mei/rin（index 3-5）に、今日 done×2 + confirmed×2 を非重複スロット（11/14/18/21時・60分）で作る。
+  const shortCourse = courses[0]!; // 最短コース（重複回避）
+  let todayTimelineCount = 0;
+  for (let ti = 3; ti < targets.length; ti++) {
+    const t = targets[ti]!;
+    const cust = custs[ti % custs.length]!;
+    const slots: { h: number; status: "done" | "confirmed" }[] = [
+      { h: 11, status: "done" },
+      { h: 14, status: "done" },
+      { h: 18, status: "confirmed" },
+      { h: 21, status: "confirmed" },
+    ];
+    for (let si = 0; si < slots.length; si++) {
+      const slot = slots[si]!;
+      const start = `${String(slot.h).padStart(2, "0")}:00`;
+      const { startAt } = shiftInstants(today, start, start);
+      const startMs = startAt.getTime();
+      const serviceEndAt = new Date(startMs + shortCourse.duration_min * 60_000);
+      const departAt = new Date(startMs - 25 * 60_000);
+      const freeAt = new Date(serviceEndAt.getTime() + 10 * 60_000);
+      const nomFee = shortCourse.nomination_fee_default;
+      const total = shortCourse.price + nomFee;
+      const rid = `70da0000-0000-4000-8000-${String(ti).padStart(4, "0")}${String(si).padStart(8, "0")}`;
+      if (slot.status === "done") {
+        await sql`
+          insert into reservations (
+            id, therapist_id, customer_id, address_id, area_id, course_id,
+            start_at, end_at, depart_at, free_at, travel_in_min, travel_out_min, buffer_min,
+            status, nomination_fee, transport_fee, total_amount, source,
+            enroute_at, arrived_at, service_started_at, done_at
+          ) values (
+            ${rid}::uuid, ${t.id}::uuid, ${cust.id}::uuid, ${cust.address_id}::uuid, ${areaId}::uuid, ${shortCourse.id}::uuid,
+            ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt}, 15, 15, 30,
+            'done'::reservation_status, ${nomFee}, 0, ${total}, 'phone'::reservation_source,
+            ${departAt}, ${startAt}, ${startAt}, ${serviceEndAt}
+          ) on conflict (id) do nothing
+        `;
+      } else {
+        await sql`
+          insert into reservations (
+            id, therapist_id, customer_id, address_id, area_id, course_id,
+            start_at, end_at, depart_at, free_at, travel_in_min, travel_out_min, buffer_min,
+            status, nomination_fee, transport_fee, total_amount, source,
+            phone_confirmed_at, phone_confirmed_by
+          ) values (
+            ${rid}::uuid, ${t.id}::uuid, ${cust.id}::uuid, ${cust.address_id}::uuid, ${areaId}::uuid, ${shortCourse.id}::uuid,
+            ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt}, 15, 15, 30,
+            'confirmed'::reservation_status, ${nomFee}, 0, ${total}, 'phone'::reservation_source,
+            ${startAt}, ${RECEPTION}::uuid
+          ) on conflict (id) do nothing
+        `;
+      }
+      todayTimelineCount++;
+    }
+  }
+  console.log(`当日タイムライン(done+confirmed): ~${todayTimelineCount}`);
+
   // ---- 3) 過去の接客(done予約) + 4) 報酬(payout_lines)----
   // 各対象に、過去14日から数日おきに done 予約を作る（1日1件で exclusion 回避）
   let resCount = 0;
