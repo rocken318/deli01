@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
+  { href: "/admin/annai", label: "案内表" },
   { href: "/admin/orders", label: "電話受付" },
   { href: "/admin/cti", label: "着信" },
   { href: "/admin/phone-confirm", label: "電話確認" },

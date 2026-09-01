@@ -30,7 +30,8 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
   const wd = formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd");
   const rows = await tx<ResRow[]>`
     select
-      t.id as therapist_id, t.slug as slug, (er.draft ->> 'name') as name,
+      t.id as therapist_id, t.slug as slug,
+      coalesce(er.published ->> 'name', er.draft ->> 'name') as name,
       a.clock_in_at, a.clock_out_at,
       s.start_at as shift_start, s.end_at as shift_end,
       r.id as res_id, r.status::text as status,

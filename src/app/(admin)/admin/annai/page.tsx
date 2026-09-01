@@ -14,7 +14,13 @@ const hm = (d: Date) => formatInTimeZone(d, TZ, "HH:mm");
 const hmMs = (ms: number) => formatInTimeZone(new Date(ms), TZ, "HH:mm");
 
 const CHIP_WORKING = { label: "待機中", bg: "#3F7A6B", fg: "#fff" } as const;
+const CHIP_BUSY = { label: "接客中", bg: "#B4453C", fg: "#fff" } as const;
 const CHIP_RETIRED = { label: "上がり", bg: "#E7E9E7", fg: "#5b625f" } as const;
+
+function chipOf(r: BoardRow) {
+  if (r.attendanceState === "done") return CHIP_RETIRED;
+  return r.window.busyNow ? CHIP_BUSY : CHIP_WORKING;
+}
 
 function centerText(w: AvailWindow): { big: string; sub: string } {
   if (w.kind === "now") return { big: "今すぐ", sub: w.untilMs ? `〜${hmMs(w.untilMs)}` : "上限なし" };
@@ -51,7 +57,7 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
 }
 
 function Row({ r }: { r: BoardRow }) {
-  const chip = r.attendanceState === "done" ? CHIP_RETIRED : CHIP_WORKING;
+  const chip = chipOf(r);
   const c = centerText(r.window);
   return (
     <div style={{ background: "#fff", border: "1px solid #DFE3DE", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
@@ -91,7 +97,7 @@ function Row({ r }: { r: BoardRow }) {
 
 export default async function AnnaiPage() {
   const session = await getDevSession();
-  if (!session || !can(toActor(session), "manage_cms")) {
+  if (!session || !can(toActor(session), "manage_reservations")) {
     return <main style={{ padding: 24 }}>権限がありません。</main>;
   }
   const nowMs = Date.now();
