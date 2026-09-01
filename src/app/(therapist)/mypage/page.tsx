@@ -6,6 +6,7 @@ import TimelineView from './TimelineView';
 import EmergencyButton from './EmergencyButton';
 import EarningsSection from './EarningsSection';
 import ScheduleSection from './ScheduleSection';
+import ShiftSelfRegister from './ShiftSelfRegister';
 
 export const metadata: Metadata = {
   title: '今日の予定',
@@ -127,6 +128,11 @@ export default async function MyPage({
             />
           </section>
         )}
+
+        {/* 出勤登録（B: キャスト自入力） */}
+        <section aria-label="出勤登録">
+          <ShiftSelfRegister asSlug={asSlug} />
+        </section>
 
         {/* 出勤カレンダー・予約一覧（A1） */}
         <section aria-label="出勤カレンダーと予約一覧">
