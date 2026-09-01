@@ -12,8 +12,10 @@ const OWNER: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000001", role: "
 const AOI: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000004", role: "therapist" };
 const REN: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000005", role: "therapist" };
 
-// 他テストと衝突しない未来日で検証（work_date は JST 稼働日）
-const NOW = new Date(2027, 0, 15, 18, 0, 0).getTime(); // 2027-01-15 18:00 JST 相当
+// 他テストと衝突しない未来日で検証（work_date は JST 稼働日）。
+// ランナーのローカルTZに依存しないよう絶対時刻で固定する（CIはUTC）。
+// 2027-01-15 09:00 UTC = 2027-01-15 18:00 JST（JST=UTC+9）→ work_date は 2027-01-15。
+const NOW = Date.UTC(2027, 0, 15, 9, 0, 0);
 
 afterAll(async () => {
   await sql`delete from attendances where work_date = '2027-01-15'`;
