@@ -1,12 +1,17 @@
 import type { Metadata } from 'next';
 import { format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
-import { getMyTimeline } from '@/lib/dispatch-board/therapist-portal-actions';
+import {
+  getMyTimeline,
+  getMyAttendanceToday,
+} from '@/lib/dispatch-board/therapist-portal-actions';
 import TimelineView from './TimelineView';
 import EmergencyButton from './EmergencyButton';
 import EarningsSection from './EarningsSection';
 import ScheduleSection from './ScheduleSection';
 import ShiftSelfRegister from './ShiftSelfRegister';
+import HandoverSection from './HandoverSection';
+import AttendanceStatus from './AttendanceStatus';
 
 export const metadata: Metadata = {
   title: '今日の予定',
@@ -23,12 +28,9 @@ const APP_TZ = 'Asia/Tokyo';
  * 本番では getTherapistDevSession が null を返すため「認証が必要です」になる。
  * TODO(live Auth): live SessionProvider に差し替えたとき asSlug を除去する。
  *
- * 先送り項目（実装しない / コメントのみ）:
- * - 打診返答: フェーズ後続
- * - 出退勤打刻: attendances テーブルが別フェーズ
- * - 引き継ぎメモ: フェーズ16
- * - 稼ぎ・支払明細: フェーズ18（実装済み: EarningsSection）
- * - 通知受信: フェーズ20
+ * 実装済み: 今日の予定 / 出勤登録(B) / 出勤カレンダー・予約(A1) / 今月の稼ぎ(18) /
+ *          出退勤ステータス(D・打刻は事務所QR /mypage/punch) / 引き継ぎメモ(16) / 緊急連絡.
+ * 先送り: 打診返答(後続) / 通知受信(20) / 個人情報(C・機微) / 自写真差替(H).
  */
 export default async function MyPage({
   searchParams,
@@ -46,12 +48,16 @@ export default async function MyPage({
       ? params.date
       : todayISO;
 
-  const result = await getMyTimeline(dateISO, asSlug);
+  const [result, attendance] = await Promise.all([
+    getMyTimeline(dateISO, asSlug),
+    getMyAttendanceToday(asSlug),
+  ]);
 
-  // 現在の予約（最初の未完了）を緊急ボタンへ渡す
-  const firstActiveId = result.ok
-    ? (result.data ?? []).find((item) => item.status !== 'done')?.reservationId
+  // 現在の予約（最初の未完了）を緊急ボタン・引き継ぎメモへ渡す
+  const firstActive = result.ok
+    ? (result.data ?? []).find((item) => item.status !== 'done')
     : undefined;
+  const firstActiveId = firstActive?.reservationId;
 
   const displayDate = format(
     toZonedTime(new Date(dateISO + 'T12:00:00'), APP_TZ),
@@ -124,6 +130,25 @@ export default async function MyPage({
           <section aria-label="今日の予定">
             <TimelineView
               initialItems={result.data ?? []}
+              asSlug={asSlug}
+            />
+          </section>
+        )}
+
+        {/* 出退勤ステータス（D: 打刻は事務所QR /mypage/punch） */}
+        <section aria-label="出退勤">
+          <AttendanceStatus
+            clockInAt={attendance.ok ? (attendance.data?.clockInAt ?? null) : null}
+            clockOutAt={attendance.ok ? (attendance.data?.clockOutAt ?? null) : null}
+          />
+        </section>
+
+        {/* 引き継ぎメモ（フェーズ16・アクティブ予約がある時） */}
+        {firstActive && (
+          <section aria-label="引き継ぎメモ">
+            <HandoverSection
+              reservationId={firstActive.reservationId}
+              status={firstActive.status}
               asSlug={asSlug}
             />
           </section>

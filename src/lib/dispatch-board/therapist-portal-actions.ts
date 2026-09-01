@@ -37,6 +37,7 @@ import type {
   MyReservationItem,
   MyServiceHistoryItem,
 } from './mypage-schedule';
+import { getTodayAttendanceCore } from '@/lib/attendance/queries';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -247,5 +248,42 @@ export async function getMyServiceHistory(
   } catch (e) {
     console.error('getMyServiceHistory failed:', e);
     return { ok: false, error: '接客履歴の取得に失敗しました' };
+  }
+}
+
+export interface MyAttendanceToday {
+  /** ISO 文字列。null = 未打刻 */
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  status: 'working' | 'done' | null;
+}
+
+/** 本人の当日出退勤（実績）。表示専用。打刻自体は事務所QR経由（/mypage/punch）。 */
+export async function getMyAttendanceToday(
+  asSlug?: string,
+): Promise<ActionResult<MyAttendanceToday>> {
+  const session = await getTherapistDevSession(asSlug);
+  if (!session) return { ok: false, error: '認証が必要です（セラピスト）' };
+  try {
+    const sql = getClient();
+    return await withUser(sql, session, async (tx) => {
+      const who = await tx<{ therapist_id: string | null }[]>`
+        select therapist_id from app_users where id = ${session.userId} limit 1
+      `;
+      const tid = who[0]?.therapist_id;
+      if (!tid) return { ok: false, error: 'セラピストが見つかりません' };
+      const rec = await getTodayAttendanceCore(tx, tid, Date.now());
+      return {
+        ok: true,
+        data: {
+          clockInAt: rec?.clockInAt ? rec.clockInAt.toISOString() : null,
+          clockOutAt: rec?.clockOutAt ? rec.clockOutAt.toISOString() : null,
+          status: rec?.status ?? null,
+        },
+      };
+    });
+  } catch (e) {
+    console.error('getMyAttendanceToday failed:', e);
+    return { ok: false, error: '出退勤の取得に失敗しました' };
   }
 }
