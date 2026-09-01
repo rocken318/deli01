@@ -231,13 +231,26 @@ describe("shifts / shift_areas の RLS（docs/auth-rls.md §4 の actor 別）",
     expect(rows[0]?.is_day_off).toBe(false);
   });
 
-  it("therapist は shift を作成できない（insert ポリシーなし = RLS 拒否）", async () => {
+  it("therapist は自分の shift を作成できる（0021 self insert）", async () => {
     const aoiId = therapistOf("aoi");
+    const created = await withUser(sql, sessionOf("therapist"), async (tx) => {
+      return tx<{ id: string }[]>`
+        insert into shifts (therapist_id, work_date, start_at, end_at)
+        values (${aoiId}::uuid, '2099-01-01', '2099-01-01T01:00:00Z', '2099-01-01T10:00:00Z')
+        returning id
+      `;
+    });
+    expect(created.length).toBe(1);
+    await sql`delete from shifts where work_date = '2099-01-01'`;
+  });
+
+  it("therapist は他人の shift を作成できない（self insert with-check 拒否）", async () => {
+    const renId = therapistOf("ren");
     await expect(
       withUser(sql, sessionOf("therapist"), async (tx) => {
         await tx`
           insert into shifts (therapist_id, work_date, start_at, end_at)
-          values (${aoiId}::uuid, '2099-01-01', '2099-01-01T01:00:00Z', '2099-01-01T10:00:00Z')
+          values (${renId}::uuid, '2099-01-01', '2099-01-01T01:00:00Z', '2099-01-01T10:00:00Z')
         `;
       }),
     ).rejects.toThrow(/row-level security/);

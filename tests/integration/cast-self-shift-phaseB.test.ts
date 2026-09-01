@@ -11,9 +11,9 @@ const sql = postgres(url, { max: 5, onnotice: () => {} });
 const AOI: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000004", role: "therapist" };
 const REN: Session = { userId: "aaaaaaaa-0000-4000-8000-000000000005", role: "therapist" };
 
-// 他テストと衝突しない未来日
-const WD1 = "2027-03-10";
-const WD2 = "2027-03-11";
+// 他テストと衝突しない未来日（bulk-b は 2027-03 を使うため避ける）
+const WD1 = "2029-11-13";
+const WD2 = "2029-11-14";
 
 afterAll(async () => {
   await sql`delete from shifts where work_date in (${WD1}, ${WD2})`;
