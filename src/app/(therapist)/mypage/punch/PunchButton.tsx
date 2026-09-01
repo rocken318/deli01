@@ -17,21 +17,28 @@ export default function PunchButton({
 
   const onClick = async () => {
     setState("sending");
-    const r = await punchAttendanceAction({ token, asSlug });
-    if (r.ok) {
-      setState("done");
-      setMsg(
-        r.action === "clock_in" ? "出勤を記録しました" : "退勤を記録しました。おつかれさまでした",
-      );
-    } else {
+    try {
+      const r = await punchAttendanceAction({ token, asSlug });
+      if (r.ok) {
+        setState("done");
+        setMsg(
+          r.action === "clock_in"
+            ? "出勤を記録しました"
+            : "退勤を記録しました。おつかれさまでした",
+        );
+      } else {
+        setState("error");
+        setMsg(
+          r.reason === "expired"
+            ? "QRの有効期限が切れました。事務所の画面を撮り直してください"
+            : r.reason === "already_done"
+              ? "本日はすでに退勤済みです"
+              : "記録できませんでした",
+        );
+      }
+    } catch {
       setState("error");
-      setMsg(
-        r.reason === "expired"
-          ? "QRの有効期限が切れました。事務所の画面を撮り直してください"
-          : r.reason === "already_done"
-            ? "本日はすでに退勤済みです"
-            : "記録できませんでした",
-      );
+      setMsg("通信に失敗しました。もう一度お試しください");
     }
   };
 

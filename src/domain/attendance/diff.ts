@@ -8,7 +8,8 @@ export type DiffLabel =
   | "遅刻"
   | "早退"
   | "予定外出勤"
-  | "退勤済";
+  | "退勤済"
+  | "対象外";
 
 type Plan = { startAt: Date; endAt: Date } | null;
 type Actual = { clockInAt: Date | null; clockOutAt: Date | null } | null;
@@ -26,7 +27,7 @@ export function compareShiftVsAttendance(
   // 予定なし
   if (!plan) {
     if (inAt) return { label: "予定外出勤" };
-    return { label: "予定通り" }; // 予定も実績も無い＝対象外扱い
+    return { label: "対象外" }; // 予定も実績も無い＝当日対象外（緑の「予定通り」と区別する）
   }
 
   // 予定あり・未出勤

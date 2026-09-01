@@ -64,6 +64,14 @@ describe("attendance queries (実Postgres)", () => {
     expect(rec).toBeNull();
   });
 
+  it("RLS: 他人の therapist_id へは打刻できない（書き込み拒否）", async () => {
+    const aoi = await sql<{ id: string }[]>`select id from therapists where slug='aoi' limit 1`;
+    // れんのセッションで あおい の行を書こうとすると RLS で拒否される
+    await expect(
+      withUser(sql, REN, (tx) => punchAttendanceCore(tx, aoi[0]!.id, "clock_in", NOW)),
+    ).rejects.toThrow();
+  });
+
   it("RLS: owner は誰の実績も読める", async () => {
     const aoi = await sql<{ id: string }[]>`select id from therapists where slug='aoi' limit 1`;
     const rec = await withUser(sql, OWNER, (tx) => getTodayAttendanceCore(tx, aoi[0]!.id, NOW));

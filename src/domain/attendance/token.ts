@@ -33,13 +33,15 @@ export function verifyToken(secret: string, token: string, nowMs: number): Token
     return { ok: false, reason: "bad_signature" };
   }
 
-  let decoded: { iat: number; exp: number };
+  let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
   } catch {
     return { ok: false, reason: "malformed" };
   }
-  if (typeof decoded.exp !== "number") return { ok: false, reason: "malformed" };
-  if (nowMs >= decoded.exp) return { ok: false, reason: "expired" };
+  if (typeof decoded !== "object" || decoded === null) return { ok: false, reason: "malformed" };
+  const exp = (decoded as { exp?: unknown }).exp;
+  if (typeof exp !== "number") return { ok: false, reason: "malformed" };
+  if (nowMs >= exp) return { ok: false, reason: "expired" };
   return { ok: true };
 }

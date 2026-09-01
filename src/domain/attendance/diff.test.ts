@@ -11,6 +11,10 @@ describe("compareShiftVsAttendance", () => {
     );
   });
 
+  it("予定なし・実績なし → 対象外（予定通りと区別）", () => {
+    expect(compareShiftVsAttendance(null, null, NOW).label).toBe("対象外");
+  });
+
   it("予定なし・出勤打刻あり → 予定外出勤", () => {
     expect(
       compareShiftVsAttendance(null, { clockInAt: at(19), clockOutAt: null }, NOW).label,

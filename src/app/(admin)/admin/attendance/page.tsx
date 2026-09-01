@@ -19,6 +19,7 @@ const LABEL_COLOR: Record<string, string> = {
   予定外出勤: "#3F7A6B",
   退勤済: "#5b625f",
   予定通り: "#2c6152",
+  対象外: "#9BA5AF",
 };
 
 export default async function AdminAttendancePage() {
