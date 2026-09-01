@@ -47,25 +47,29 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
     order by t.display_order, r.start_at nulls last
   `;
 
-  const byTherapist = new Map<string, BoardInput>();
+  // 集約（状態は全行を見てから決める＝当日予約があれば出勤中扱い）
+  interface Acc extends BoardInput {
+    _clockIn: boolean;
+    _clockOut: boolean;
+    _hasShift: boolean;
+  }
+  const byTherapist = new Map<string, Acc>();
   for (const row of rows) {
     let b = byTherapist.get(row.therapist_id);
     if (!b) {
-      const state: AttendanceState = row.clock_out_at
-        ? "done"
-        : row.clock_in_at || row.shift_start
-          ? "working"
-          : "off";
       b = {
         therapistId: row.therapist_id,
         slug: row.slug,
         name: row.name ?? row.slug,
-        attendanceState: state,
+        attendanceState: "off",
         shiftStart: row.shift_start,
         shiftEnd: row.shift_end,
         lateManual: false,
         done: [],
         upcoming: [],
+        _clockIn: row.clock_in_at !== null,
+        _clockOut: row.clock_out_at !== null,
+        _hasShift: row.shift_start !== null,
       };
       byTherapist.set(row.therapist_id, b);
     }
@@ -83,7 +87,27 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
       else b.upcoming.push(job);
     }
   }
-  return [...byTherapist.values()].filter(
-    (b) => b.attendanceState !== "off" || b.done.length > 0 || b.upcoming.length > 0,
-  );
+
+  const out: BoardInput[] = [];
+  for (const b of byTherapist.values()) {
+    const hasJobs = b.done.length > 0 || b.upcoming.length > 0;
+    const state: AttendanceState = b._clockOut
+      ? "done"
+      : b._clockIn || b._hasShift || hasJobs
+        ? "working"
+        : "off";
+    if (state === "off" && !hasJobs) continue; // 当日 何も無い子は板に出さない
+    out.push({
+      therapistId: b.therapistId,
+      slug: b.slug,
+      name: b.name,
+      attendanceState: state,
+      shiftStart: b.shiftStart,
+      shiftEnd: b.shiftEnd,
+      lateManual: b.lateManual,
+      done: b.done,
+      upcoming: b.upcoming,
+    });
+  }
+  return out;
 }
