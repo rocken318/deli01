@@ -7,6 +7,16 @@ import { getClient } from "@/lib/db-client";
 import { withUser } from "@/lib/auth/with-user";
 import { listAnnaiBoardCore } from "@/lib/annai/queries";
 import { buildBoard, type BoardRow, type AvailWindow, type JobItem } from "@/domain/annai";
+import BookingLauncher from "./BookingLauncher";
+import type { CourseOpt, OptionOpt, AreaOpt } from "./BookingPopup";
+
+interface Booking {
+  todayISO: string;
+  nowMs: number;
+  courses: CourseOpt[];
+  options: OptionOpt[];
+  areas: AreaOpt[];
+}
 
 export const dynamic = "force-dynamic";
 const TZ = "Asia/Tokyo";
@@ -56,7 +66,7 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
   );
 }
 
-function Row({ r }: { r: BoardRow }) {
+function Row({ r, booking }: { r: BoardRow; booking?: Booking }) {
   const chip = chipOf(r);
   const c = centerText(r.window);
   return (
@@ -91,6 +101,17 @@ function Row({ r }: { r: BoardRow }) {
           <span style={{ background: "#C98A2B", color: "#fff", padding: "1px 7px", borderRadius: 4, fontSize: 11, marginLeft: 4 }}>遅刻</span>
         )}
       </div>
+      {booking && (
+        <BookingLauncher
+          therapistId={r.therapistId}
+          therapistSlug={r.slug}
+          todayISO={booking.todayISO}
+          defaultHHMM={hmMs(r.window.fromMs ?? booking.nowMs)}
+          courses={booking.courses}
+          options={booking.options}
+          areas={booking.areas}
+        />
+      )}
     </div>
   );
 }
@@ -102,8 +123,26 @@ export default async function AnnaiPage() {
   }
   const nowMs = Date.now();
   const sql = getClient();
-  const rows = await withUser(sql, session, (tx) => listAnnaiBoardCore(tx, nowMs));
+  const [rows, courses, options, areas] = await Promise.all([
+    withUser(sql, session, (tx) => listAnnaiBoardCore(tx, nowMs)),
+    sql<CourseOpt[]>`
+      select id, name, price, duration_min, nomination_fee_default
+      from courses where is_active = true order by sort_order asc, duration_min asc
+    `,
+    sql<OptionOpt[]>`
+      select id, name, price from options
+      where is_active = true and is_public = true order by sort_order asc
+    `,
+    sql<AreaOpt[]>`select id, name from areas where is_active = true order by sort_order asc`,
+  ]);
   const { active, retired } = buildBoard(rows, nowMs);
+  const booking: Booking = {
+    todayISO: formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd"),
+    nowMs,
+    courses,
+    options,
+    areas,
+  };
 
   return (
     <main style={{ padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
@@ -117,7 +156,7 @@ export default async function AnnaiPage() {
         <div style={{ paddingLeft: 4 }}>これからの仕事 →</div>
       </div>
       {active.map((r) => (
-        <Row key={r.therapistId} r={r} />
+        <Row key={r.therapistId} r={r} booking={booking} />
       ))}
       {retired.length > 0 && (
         <>

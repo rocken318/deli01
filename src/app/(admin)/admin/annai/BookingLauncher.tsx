@@ -1,0 +1,65 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import BookingPopup, { type CourseOpt, type OptionOpt, type AreaOpt } from "./BookingPopup";
+
+/** 板の各行の「この子に予約」ランチャー。クリックで下にインライン予約ポップを開く。 */
+export default function BookingLauncher({
+  therapistId,
+  therapistSlug,
+  todayISO,
+  defaultHHMM,
+  courses,
+  options,
+  areas,
+}: {
+  therapistId: string;
+  therapistSlug: string;
+  todayISO: string;
+  defaultHHMM: string;
+  courses: CourseOpt[];
+  options: OptionOpt[];
+  areas: AreaOpt[];
+}) {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          marginTop: 6,
+          background: open ? "#EAF3EF" : "#fff",
+          border: "1px solid #3F7A6B",
+          color: "#3F7A6B",
+          borderRadius: 6,
+          padding: "6px 12px",
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: "pointer",
+        }}
+      >
+        {open ? "予約を閉じる ▲" : "この子に予約 ▾"}
+      </button>
+      {open && (
+        <BookingPopup
+          therapistId={therapistId}
+          therapistSlug={therapistSlug}
+          todayISO={todayISO}
+          defaultHHMM={defaultHHMM}
+          courses={courses}
+          options={options}
+          areas={areas}
+          onCreated={() => {
+            setOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
