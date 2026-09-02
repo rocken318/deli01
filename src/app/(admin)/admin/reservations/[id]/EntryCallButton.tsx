@@ -32,10 +32,15 @@ export default function EntryCallButton({
         onClick={async () => {
           setBusy(true);
           setErr("");
-          const r = await recordEntryCall(reservationId);
-          setBusy(false);
-          if (r.ok) setDone(r.at);
-          else setErr(r.error);
+          try {
+            const r = await recordEntryCall(reservationId);
+            if (r.ok) setDone(r.at);
+            else setErr(r.error);
+          } catch {
+            setErr("記録に失敗しました");
+          } finally {
+            setBusy(false);
+          }
         }}
         style={{ background: "#3F7A6B", color: "#fff", border: "none", borderRadius: 4, padding: "5px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
       >
