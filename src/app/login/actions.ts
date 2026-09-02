@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/auth/supabase-server-client";
-import { sanitizeNext } from "@/lib/auth/next-path";
+import { sanitizeNext, defaultDestForRole } from "@/lib/auth/next-path";
+import { getDevSession } from "@/lib/cms/dev-session";
 
 export interface LoginState {
   error: string | null;
@@ -42,7 +43,10 @@ export async function signIn(
     return { error: "メールアドレスまたはパスワードが違います。" };
   }
 
-  redirect(sanitizeNext(parsed.data.next));
+  // ロール別に着地先を決める（therapist=/mypage・管理系=/admin）。next 明示時はそれを尊重。
+  // 管理/セラピストどちらのログインページから入っても、最終的に正しい場所へ着地する安全網。
+  const session = await getDevSession();
+  redirect(sanitizeNext(parsed.data.next, defaultDestForRole(session?.role)));
 }
 
 export async function signOut(): Promise<void> {
