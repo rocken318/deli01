@@ -125,12 +125,13 @@ export default async function MyPage({
           </div>
         )}
 
-        {/* タイムライン（成功時） */}
+        {/* タイムライン（成功時）。当日のみ操作可・過去/未来は読み取り専用 */}
         {result.ok && (
-          <section aria-label="今日の予定">
+          <section aria-label={dateISO === todayISO ? '今日の予定' : 'この日の予定'}>
             <TimelineView
               initialItems={result.data ?? []}
               asSlug={asSlug}
+              isToday={dateISO === todayISO}
             />
           </section>
         )}
