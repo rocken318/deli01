@@ -12,6 +12,7 @@ import {
   searchCustomerByPhone,
   searchHotels,
   createPhoneOrder,
+  registerProvisionalHotel,
 } from "@/app/(admin)/admin/orders/actions";
 import { getAnnaiBookingSlots, type AnnaiSlot } from "./booking-actions";
 
@@ -150,6 +151,23 @@ export default function BookingPopup({
     }, 350);
   }, [therapistSlug, courseId, optionIds, dest, hotelId, areaId]);
 
+  const [provisionalLoading, setProvisionalLoading] = useState(false);
+  // 候補に無いホテルを自由入力で仮登録して使う（電話受付フォームと同じ / 推奨11）
+  const registerHotelByName = async () => {
+    const name = hotelQuery.trim();
+    if (!name) return;
+    setProvisionalLoading(true);
+    const r = await registerProvisionalHotel(name);
+    setProvisionalLoading(false);
+    if (r.ok && r.data) {
+      setHotelId(r.data.id);
+      setHotelName(r.data.name);
+      setHotelQuery(r.data.name);
+      setHotelSuggests([]);
+      setHotelEntryNote(null);
+    }
+  };
+
   const selectHotel = (h: { id: string; name: string; areaId: string | null; entryNote: string | null }) => {
     setHotelId(h.id);
     setHotelName(h.name);
@@ -235,8 +253,8 @@ export default function BookingPopup({
           </label>
           {dest === "hotel" ? (
             <div style={{ position: "relative" }}>
-              <label style={{ fontSize: 10, color: T.muted }}>ホテル検索<br />
-                <input style={{ ...field, width: 170 }} value={hotelQuery} onChange={(e) => { setHotelQuery(e.target.value); setHotelId(""); setHotelEntryNote(null); }} placeholder="ホテル名（選択必須）" />
+              <label style={{ fontSize: 10, color: T.muted }}>ホテル（入力/候補選択）<br />
+                <input style={{ ...field, width: 170 }} value={hotelQuery} onChange={(e) => { setHotelQuery(e.target.value); setHotelId(""); setHotelEntryNote(null); }} placeholder="ホテル名を入力" />
               </label>
               {hotelSuggests.length > 0 && (
                 <div style={{ position: "absolute", zIndex: 5, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 6, width: 240, maxHeight: 160, overflowY: "auto" }}>
@@ -244,6 +262,13 @@ export default function BookingPopup({
                     <button key={h.id} type="button" onClick={() => selectHotel(h)} style={{ display: "block", width: "100%", textAlign: "left", padding: "6px 8px", fontSize: 12, background: "#fff", border: "none", borderBottom: `1px solid ${T.border}`, cursor: "pointer" }}>{h.name}</button>
                   ))}
                 </div>
+              )}
+              {/* 候補に無いホテルは自由入力で仮登録 */}
+              {hotelQuery.trim() && !hotelId && (
+                <button type="button" onClick={registerHotelByName} disabled={provisionalLoading}
+                  style={{ display: "block", marginTop: 4, fontSize: 11, color: T.primary, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left" }}>
+                  {provisionalLoading ? "登録中…" : `「${hotelQuery.trim()}」で登録して使う`}
+                </button>
               )}
               {hotelId && <span style={{ fontSize: 11, color: T.primary, marginLeft: 4 }}>✓{hotelName}</span>}
             </div>
