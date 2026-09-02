@@ -11,6 +11,8 @@ import { can } from '@/domain/auth';
 import { getClient } from '@/lib/db-client';
 import { withUser } from '@/lib/auth/with-user';
 import { formatInTimeZone } from 'date-fns-tz';
+import EntryCallButton from './EntryCallButton';
+import SettlePanel from './SettlePanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +47,11 @@ interface ReservationDetail {
   transport_fee: number;
   source: string;
   phone_confirmed_at: Date | null;
+  entry_call_at: Date | null;
+  collected_amount: number | null;
+  reconciled_at: Date | null;
+  settle_note: string | null;
+  is_card_payment: boolean;
   options: string | null;
 }
 
@@ -139,6 +146,11 @@ export default async function ReservationDetailPage({ params }: PageProps) {
           r.transport_fee,
           r.source::text,
           r.phone_confirmed_at,
+          r.entry_call_at,
+          r.collected_amount,
+          r.reconciled_at,
+          r.settle_note,
+          r.is_card_payment,
           (select string_agg(o.name, '、' order by o.sort_order)
              from reservation_options ro
              join options o on o.id = ro.option_id
@@ -328,7 +340,27 @@ export default async function ReservationDetailPage({ params }: PageProps) {
               <span className="text-adm-muted">未確認</span>
             )}
           </Row>
+          <Row label="入室電話">
+            <EntryCallButton
+              reservationId={row.id}
+              entryCallAtISO={row.entry_call_at ? row.entry_call_at.toISOString() : null}
+              active={['confirmed', 'enroute', 'in_service', 'done'].includes(row.status)}
+            />
+          </Row>
         </dl>
+      </SectionBox>
+
+      {/* 清算（集金照合） */}
+      <SectionBox title="清算（集金照合）">
+        <SettlePanel
+          reservationId={row.id}
+          status={row.status}
+          totalAmount={row.total_amount}
+          collectedAmount={row.collected_amount}
+          reconciledAtISO={row.reconciled_at ? row.reconciled_at.toISOString() : null}
+          isCard={row.is_card_payment}
+          settleNote={row.settle_note}
+        />
       </SectionBox>
     </div>
   );
