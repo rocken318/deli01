@@ -318,6 +318,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
       courseId,
       optionIds: selectedOptionIds,
       startAtISO: selectedStartAtISO,
+      dateISO: dateISO || undefined, // 候補を出した営業日を渡す（日跨ぎ枠の slot_gone 回避・判断#37）
       preferences: preferences || undefined,
       overrideReason: overrideReason || undefined,
     };

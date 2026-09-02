@@ -6,7 +6,14 @@ import { can } from "@/domain/auth";
 import { getClient } from "@/lib/db-client";
 import { withUser } from "@/lib/auth/with-user";
 import { listAnnaiBoardCore } from "@/lib/annai/queries";
-import { buildBoard, type BoardRow, type AvailWindow, type JobItem } from "@/domain/annai";
+import {
+  buildBoard,
+  indexOptionAvailability,
+  filterOptionsForTherapist,
+  type BoardRow,
+  type AvailWindow,
+  type JobItem,
+} from "@/domain/annai";
 import BookingLauncher from "./BookingLauncher";
 import type { CourseOpt, OptionOpt, AreaOpt } from "./BookingPopup";
 
@@ -72,7 +79,7 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
   );
 }
 
-function Row({ r, booking }: { r: BoardRow; booking?: Booking }) {
+function Row({ r, booking, rowOptions }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[] }) {
   const chip = chipOf(r);
   const c = centerText(r.window);
   const unsettled = r.done.filter((j) => j.reconciledAt === null).length;
@@ -118,7 +125,7 @@ function Row({ r, booking }: { r: BoardRow; booking?: Booking }) {
           therapistId={r.therapistId}
           therapistSlug={r.slug}
           courses={booking.courses}
-          options={booking.options}
+          options={rowOptions ?? booking.options}
           areas={booking.areas}
         />
       )}
@@ -133,7 +140,7 @@ export default async function AnnaiPage() {
   }
   const nowMs = Date.now();
   const sql = getClient();
-  const [rows, courses, options, areas] = await Promise.all([
+  const [rows, courses, options, areas, optAvail] = await Promise.all([
     withUser(sql, session, (tx) => listAnnaiBoardCore(tx, nowMs)),
     sql<CourseOpt[]>`
       select id, name, price, duration_min, nomination_fee_default
@@ -144,8 +151,17 @@ export default async function AnnaiPage() {
       where is_active = true and is_public = true order by sort_order asc
     `,
     sql<AreaOpt[]>`select id, name from areas where is_active = true order by sort_order asc`,
+    // オプションのセラピスト対応（行があるオプションは対応セラピストのみ / spec 3-4・判断#37）
+    sql<{ option_id: string; therapist_id: string }[]>`select option_id, therapist_id from option_availability`,
   ]);
   const { active, retired } = buildBoard(rows, nowMs);
+
+  // option_availability に行があるオプションは対応セラピストのみ表示（行が無ければ全員対応）。
+  // 板は行=セラピストごとに押せる OP をここで絞る（非対応 OP は engine/loadOptionSnapshots で
+  // 黙って落ちて総額がズレるため、UI から出さない / 判断#37）。
+  const optIndex = indexOptionAvailability(optAvail);
+  const optionsForTherapist = (therapistId: string): OptionOpt[] =>
+    filterOptionsForTherapist(options, therapistId, optIndex);
   const booking: Booking = { courses, options, areas };
 
   return (
@@ -160,7 +176,7 @@ export default async function AnnaiPage() {
         <div style={{ paddingLeft: 4 }}>これからの仕事 →</div>
       </div>
       {active.map((r) => (
-        <Row key={r.therapistId} r={r} booking={booking} />
+        <Row key={r.therapistId} r={r} booking={booking} rowOptions={optionsForTherapist(r.therapistId)} />
       ))}
       {retired.length > 0 && (
         <>

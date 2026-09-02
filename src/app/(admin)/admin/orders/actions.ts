@@ -303,6 +303,14 @@ export interface OrderFormData {
   courseId: string;
   optionIds?: string[];
   startAtISO: string;
+  /**
+   * 枠を生成した営業日（work_date, JST yyyy-MM-dd）。省略時は startAtISO の
+   * JST 暦日から導出する。**日跨ぎ枠**（深夜まで延びるシフトで開始が翌暦日に
+   * なる枠）では暦日 ≠ 営業日のため、導出だと createHold が別 work_date の
+   * シフトを引いて slot_gone になる。枠を出した呼び出し側（案内表/候補UI）が
+   * その営業日を渡すことで、生成と作成の work_date を一致させる（判断#37）。
+   */
+  dateISO?: string;
   preferences?: string;
   overrideReason?: string; // 枠外のときのみ
 }
@@ -320,6 +328,7 @@ const orderFormSchema = z.object({
   courseId: z.string().uuid(),
   optionIds: z.array(z.string().uuid()).optional(),
   startAtISO: z.string().datetime(),
+  dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   preferences: z.string().optional(),
   overrideReason: z.string().optional(),
 });
@@ -355,12 +364,18 @@ export async function createPhoneOrder(
     resolvedAreaId = hotels[0]?.area_id ?? null;
   }
 
-  // dateISO を startAtISO から導出（Asia/Tokyo）
-  const startAtDate = new Date(d.startAtISO);
-  // タイムゾーン変換せず UTC の日付で dateISO を組む（getTherapistSlots は dateISO を使う）
-  // JST = UTC + 9h
-  const jstDate = new Date(startAtDate.getTime() + 9 * 60 * 60 * 1000);
-  const dateISO = jstDate.toISOString().slice(0, 10);
+  // work_date（営業日）の決定。呼び出し側が枠を出した営業日を渡していれば
+  // それを使う（日跨ぎ枠で暦日 ≠ 営業日のズレを避ける / 判断#37）。
+  // 未指定時のみ startAtISO の JST 暦日から導出（従来動作）。
+  let dateISO: string;
+  if (d.dateISO) {
+    dateISO = d.dateISO;
+  } else {
+    const startAtDate = new Date(d.startAtISO);
+    // JST = UTC + 9h（getTherapistSlots は dateISO を使う）
+    const jstDate = new Date(startAtDate.getTime() + 9 * 60 * 60 * 1000);
+    dateISO = jstDate.toISOString().slice(0, 10);
+  }
 
   // sessionId 生成（isValidFunnelSession は length 8-100 で pass）
   const sessionId = `phone:${session.userId}:${randomUUID()}`;
