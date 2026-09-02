@@ -17,6 +17,7 @@ import {
   isExitOverdue,
   type DispatchStatus,
 } from "@/domain/dispatch-board";
+import { z } from "zod";
 
 /**
  * 配車ボード・マイページのデータ取得/更新の中核（フェーズ14 / spec 7-1・7-3・7-4）。
@@ -318,6 +319,8 @@ export interface DispatchBoardItem {
   courseDurationMin: number;
   areaName: string | null;
   hotelName: string | null;
+  /** 部屋番号・住所ラベル（addresses.label。ホテルでは「部屋○○」等が入る） */
+  addressLabel: string | null;
   customerName: string | null;
   /** タップ発信用（spec 7-1 L692）。staff 経路のみ。therapist には決して返さない */
   customerPhone: string | null;
@@ -329,6 +332,10 @@ export interface DispatchBoardItem {
   doneAtISO: string | null;
   delayed: boolean;
   exitOverdue: boolean;
+  /** 送りドライバー/車（配車メモ欄 / 0024）。staff がインライン編集する */
+  dispatchDriver: string | null;
+  /** 配車メモ（配車メモ欄 / 0024）。staff がインライン編集する */
+  dispatchMemo: string | null;
 }
 
 export type BoardOutcome =
@@ -342,6 +349,9 @@ interface BoardRow extends Omit<TimelineRow, "customer_name" | "customer_note"> 
   customer_name: string | null;
   customer_phone: string | null;
   first_visit: boolean;
+  address_label: string | null;
+  dispatch_driver: string | null;
+  dispatch_memo: string | null;
 }
 
 /**
@@ -372,6 +382,7 @@ export async function getDispatchBoardCore(
         co.duration_min  as course_duration_min,
         ar.name          as area_name,
         h.name           as hotel_name,
+        a.label          as address_label,
         c.name           as customer_name,
         c.phone          as customer_phone,
         (r.customer_id is not null and not exists (
@@ -381,7 +392,8 @@ export async function getDispatchBoardCore(
             and p.start_at < r.start_at
             and p.status in ('confirmed', 'enroute', 'in_service', 'done')
         )) as first_visit,
-        r.enroute_at, r.arrived_at, r.service_started_at, r.done_at
+        r.enroute_at, r.arrived_at, r.service_started_at, r.done_at,
+        r.dispatch_driver, r.dispatch_memo
       from reservations r
       join therapists t on t.id = r.therapist_id
       left join entity_records er
@@ -389,10 +401,11 @@ export async function getDispatchBoardCore(
       join courses co on co.id = r.course_id
       left join areas ar on ar.id = r.area_id
       left join hotels h on h.id = r.hotel_id
+      left join addresses a on a.id = r.address_id
       left join customers c on c.id = r.customer_id
       where r.start_at >= ${dayStart} and r.start_at < ${dayEnd}
         and r.status in ('confirmed', 'enroute', 'in_service', 'done')
-      order by t.display_order asc, r.start_at asc
+      order by r.start_at asc, t.display_order asc
     `;
   });
 
@@ -414,6 +427,7 @@ export async function getDispatchBoardCore(
       courseDurationMin: r.course_duration_min,
       areaName: r.area_name,
       hotelName: r.hotel_name,
+      addressLabel: r.address_label,
       customerName: r.customer_name,
       customerPhone: r.customer_phone,
       firstVisit: r.first_visit,
@@ -423,6 +437,8 @@ export async function getDispatchBoardCore(
       doneAtISO: r.done_at?.toISOString() ?? null,
       delayed: isDelayed({ status: r.status, startAt: r.start_at, now }),
       exitOverdue: isExitOverdue({ status: r.status, endAt: r.end_at, now }),
+      dispatchDriver: r.dispatch_driver,
+      dispatchMemo: r.dispatch_memo,
     })),
   };
 }
@@ -430,3 +446,55 @@ export async function getDispatchBoardCore(
 // 参考エクスポート: RLS の 180分ゲートと同じ判定を UI/他モジュールが使う場合は
 // domain の canViewCustomerAddress（両方 180分で整合 / capabilities.ts）を用いる
 export { canViewCustomerAddress };
+
+// ---------------------------------------------------------------------------
+// 4. dispatch_driver / dispatch_memo のインライン編集（0024 / spec 7-1 配車ボード）
+// ---------------------------------------------------------------------------
+
+export const dispatchFieldsSchema = z.object({
+  reservationId: z.string().uuid(),
+  driver: z.string().max(200).optional(),
+  memo: z.string().max(1000).optional(),
+});
+
+export type DispatchFieldsInput = z.infer<typeof dispatchFieldsSchema>;
+
+export type DispatchFieldsOutcome =
+  | { kind: "ok" }
+  | { kind: "not_found" }
+  | { kind: "forbidden" };
+
+/**
+ * 配車ボードのドライバー・メモをインライン更新する。
+ * - 権限: manage_reservations（owner/admin/reception）のみ
+ * - driver/memo ともに省略した呼び出しは no-op（null への明示クリアは
+ *   driver: "" / memo: "" で空文字列として保存する）
+ */
+export async function updateDispatchFieldsCore(
+  sql: Sql,
+  session: Session,
+  input: DispatchFieldsInput,
+): Promise<DispatchFieldsOutcome> {
+  if (!can(toActor(session), "manage_reservations")) {
+    return { kind: "forbidden" };
+  }
+  if (input.driver === undefined && input.memo === undefined) {
+    // 変更なし（どちらも省略は no-op）
+    return { kind: "ok" };
+  }
+
+  const updated = await withUser(sql, session, async (tx) => {
+    return tx<{ id: string }[]>`
+      update reservations
+      set
+        dispatch_driver = ${input.driver !== undefined ? input.driver : sql`dispatch_driver`},
+        dispatch_memo   = ${input.memo   !== undefined ? input.memo   : sql`dispatch_memo`},
+        updated_at      = now()
+      where id = ${input.reservationId}::uuid
+      returning id
+    `;
+  });
+
+  if (updated.length === 0) return { kind: "not_found" };
+  return { kind: "ok" };
+}
