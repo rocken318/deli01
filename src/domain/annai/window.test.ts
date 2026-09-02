@@ -10,6 +10,7 @@ const job = (sh: number, eh: number, extra: Partial<JobItem> = {}): JobItem => (
   freeAt: at(eh, 10),
   totalAmount: 13000,
   status: "done",
+  reconciledAt: null,
   ...extra,
 });
 const base: BoardInput = {
