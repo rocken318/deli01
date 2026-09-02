@@ -49,7 +49,8 @@ interface ReservationDetail {
   phone_confirmed_at: Date | null;
   entry_call_at: Date | null;
   collected_amount: number | null;
-  collected_at: Date | null;
+  reconciled_at: Date | null;
+  settle_note: string | null;
   is_card_payment: boolean;
   options: string | null;
 }
@@ -147,7 +148,8 @@ export default async function ReservationDetailPage({ params }: PageProps) {
           r.phone_confirmed_at,
           r.entry_call_at,
           r.collected_amount,
-          r.collected_at,
+          r.reconciled_at,
+          r.settle_note,
           r.is_card_payment,
           (select string_agg(o.name, '、' order by o.sort_order)
              from reservation_options ro
@@ -355,8 +357,9 @@ export default async function ReservationDetailPage({ params }: PageProps) {
           status={row.status}
           totalAmount={row.total_amount}
           collectedAmount={row.collected_amount}
-          collectedAtISO={row.collected_at ? row.collected_at.toISOString() : null}
+          reconciledAtISO={row.reconciled_at ? row.reconciled_at.toISOString() : null}
           isCard={row.is_card_payment}
+          settleNote={row.settle_note}
         />
       </SectionBox>
     </div>

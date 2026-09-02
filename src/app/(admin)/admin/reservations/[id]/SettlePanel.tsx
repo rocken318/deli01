@@ -12,23 +12,26 @@ export default function SettlePanel({
   status,
   totalAmount,
   collectedAmount,
-  collectedAtISO,
+  reconciledAtISO,
   isCard,
+  settleNote,
 }: {
   reservationId: string;
   status: string;
   totalAmount: number;
   collectedAmount: number | null;
-  collectedAtISO: string | null;
+  reconciledAtISO: string | null;
   isCard: boolean;
+  settleNote: string | null;
 }) {
-  const [settled, setSettled] = useState<{ collected: number; diff: number; card: boolean; at: string } | null>(
-    collectedAtISO !== null && collectedAmount !== null
-      ? { collected: collectedAmount, diff: collectedAmount - totalAmount, card: isCard, at: collectedAtISO }
+  const [settled, setSettled] = useState<{ collected: number; diff: number; card: boolean; at: string; note: string | null } | null>(
+    reconciledAtISO !== null && collectedAmount !== null
+      ? { collected: collectedAmount, diff: collectedAmount - totalAmount, card: isCard, at: reconciledAtISO, note: settleNote }
       : null,
   );
   const [amount, setAmount] = useState(String(totalAmount));
   const [card, setCard] = useState(false);
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -48,6 +51,7 @@ export default function SettlePanel({
         <div style={{ color: "#6B7776", fontSize: 12, marginTop: 4 }}>
           決済: {settled.card ? "カード" : "現金"} / 清算済み {formatInTimeZone(new Date(settled.at), TZ, "yyyy-MM-dd HH:mm")}
         </div>
+        {settled.note && <div style={{ color: "#8a5d16", fontSize: 12, marginTop: 4 }}>メモ: {settled.note}</div>}
         {settled.card && (
           <div style={{ color: "#6B7776", fontSize: 12, marginTop: 4 }}>
             決済URL: <span style={{ background: "#F3F7F5", border: "1px dashed #DFE3DE", borderRadius: 4, padding: "1px 8px" }}>未発行（決済連携待ち）</span>
@@ -76,6 +80,10 @@ export default function SettlePanel({
           <input type="checkbox" checked={card} onChange={(e) => setCard(e.target.checked)} /> カード決済
         </label>
       </div>
+      {diff !== 0 && (
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="差額の理由（必須）"
+          style={{ width: "100%", boxSizing: "border-box", border: "2px solid #C98A2B", borderRadius: 4, padding: "6px 8px", fontSize: 13, marginTop: 8 }} />
+      )}
       {card && (
         <div style={{ color: "#8a5d16", fontSize: 12, marginTop: 6 }}>
           決済URL: 未発行（決済連携待ち・オンライン決済はv1対象外）
@@ -83,16 +91,21 @@ export default function SettlePanel({
       )}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || (diff !== 0 && note.trim().length === 0)}
         onClick={async () => {
           setBusy(true);
           setErr("");
-          const r = await settleReservation({ reservationId, collectedAmount: collected, isCard: card });
-          setBusy(false);
-          if (r.ok) setSettled({ collected: r.data.collectedAmount, diff: r.data.diff, card, at: new Date().toISOString() });
-          else setErr(r.error);
+          try {
+            const r = await settleReservation({ reservationId, collectedAmount: collected, isCard: card, note });
+            if (r.ok) setSettled({ collected: r.data.collectedAmount, diff: r.data.diff, card, at: r.data.reconciledAt, note: note.trim() || null });
+            else setErr(r.error);
+          } catch {
+            setErr("通信に失敗しました");
+          } finally {
+            setBusy(false);
+          }
         }}
-        style={{ marginTop: 10, background: "#C98A2B", color: "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}
+        style={{ marginTop: 10, background: "#C98A2B", color: "#fff", border: "none", borderRadius: 4, padding: "8px 18px", fontSize: 14, fontWeight: 800, cursor: "pointer" }}
       >
         {busy ? "清算中…" : "照合OKで清算を締める"}
       </button>

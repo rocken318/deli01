@@ -11,8 +11,9 @@
 alter table reservations
   add column if not exists entry_call_at    timestamptz,               -- お客様からの入室連絡を受けた時刻
   add column if not exists collected_amount integer,                   -- 帰社時に回収した金額（円）
-  add column if not exists collected_at      timestamptz,              -- 清算（照合）を締めた時刻
-  add column if not exists collected_by      uuid references app_users (id) on delete set null,
+  add column if not exists reconciled_at    timestamptz,               -- 清算（照合）を締めた時刻
+  add column if not exists reconciled_by    uuid references app_users (id) on delete set null, -- 照合した人
+  add column if not exists settle_note      text,                      -- 差額メモ（差額≠0 のとき必須）
   add column if not exists is_card_payment  boolean not null default false,
   add column if not exists payment_url       text;                     -- カード決済URL（配線のみ・v1は手動/空）
 
