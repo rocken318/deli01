@@ -47,6 +47,8 @@ describe.skipIf(!enabled)("annai booking slots ⇔ createPhoneOrder 総額一致
     });
     expect(slotsRes.ok).toBe(true);
     if (!slotsRes.ok || slotsRes.data.slots.length === 0) return; // 空枠なら検証不能
+    // 枠を出した営業日を返す（日跨ぎ枠の work_date 一致に使う / 判断#37）
+    expect(slotsRes.data.dateISO).toBe(today);
     const slot = slotsRes.data.slots[0]!;
 
     const created = await createPhoneOrder({
@@ -60,6 +62,7 @@ describe.skipIf(!enabled)("annai booking slots ⇔ createPhoneOrder 総額一致
       courseId: course!.id,
       optionIds: [],
       startAtISO: slot.startAtISO,
+      dateISO: slotsRes.data.dateISO, // 営業日を明示（判断#37）
     });
     expect(created.ok).toBe(true);
     if (created.ok && created.data) {

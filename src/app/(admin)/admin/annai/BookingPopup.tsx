@@ -80,6 +80,7 @@ export default function BookingPopup({
   const [preferences, setPreferences] = useState("");
   const [slots, setSlots] = useState<AnnaiSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsDateISO, setSlotsDateISO] = useState(""); // 枠を出した営業日（日跨ぎ枠の work_date 一致用・判断#37）
   const [selectedISO, setSelectedISO] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [msg, setMsg] = useState("");
@@ -139,9 +140,11 @@ export default function BookingPopup({
       setSlotsLoading(false);
       if (r.ok) {
         setSlots(r.data.slots);
+        setSlotsDateISO(r.data.dateISO);
         setSelectedISO((prev) => (r.data.slots.some((s) => s.startAtISO === prev) ? prev : (r.data.slots[0]?.startAtISO ?? "")));
       } else {
         setSlots([]);
+        setSlotsDateISO("");
         setSelectedISO("");
       }
     }, 350);
@@ -184,6 +187,7 @@ export default function BookingPopup({
         courseId,
         optionIds,
         startAtISO: selectedISO,
+        dateISO: slotsDateISO || undefined, // 枠を出した営業日を渡す（日跨ぎ枠の slot_gone 回避・判断#37）
         preferences: preferences || undefined,
       });
       if (r.ok) {

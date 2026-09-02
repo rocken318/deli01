@@ -33,7 +33,7 @@ export interface AnnaiSlot {
   totalAmount: number;
 }
 export type AnnaiSlotsResult =
-  | { ok: true; data: { slots: AnnaiSlot[]; areaName: string | null; assumed: boolean } }
+  | { ok: true; data: { slots: AnnaiSlot[]; areaName: string | null; assumed: boolean; dateISO: string } }
   | { ok: false; error: string };
 
 export async function getAnnaiBookingSlots(input: z.infer<typeof schema>): Promise<AnnaiSlotsResult> {
@@ -45,17 +45,18 @@ export async function getAnnaiBookingSlots(input: z.infer<typeof schema>): Promi
   if (!parsed.success) return { ok: false, error: "入力を確認してください" };
   const d = parsed.data;
 
+  const dateISO = formatInTimeZone(new Date(), TZ, "yyyy-MM-dd");
   try {
     const res = await getTherapistSlots({
       slug: d.therapistSlug,
-      dateISO: formatInTimeZone(new Date(), TZ, "yyyy-MM-dd"),
+      dateISO,
       areaId: d.areaId ?? null,
       hotelId: d.hotelId ?? null,
       courseId: d.courseId,
       optionIds: d.optionIds,
     });
     if (!res || !res.therapistId) {
-      return { ok: true, data: { slots: [], areaName: res?.areaName ?? null, assumed: false } };
+      return { ok: true, data: { slots: [], areaName: res?.areaName ?? null, assumed: false, dateISO } };
     }
 
     const sql = getClient();
@@ -86,7 +87,7 @@ export async function getAnnaiBookingSlots(input: z.infer<typeof schema>): Promi
       };
     });
 
-    return { ok: true, data: { slots, areaName: res.areaName, assumed: res.assumed } };
+    return { ok: true, data: { slots, areaName: res.areaName, assumed: res.assumed, dateISO } };
   } catch (e) {
     console.error("getAnnaiBookingSlots failed:", e);
     return { ok: false, error: "枠の取得に失敗しました" };
