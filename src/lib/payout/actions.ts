@@ -296,10 +296,14 @@ export async function getMyEarnings(
   if (!session) return { ok: false, error: '認証が必要です（セラピスト）' };
 
   try {
-    const outcome = await getMyEarningsCore(getClient(), session, {
+    const sql = getClient();
+    const [fees, settings] = await Promise.all([loadBookingFees(), loadPayoutSettings(sql)]);
+    const outcome = await getMyEarningsCore(sql, session, {
       fromDate: parsed.data.from,
       toDate: parsed.data.to,
       asOfDate: parsed.data.asOf,
+      settings,
+      fees,
     });
     if (outcome.kind === 'forbidden') {
       return { ok: false, error: 'セラピスト本人のみ利用できます' };

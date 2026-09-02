@@ -83,9 +83,9 @@ function EarningsContent({
   dayLabel: string;
   monthLabel: string;
 }) {
-  const { todayTotal, monthToDateTotal, confirmedNetTotal, range, payouts } = data;
+  const { todayTotal, scheduledTotal, monthToDateTotal, confirmedNetTotal, range, payouts } = data;
   const allZero =
-    todayTotal === 0 && monthToDateTotal === 0 && confirmedNetTotal === 0;
+    todayTotal === 0 && scheduledTotal === 0 && monthToDateTotal === 0 && confirmedNetTotal === 0;
 
   // Filter categories with non-zero amounts
   const nonZeroCategories = (Object.keys(range.byCategory) as PayoutCategory[]).filter(
@@ -101,23 +101,44 @@ function EarningsContent({
         overflow: 'hidden',
       }}
     >
-      {/* その日の報酬（当日 or 過去日） */}
-      <div style={{ padding: '16px 12px 14px' }}>
-        <p style={{ fontSize: '12px', color: T.muted, marginBottom: '4px' }}>{dayLabel}</p>
-        <p
-          style={{
-            fontSize: '28px',
-            fontWeight: 700,
-            color: T.primary,
-            fontVariantNumeric: 'tabular-nums',
-            letterSpacing: '-0.5px',
-          }}
-        >
-          {yen(todayTotal)}
-        </p>
+      {/* その日の報酬（確定済み / 予定 の2枠） */}
+      <div style={{ padding: '14px 12px' }}>
+        <p style={{ fontSize: '12px', color: T.muted, marginBottom: '8px' }}>{dayLabel}</p>
+        <div style={{ display: 'flex', gap: '20px' }}>
+          <div>
+            <p style={{ fontSize: '11px', color: T.muted, marginBottom: '2px' }}>確定済み</p>
+            <p
+              style={{
+                fontSize: '26px',
+                fontWeight: 700,
+                color: T.primary,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '-0.5px',
+                lineHeight: 1.1,
+              }}
+            >
+              {yen(todayTotal)}
+            </p>
+          </div>
+          <div>
+            <p style={{ fontSize: '11px', color: T.muted, marginBottom: '2px' }}>予定（見込み）</p>
+            <p
+              style={{
+                fontSize: '26px',
+                fontWeight: 700,
+                color: T.caution,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '-0.5px',
+                lineHeight: 1.1,
+              }}
+            >
+              {yen(scheduledTotal)}
+            </p>
+          </div>
+        </div>
         {allZero && (
-          <p style={{ fontSize: '12px', color: T.muted, marginTop: '6px' }}>
-            {isToday ? '施術完了で反映されます' : 'この日の報酬はありません'}
+          <p style={{ fontSize: '12px', color: T.muted, marginTop: '8px' }}>
+            {isToday ? '施術完了で確定します（予定は当日の予約から自動計算）' : 'この日の報酬はありません'}
           </p>
         )}
       </div>
