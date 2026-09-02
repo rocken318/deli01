@@ -92,7 +92,7 @@ export default function BookingPopup({
     if (phoneTimer.current) clearTimeout(phoneTimer.current);
     if (phone.replace(/\D/g, "").length < 10) return;
     phoneTimer.current = setTimeout(async () => {
-      const r = await searchCustomerByPhone(phone);
+      const r = await searchCustomerByPhone(phone.replace(/\D/g, ""));
       if (r.ok && r.data) {
         const d = r.data;
         if (d.name) setName((n) => n || d.name);
@@ -172,7 +172,7 @@ export default function BookingPopup({
     setMsg("");
     try {
       const r = await createPhoneOrder({
-        phone,
+        phone: phone.replace(/\D/g, ""),
         customerName: name,
         destinationType: dest,
         areaId: dest === "home" ? areaId : undefined,
@@ -307,7 +307,7 @@ export default function BookingPopup({
           style={{ width: "100%", background: canSubmit ? "#C6A15B" : "#7d7461", color: "#151A20", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 800, cursor: canSubmit ? "pointer" : "not-allowed" }}>
           {state === "sending" ? "作成中…" : "予約する"}
         </button>
-        {state === "error" && <p style={{ color: "#e79", fontSize: 12, marginTop: 8, whiteSpace: "pre-wrap" }}>{msg}</p>}
+        {state === "error" && <p style={{ color: "#F3B0AB", fontSize: 12, marginTop: 8, whiteSpace: "pre-wrap" }}>{msg}</p>}
       </div>
     </div>
   );

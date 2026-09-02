@@ -15,9 +15,11 @@ const TZ = "Asia/Tokyo";
 const PHONE = "0" + String(Date.now()).slice(-10);
 
 afterAll(async () => {
-  await sql`delete from reservations where customer_id in (select id from customers where phone = ${PHONE})`;
-  await sql`delete from addresses where customer_id in (select id from customers where phone = ${PHONE})`;
-  await sql`delete from customers where phone = ${PHONE}`;
+  if (enabled) {
+    await sql`delete from reservations where customer_id in (select id from customers where phone = ${PHONE})`;
+    await sql`delete from addresses where customer_id in (select id from customers where phone = ${PHONE})`;
+    await sql`delete from customers where phone = ${PHONE}`;
+  }
   await sql.end();
 });
 

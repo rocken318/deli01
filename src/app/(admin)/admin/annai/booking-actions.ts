@@ -60,7 +60,8 @@ export async function getAnnaiBookingSlots(input: z.infer<typeof schema>): Promi
 
     const sql = getClient();
     const courses = await sql<{ price: number; nomination_fee_default: number }[]>`
-      select price, nomination_fee_default from courses where id = ${d.courseId}::uuid limit 1
+      select price, nomination_fee_default from courses
+      where id = ${d.courseId}::uuid and is_active = true limit 1
     `;
     const course = courses[0];
     if (!course) return { ok: false, error: "コースが見つかりません" };
