@@ -96,6 +96,19 @@ describe("annai board (実Postgres・自己完結)", () => {
     expect(t!.attendanceState).toBe("working");
   });
 
+  it("done 予約の清算状態(reconciledAt)を集約する（✔会計済インジケータの土台）", async () => {
+    // 3時の done を清算済みに、5時の done は未清算のまま
+    await sql`
+      update reservations set reconciled_at = now(), collected_amount = 13000, reconciled_by = ${OWNER.userId}::uuid
+      where id = ${`a11a0000-0000-4000-8000-${String(3).padStart(12, "0")}`}::uuid`;
+    const rows = await withUser(sql, OWNER, (tx) => listAnnaiBoardCore(tx, NOW));
+    const t = rows.find((r) => r.slug === SLUG)!;
+    const settled = t.done.filter((j) => j.reconciledAt !== null);
+    const unsettled = t.done.filter((j) => j.reconciledAt === null);
+    expect(settled.length).toBe(1);
+    expect(unsettled.length).toBe(1);
+  });
+
   it("buildBoard が落ちず、行は名前・slug・状態を持つ", async () => {
     const rows = await withUser(sql, OWNER, (tx) => listAnnaiBoardCore(tx, NOW));
     const { active, retired } = buildBoard(rows, NOW);

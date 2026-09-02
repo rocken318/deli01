@@ -20,6 +20,7 @@ interface ResRow {
   depart_at: Date | null;
   free_at: Date | null;
   total_amount: number | null;
+  reconciled_at: Date | null;
 }
 
 /**
@@ -35,7 +36,7 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
       a.clock_in_at, a.clock_out_at,
       s.start_at as shift_start, s.end_at as shift_end,
       r.id as res_id, r.status::text as status,
-      r.start_at, r.end_at, r.depart_at, r.free_at, r.total_amount
+      r.start_at, r.end_at, r.depart_at, r.free_at, r.total_amount, r.reconciled_at
     from therapists t
     left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
     left join attendances a on a.therapist_id = t.id and a.work_date = ${wd}
@@ -83,6 +84,7 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
         freeAt: row.free_at,
         totalAmount: row.total_amount ?? 0,
         status: row.status ?? "",
+        reconciledAt: row.reconciled_at,
       };
       if (row.status === "done") b.done.push(job);
       else b.upcoming.push(job);

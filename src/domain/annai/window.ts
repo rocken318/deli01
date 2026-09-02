@@ -6,6 +6,8 @@ export interface JobItem {
   freeAt: Date;
   totalAmount: number;
   status: string;
+  /** 清算（集金照合）を締めた時刻。null=未清算（done なら要清算）。P2 の reconciled_at を集約。 */
+  reconciledAt: Date | null;
 }
 export type AttendanceState = "off" | "working" | "done";
 export interface BoardInput {

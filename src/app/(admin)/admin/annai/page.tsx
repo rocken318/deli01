@@ -38,8 +38,10 @@ function centerText(w: AvailWindow): { big: string; sub: string } {
 }
 
 function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
-  const bg = side === "done" ? "#F3F7F5" : "#FBF3E6";
-  const bd = side === "done" ? "#DFE3DE" : "#E9D9BC";
+  // done は清算状態で色分け: 会計済=緑枠 / 未清算(要清算)=橙枠。清算アクションは詳細ページ（#38）。
+  const settled = job.reconciledAt !== null;
+  const bg = side === "done" ? (settled ? "#F3F7F5" : "#FBF3E6") : "#FBF3E6";
+  const bd = side === "done" ? (settled ? "#CBE0D6" : "#E0B36B") : "#E9D9BC";
   return (
     <Link
       href={`/admin/reservations/${job.id}`}
@@ -60,6 +62,12 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
       <div style={{ fontSize: 10, color: side === "done" ? "#5b625f" : "#8a5d16" }}>
         {side === "done" ? `¥${job.totalAmount.toLocaleString()}` : `出発${hm(job.departAt)}`}
       </div>
+      {side === "done" &&
+        (settled ? (
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#2c6152" }}>✔会計済</div>
+        ) : (
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#B4453C" }}>要清算 →</div>
+        ))}
     </Link>
   );
 }
@@ -67,6 +75,7 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
 function Row({ r, booking }: { r: BoardRow; booking?: Booking }) {
   const chip = chipOf(r);
   const c = centerText(r.window);
+  const unsettled = r.done.filter((j) => j.reconciledAt === null).length;
   return (
     <div style={{ background: "#fff", border: "1px solid #DFE3DE", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 156px 1fr", gap: 8, alignItems: "center" }}>
@@ -97,6 +106,11 @@ function Row({ r, booking }: { r: BoardRow; booking?: Booking }) {
         <span style={{ background: chip.bg, color: chip.fg, padding: "1px 7px", borderRadius: 4, fontSize: 11 }}>{chip.label}</span>
         {r.lateManual && (
           <span style={{ background: "#C98A2B", color: "#fff", padding: "1px 7px", borderRadius: 4, fontSize: 11, marginLeft: 4 }}>遅刻</span>
+        )}
+        {unsettled > 0 && (
+          <span style={{ background: "#B4453C", color: "#fff", padding: "1px 7px", borderRadius: 4, fontSize: 11, marginLeft: 4 }}>
+            要清算{unsettled}件
+          </span>
         )}
       </div>
       {booking && (
@@ -138,7 +152,7 @@ export default async function AnnaiPage() {
     <main style={{ padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
       <h1 style={{ color: "#1C2321", marginBottom: 4 }}>案内表</h1>
       <p style={{ color: "#5b625f", fontSize: 13, marginBottom: 12 }}>
-        次案内可能が早い順（{formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd HH:mm")}）。名前=予定/売上、予約カード=詳細へ。
+        次案内可能が早い順（{formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd HH:mm")}）。名前=予定/売上、予約カード=詳細へ。終了分は<span style={{ color: "#B4453C", fontWeight: 700 }}>要清算</span>/<span style={{ color: "#2c6152", fontWeight: 700 }}>✔会計済</span>を表示（清算は詳細ページ）。
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 156px 1fr", gap: 8, marginBottom: 6, fontSize: 10, color: "#9BA5AF" }}>
         <div style={{ textAlign: "right", paddingRight: 4 }}>← 終わった仕事</div>
