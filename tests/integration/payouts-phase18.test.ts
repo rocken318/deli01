@@ -611,6 +611,34 @@ describe("G/H. RLS と追記専用（受入 L1134 / spec 13-3）", () => {
     expect(o.kind).toBe("forbidden");
   });
 
+  it("asOfDate 指定でその日の日次報酬を返す（過去/未来日のマイページ用）", async () => {
+    // A は offset 0 に course 報酬を持つ。その日の payout_lines 合計を期待値にする。
+    const dayRows = await sql<{ t: number }[]>`
+      select coalesce(sum(amount), 0)::int as t from payout_lines
+      where therapist_id = ${therapistA}::uuid and business_date = ${jstDate(0)}::date
+    `;
+    const expected = dayRows[0]!.t;
+    expect(expected).toBeGreaterThan(0);
+
+    // asOfDate=その日 → todayTotal がその日の日次になる
+    const withAsOf = await getMyEarningsCore(sql, sessionA, {
+      fromDate: jstDate(0),
+      toDate: jstDate(0),
+      asOfDate: jstDate(0),
+    });
+    if (withAsOf.kind !== "ok") throw new Error("expected ok");
+    expect(withAsOf.earnings.todayTotal).toBe(expected);
+
+    // 報酬の無い日を基準日にすると日次は 0（date スコープであることの確認）
+    const emptyDay = await getMyEarningsCore(sql, sessionA, {
+      fromDate: jstDate(40),
+      toDate: jstDate(40),
+      asOfDate: jstDate(40),
+    });
+    if (emptyDay.kind !== "ok") throw new Error("expected ok");
+    expect(emptyDay.earnings.todayTotal).toBe(0);
+  });
+
   function grossOf(
     payouts: ReadonlyArray<{ status: string; net: number }>,
   ): number {

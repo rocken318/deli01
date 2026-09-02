@@ -667,7 +667,7 @@ export type MyEarningsOutcome =
 export async function getMyEarningsCore(
   sql: Sql,
   session: Session,
-  params: { fromDate: string; toDate: string; now?: Date },
+  params: { fromDate: string; toDate: string; now?: Date; asOfDate?: string },
 ): Promise<MyEarningsOutcome> {
   if (session.role !== "therapist" || !session.therapistId) {
     return { kind: "forbidden" };
@@ -676,7 +676,9 @@ export async function getMyEarningsCore(
   const now = params.now ?? new Date();
 
   return withUser(sql, session, async (tx) => {
-    const today = await jstDateOf(tx, now);
+    // 基準日（asOfDate 指定時はその日を「その日」として日次・月内累計を出す）。
+    // 過去/未来の日をマイページで見たとき、その日の報酬を正しく出すため。
+    const today = params.asOfDate ?? (await jstDateOf(tx, now));
     const monthStart = `${today.slice(0, 7)}-01`;
 
     const quick = await tx<{ today_total: number; month_total: number }[]>`

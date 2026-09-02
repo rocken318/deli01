@@ -165,9 +165,9 @@ export default async function MyPage({
           <ScheduleSection asSlug={asSlug} />
         </section>
 
-        {/* 稼ぎ（フェーズ18） */}
-        <section aria-label="今月の稼ぎ">
-          <EarningsSection asSlug={asSlug} />
+        {/* 報酬（フェーズ18）。表示中の日付基準（過去日はその日の報酬・月内累計） */}
+        <section aria-label="報酬">
+          <EarningsSection asSlug={asSlug} dateISO={dateISO} todayISO={todayISO} />
         </section>
 
         {/* 緊急連絡ボタン（常時表示） */}

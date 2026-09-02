@@ -1,4 +1,4 @@
-import { format, startOfMonth } from 'date-fns';
+import { format } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { getMyEarnings } from '@/lib/payout/actions';
 import type { MyEarnings } from '@/lib/payout/actions';
@@ -72,7 +72,17 @@ function SectionDivider() {
   );
 }
 
-function EarningsContent({ data }: { data: MyEarnings }) {
+function EarningsContent({
+  data,
+  isToday,
+  dayLabel,
+  monthLabel,
+}: {
+  data: MyEarnings;
+  isToday: boolean;
+  dayLabel: string;
+  monthLabel: string;
+}) {
   const { todayTotal, monthToDateTotal, confirmedNetTotal, range, payouts } = data;
   const allZero =
     todayTotal === 0 && monthToDateTotal === 0 && confirmedNetTotal === 0;
@@ -91,9 +101,9 @@ function EarningsContent({ data }: { data: MyEarnings }) {
         overflow: 'hidden',
       }}
     >
-      {/* 今日の稼ぎ */}
+      {/* その日の報酬（当日 or 過去日） */}
       <div style={{ padding: '16px 12px 14px' }}>
-        <p style={{ fontSize: '12px', color: T.muted, marginBottom: '4px' }}>今日の稼ぎ</p>
+        <p style={{ fontSize: '12px', color: T.muted, marginBottom: '4px' }}>{dayLabel}</p>
         <p
           style={{
             fontSize: '28px',
@@ -107,7 +117,7 @@ function EarningsContent({ data }: { data: MyEarnings }) {
         </p>
         {allZero && (
           <p style={{ fontSize: '12px', color: T.muted, marginTop: '6px' }}>
-            施術完了で反映されます
+            {isToday ? '施術完了で反映されます' : 'この日の報酬はありません'}
           </p>
         )}
       </div>
@@ -124,7 +134,7 @@ function EarningsContent({ data }: { data: MyEarnings }) {
             paddingBottom: '8px',
           }}
         >
-          <span style={{ fontSize: '13px', color: T.text }}>今月の見込み</span>
+          <span style={{ fontSize: '13px', color: T.text }}>{monthLabel}</span>
           <span
             style={{
               fontSize: '14px',
@@ -288,12 +298,34 @@ function EarningsContent({ data }: { data: MyEarnings }) {
 // Main server component
 // ---------------------------------------------------------------------------
 
-export default async function EarningsSection({ asSlug }: { asSlug?: string }) {
+export default async function EarningsSection({
+  asSlug,
+  dateISO,
+  todayISO,
+}: {
+  asSlug?: string;
+  /** 表示中の日付（YYYY-MM-DD）。省略時は今日。 */
+  dateISO?: string;
+  /** 今日（YYYY-MM-DD）。省略時はサーバ時刻から算出。 */
+  todayISO?: string;
+}) {
   const now = new Date();
-  const todayISO = format(toZonedTime(now, APP_TZ), 'yyyy-MM-dd');
-  const monthStartISO = format(startOfMonth(toZonedTime(now, APP_TZ)), 'yyyy-MM-dd');
+  const today = todayISO ?? format(toZonedTime(now, APP_TZ), 'yyyy-MM-dd');
+  const viewed = dateISO ?? today;
+  const isToday = viewed === today;
+  const monthStartISO = `${viewed.slice(0, 7)}-01`;
 
-  const result = await getMyEarnings({ from: monthStartISO, to: todayISO, asSlug });
+  // 基準日=表示中の日付。日次はその日・月内累計はその月の1日〜その日。
+  const result = await getMyEarnings({
+    from: monthStartISO,
+    to: viewed,
+    asOf: viewed,
+    asSlug,
+  });
+
+  const [, vm, vd] = viewed.split('-');
+  const dayLabel = isToday ? '今日の報酬' : `${Number(vm)}月${Number(vd)}日の報酬`;
+  const monthLabel = isToday ? '今月の見込み' : '月内累計';
 
   return (
     <div>
@@ -307,7 +339,7 @@ export default async function EarningsSection({ asSlug }: { asSlug?: string }) {
           letterSpacing: '0.5px',
         }}
       >
-        稼ぎ
+        報酬
       </h2>
 
       {!result.ok || result.data == null ? (
@@ -323,7 +355,12 @@ export default async function EarningsSection({ asSlug }: { asSlug?: string }) {
           <p style={{ fontSize: '13px', color: T.muted }}>報酬情報の取得に失敗しました</p>
         </div>
       ) : (
-        <EarningsContent data={result.data} />
+        <EarningsContent
+          data={result.data}
+          isToday={isToday}
+          dayLabel={dayLabel}
+          monthLabel={monthLabel}
+        />
       )}
     </div>
   );
