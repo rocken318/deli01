@@ -43,7 +43,9 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    const redirectUrl = new URL("/login", req.url);
+    // エリアごとに別ログインへ振り分け（/mypage=セラピスト・/admin=管理）。
+    const loginPath = req.nextUrl.pathname.startsWith("/mypage") ? "/cast/login" : "/login";
+    const redirectUrl = new URL(loginPath, req.url);
     redirectUrl.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
     return NextResponse.redirect(redirectUrl);
   }
