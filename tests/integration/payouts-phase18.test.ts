@@ -639,6 +639,33 @@ describe("G/H. RLS と追記専用（受入 L1134 / spec 13-3）", () => {
     expect(emptyDay.earnings.todayTotal).toBe(0);
   });
 
+  it("予定（scheduledTotal）: 当日の未計上予約を outcome=done で概算する", async () => {
+    const day = jstDate(20);
+    // 未計上の confirmed 予約（payout_lines 無し）
+    await insertReservation({
+      therapistId: therapistA,
+      offsetDays: 20,
+      status: "confirmed",
+      totalAmount: 15000,
+      startHourUTC: 5,
+    });
+    const r = await getMyEarningsCore(sql, sessionA, {
+      fromDate: day,
+      toDate: day,
+      asOfDate: day,
+      settings: DEFAULT_PAYOUT_SETTINGS,
+      fees: DEFAULT_BOOKING_FEES,
+    });
+    if (r.kind !== "ok") throw new Error("expected ok");
+    expect(r.earnings.scheduledTotal).toBeGreaterThan(0); // 未計上予約の見込み
+    expect(r.earnings.todayTotal).toBe(0); // その日の計上済みは無い
+
+    // settings/fees を渡さなければ scheduledTotal は 0（既存呼び出しは不変）
+    const noProj = await getMyEarningsCore(sql, sessionA, { fromDate: day, toDate: day, asOfDate: day });
+    if (noProj.kind !== "ok") throw new Error("expected ok");
+    expect(noProj.earnings.scheduledTotal).toBe(0);
+  });
+
   function grossOf(
     payouts: ReadonlyArray<{ status: string; net: number }>,
   ): number {

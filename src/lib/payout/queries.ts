@@ -122,6 +122,112 @@ async function selectCandidateRates(
   }));
 }
 
+/**
+ * その日（dayISO・JST）の「予定（見込み）報酬」を概算する。
+ * 対象は当日の**未計上**予約（confirmed/enroute/in_service/done で payout_lines 未作成）。
+ * 実計上（postReservationPayoutCore）と同じ入力・同じ buildReservationPayout で outcome='done'
+ * として算出し、行合計を積む（読み取りのみ・挿入しない）。不整合な予約はスキップ。
+ */
+async function sumScheduledPayout(
+  tx: TransactionSql,
+  therapistId: string,
+  dayISO: string,
+  settings: PayoutSettings,
+  fees: Parameters<typeof midnightFee>[1],
+): Promise<number> {
+  const resRows = await tx<
+    {
+      id: string;
+      start_at: Date;
+      course_id: string;
+      nomination_fee: number;
+      transport_fee: number;
+      total_amount: number;
+    }[]
+  >`
+    select r.id, r.start_at, r.course_id, r.nomination_fee, r.transport_fee, r.total_amount
+    from reservations r
+    where r.therapist_id = ${therapistId}::uuid
+      and (r.start_at at time zone 'Asia/Tokyo')::date = ${dayISO}::date
+      and r.status in ('confirmed', 'enroute', 'in_service', 'done')
+      and not exists (
+        select 1 from payout_lines pl
+        where pl.reservation_id = r.id
+          and pl.category <> 'adjustment' and pl.reversal_of is null
+      )
+  `;
+  if (resRows.length === 0) return 0;
+
+  const rates = await selectCandidateRates(tx, therapistId, dayISO);
+  const tRow = await tx<{ rank_id: string | null }[]>`
+    select rank_id from therapists where id = ${therapistId}::uuid
+  `;
+  const rankId = tRow[0]?.rank_id ?? null;
+
+  let total = 0;
+  for (const r of resRows) {
+    const optionRows = await tx<
+      { option_id: string; price_snapshot: number; name: string | null }[]
+    >`
+      select ro.option_id, ro.price_snapshot, o.name
+      from reservation_options ro
+      left join options o on o.id = ro.option_id
+      where ro.reservation_id = ${r.id}::uuid
+      order by ro.created_at, ro.option_id
+    `;
+    const optionsTotal = optionRows.reduce((s, o) => s + o.price_snapshot, 0);
+    const midnight = midnightFee(r.start_at, fees);
+    const coursePrice =
+      r.total_amount - optionsTotal - r.nomination_fee - r.transport_fee - midnight;
+    if (coursePrice < 0) continue; // 不整合はスキップ（予定は概算）
+
+    const discRows = await tx<{ total: number }[]>`
+      select coalesce(-sum(amount), 0)::integer as total
+      from revenue_lines
+      where reservation_id = ${r.id}::uuid and line_type = 'discount' and reversal_of is null
+    `;
+    const discountAmount = discRows[0]?.total ?? 0;
+    const pointRows = await tx<{ used: number }[]>`
+      select coalesce(-sum(points), 0)::integer as used
+      from point_entries where reservation_id = ${r.id}::uuid and type = 'use'
+    `;
+    const pointsUsed = pointRows[0]?.used ?? 0;
+    const ticketRows = await tx<{ redeemed: number; reversed: number }[]>`
+      select count(*) filter (where type = 'redeem')::int as redeemed,
+             count(*) filter (where type = 'reverse')::int as reversed
+      from ticket_entries where reservation_id = ${r.id}::uuid
+    `;
+    const paidByTicket =
+      (ticketRows[0]?.redeemed ?? 0) > 0 && (ticketRows[0]?.reversed ?? 0) === 0;
+
+    const { lines } = buildReservationPayout({
+      reservation: {
+        therapistId,
+        rankId,
+        businessDate: dayISO,
+        outcome: "done",
+        courseId: r.course_id,
+        coursePrice,
+        options: optionRows.map((o) => ({
+          optionId: o.option_id,
+          price: o.price_snapshot,
+          ...(o.name !== null ? { label: o.name } : {}),
+        })),
+        nominationFee: r.nomination_fee,
+        transportFee: r.transport_fee,
+        lateNightFee: midnight,
+        discountAmount,
+        pointsUsed,
+        paidByTicket,
+      },
+      rates,
+      settings,
+    });
+    total += lines.reduce((s, l) => s + l.amount, 0);
+  }
+  return total;
+}
+
 async function insertPayoutLine(
   tx: TransactionSql,
   params: {
@@ -637,8 +743,14 @@ export interface PayoutSummaryItem {
 }
 
 export interface MyEarnings {
-  /** 今日（Asia/Tokyo）の稼ぎ。施術完了の瞬間に増える（spec L940） */
+  /** その日（asOf）の確定済み報酬＝計上済み payout_lines。施術完了→計上で増える（spec L940） */
   todayTotal: number;
+  /**
+   * その日（asOf）の予定（見込み）＝まだ計上されていない当日予約
+   * （confirmed/enroute/in_service/done で payout_lines 未作成）を outcome='done' で
+   * 概算した報酬合計。rates/settings/fees を渡したときのみ算出（未指定は 0）。
+   */
+  scheduledTotal: number;
   /** 今月（1日〜今日）の見込み（未締め分も含む台帳純額） */
   monthToDateTotal: number;
   /** 確定額 = 締め済み（closed/paid）payouts の net 合計 */
@@ -667,7 +779,15 @@ export type MyEarningsOutcome =
 export async function getMyEarningsCore(
   sql: Sql,
   session: Session,
-  params: { fromDate: string; toDate: string; now?: Date; asOfDate?: string },
+  params: {
+    fromDate: string;
+    toDate: string;
+    now?: Date;
+    asOfDate?: string;
+    /** 予定（見込み）算出に使う。actions が loadPayoutSettings / loadBookingFees で渡す。 */
+    settings?: PayoutSettings;
+    fees?: Parameters<typeof midnightFee>[1];
+  },
 ): Promise<MyEarningsOutcome> {
   if (session.role !== "therapist" || !session.therapistId) {
     return { kind: "forbidden" };
@@ -680,6 +800,12 @@ export async function getMyEarningsCore(
     // 過去/未来の日をマイページで見たとき、その日の報酬を正しく出すため。
     const today = params.asOfDate ?? (await jstDateOf(tx, now));
     const monthStart = `${today.slice(0, 7)}-01`;
+
+    // 予定（見込み）: その日の未計上予約を outcome='done' で概算（rates/settings/fees 必須）
+    const scheduledTotal =
+      params.settings && params.fees
+        ? await sumScheduledPayout(tx, therapistId, today, params.settings, params.fees)
+        : 0;
 
     const quick = await tx<{ today_total: number; month_total: number }[]>`
       select
@@ -737,6 +863,7 @@ export async function getMyEarningsCore(
       kind: "ok",
       earnings: {
         todayTotal: quick[0]?.today_total ?? 0,
+        scheduledTotal,
         monthToDateTotal: quick[0]?.month_total ?? 0,
         confirmedNetTotal,
         range: {
