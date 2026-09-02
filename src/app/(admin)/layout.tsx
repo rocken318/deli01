@@ -26,6 +26,7 @@ const navItems = [
   { href: "/admin/phone-confirm", label: "電話確認" },
   { href: "/admin/points", label: "ポイント" },
   { href: "/admin/accounting", label: "会計" },
+  { href: "/admin/daily-books", label: "日次会計" },
   { href: "/admin/payouts", label: "報酬" },
   { href: "/admin/analytics", label: "集計" },
   { href: "/admin/dispatch-board", label: "配車ボード" },
