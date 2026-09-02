@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import type { Session } from "@/lib/auth/session";
 import { getDailyBooksCore } from "@/lib/accounting/daily-books";
+import { addExpenseCore, deleteExpenseCore, listExpensesCore } from "@/lib/accounting/queries";
 import { businessDayRange } from "@/domain/accounting";
 
 /**
@@ -120,5 +121,26 @@ describe("getDailyBooksCore（G 日次会計・営業日境界）", () => {
     expect(r.storeTotal.grossProfit).toBe(
       r.storeTotal.revenue - r.storeTotal.payout - r.storeTotal.expenses,
     );
+  });
+
+  it("経費の追加→削除（G2）が効き、一覧から消える", async () => {
+    const range = businessDayRange(D, "day");
+    const added = await addExpenseCore(sql, OWNER, {
+      category: "supplies",
+      amount: 777,
+      spentOn: D,
+      areaId: null,
+      note: "g2-del-test",
+    });
+    let list = await listExpensesCore(sql, OWNER, { fromDate: range.fromDate, toDate: range.toDate });
+    expect(list.some((e) => e.id === added.id)).toBe(true);
+
+    const ok = await deleteExpenseCore(sql, OWNER, added.id);
+    expect(ok).toBe(true);
+    list = await listExpensesCore(sql, OWNER, { fromDate: range.fromDate, toDate: range.toDate });
+    expect(list.some((e) => e.id === added.id)).toBe(false);
+
+    // 既に無いIDの削除は false
+    expect(await deleteExpenseCore(sql, OWNER, added.id)).toBe(false);
   });
 });

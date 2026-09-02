@@ -10,10 +10,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { addExpense } from "@/lib/accounting/actions";
+import { addExpense, deleteExpense } from "@/lib/accounting/actions";
 import type { DailyBooksView } from "@/lib/accounting/actions";
 import type { ExpenseItem, ExpenseCategory } from "@/lib/accounting/queries";
 import type { BooksPeriod } from "@/domain/accounting";
+import MonthCalendar from "./MonthCalendar";
 
 const EXPENSE_CATEGORY_LABEL: Record<ExpenseCategory, string> = {
   oil: "オイル",
@@ -71,12 +72,26 @@ export default function DailyBooksClient({
   const [expNote, setExpNote] = useState("");
   const [expMsg, setExpMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showCal, setShowCal] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const go = (nextDate: string, nextPeriod: BooksPeriod) => {
     startTransition(() => {
       router.push(`/admin/daily-books?date=${nextDate}&period=${nextPeriod}`);
     });
   };
+
+  const removeExpense = async (id: string) => {
+    if (!window.confirm("この経費を削除しますか？")) return;
+    setDeletingId(id);
+    const res = await deleteExpense(id);
+    setDeletingId(null);
+    if (res.ok) startTransition(() => router.refresh());
+    else setExpMsg({ ok: false, text: res.error ?? "削除に失敗しました" });
+  };
+
+  const csvHref = (type: "summary" | "expenses") =>
+    `/admin/daily-books/export?date=${dateISO}&period=${period}&type=${type}`;
 
   const submitExpense = async () => {
     const amount = Number(expAmount);
@@ -133,9 +148,23 @@ export default function DailyBooksClient({
         <button type="button" className="px-2 py-1 text-sm border border-adm-line rounded bg-white text-adm-muted" onClick={() => go(todayISO, period)}>
           今日
         </button>
+        <button type="button" className={chip(showCal)} onClick={() => setShowCal((v) => !v)}>
+          📅 カレンダー
+        </button>
         {books && <span className="text-sm text-adm-muted ml-1">{books.label}</span>}
         {isPending && <span className="text-xs text-adm-muted">更新中…</span>}
       </div>
+
+      {showCal && (
+        <MonthCalendar
+          dateISO={dateISO}
+          todayISO={todayISO}
+          onPick={(d) => {
+            setShowCal(false);
+            go(d, "day");
+          }}
+        />
+      )}
 
       {!books ? (
         <p className="text-adm-muted">データを取得できませんでした。</p>
@@ -166,7 +195,10 @@ export default function DailyBooksClient({
 
           {/* 個人別 */}
           <div className={card}>
-            <p className="text-sm font-semibold text-adm-text mb-2">個人別（売上・バック・店取分）</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-adm-text">個人別（売上・バック・店取分）</p>
+              <a href={csvHref("summary")} className="text-xs text-adm-primary underline">集計CSV</a>
+            </div>
             {books.byTherapist.length === 0 ? (
               <p className="text-sm text-adm-muted">この期間の売上・バックはありません。</p>
             ) : (
@@ -267,7 +299,10 @@ export default function DailyBooksClient({
 
           {/* 経費一覧 */}
           <div className={card}>
-            <p className="text-sm font-semibold text-adm-text mb-2">経費一覧（{books.label}）</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-adm-text">経費一覧（{books.label}）</p>
+              <a href={csvHref("expenses")} className="text-xs text-adm-primary underline">経費CSV</a>
+            </div>
             {expenses.length === 0 ? (
               <p className="text-sm text-adm-muted">この期間の経費はありません。</p>
             ) : (
@@ -278,6 +313,7 @@ export default function DailyBooksClient({
                     <th className="text-left font-medium py-1">カテゴリ</th>
                     <th className="text-right font-medium py-1">金額</th>
                     <th className="text-left font-medium py-1 pl-3">メモ</th>
+                    <th className="text-right font-medium py-1">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -287,6 +323,16 @@ export default function DailyBooksClient({
                       <td className="py-1 text-adm-text">{EXPENSE_CATEGORY_LABEL[e.category] ?? e.category}</td>
                       <td className="py-1 text-right tabular-nums text-adm-text">{yen(e.amount)}</td>
                       <td className="py-1 pl-3 text-adm-muted">{e.note ?? ""}</td>
+                      <td className="py-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => removeExpense(e.id)}
+                          disabled={deletingId === e.id}
+                          className="text-xs text-adm-danger underline disabled:opacity-50"
+                        >
+                          {deletingId === e.id ? "削除中…" : "削除"}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

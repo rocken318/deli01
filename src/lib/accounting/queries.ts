@@ -720,6 +720,24 @@ export async function listExpensesCore(
   });
 }
 
+/**
+ * 経費を1件削除する（G2・日次会計の訂正用）。RLS（staff）で守る。
+ * 経費は台帳（revenue_lines/payout_lines）と違い誤入力の訂正が要るため delete を許す
+ * （0015 で app_runtime に delete grant 済み）。削除できたら true。
+ */
+export async function deleteExpenseCore(
+  sql: Sql,
+  session: Session,
+  id: string,
+): Promise<boolean> {
+  return withUser(sql, session, async (tx) => {
+    const rows = await tx<{ id: string }[]>`
+      delete from expenses where id = ${id}::uuid returning id
+    `;
+    return rows.length > 0;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 6. 基本集計（完了条件 L1069: 前受金・ポイント引当・売上・経費が**分けて**出る）
 // ---------------------------------------------------------------------------
