@@ -38,6 +38,12 @@ interface Props {
   initialItems: DispatchBoardItem[];
   initialDate: string;
   todayISO: string;
+  /**
+   * 日付変更時に URL（/admin/dispatch-board?date=）へ push するか。
+   * 単体ページでは true（deep-link 可）。案内表の時系列タブに埋め込むときは false
+   * にして、埋め込み元 URL から離脱せずローカル state のみ更新する（判断 Q2）。
+   */
+  syncUrl?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -124,7 +130,7 @@ function offsetDate(dateISO: string, days: number): string {
   return `${y}-${m}-${day}`;
 }
 
-export default function DispatchBoardClient({ initialItems, initialDate, todayISO }: Props) {
+export default function DispatchBoardClient({ initialItems, initialDate, todayISO, syncUrl = true }: Props) {
   const [items, setItems] = useState<DispatchBoardItem[]>(initialItems);
   const [date, setDate] = useState<string>(initialDate);
   const [toast, setToast] = useState<string | null>(null);
@@ -145,7 +151,7 @@ export default function DispatchBoardClient({ initialItems, initialDate, todayIS
     (newDate: string) => {
       setDate(newDate);
       setErrorMsg(null);
-      router.push(`/admin/dispatch-board?date=${newDate}`);
+      if (syncUrl) router.push(`/admin/dispatch-board?date=${newDate}`);
       startTransition(async () => {
         const result = await getDispatchBoard(newDate);
         if (result.ok && result.data) {
@@ -155,7 +161,7 @@ export default function DispatchBoardClient({ initialItems, initialDate, todayIS
         }
       });
     },
-    [router],
+    [router, syncUrl],
   );
 
   /** ステータス前進 */

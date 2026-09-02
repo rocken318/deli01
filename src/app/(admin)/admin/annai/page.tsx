@@ -16,6 +16,9 @@ import {
 } from "@/domain/annai";
 import BookingLauncher from "./BookingLauncher";
 import type { CourseOpt, OptionOpt, AreaOpt } from "./BookingPopup";
+import ConsoleTabs from "./ConsoleTabs";
+import DispatchBoardClient from "../dispatch-board/DispatchBoardClient";
+import { getDispatchBoard } from "@/lib/dispatch-board/actions";
 
 interface Booking {
   courses: CourseOpt[];
@@ -139,8 +142,9 @@ export default async function AnnaiPage() {
     return <main style={{ padding: 24 }}>権限がありません。</main>;
   }
   const nowMs = Date.now();
+  const todayISO = formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd");
   const sql = getClient();
-  const [rows, courses, options, areas, optAvail] = await Promise.all([
+  const [rows, courses, options, areas, optAvail, dispatch] = await Promise.all([
     withUser(sql, session, (tx) => listAnnaiBoardCore(tx, nowMs)),
     sql<CourseOpt[]>`
       select id, name, price, duration_min, nomination_fee_default
@@ -153,8 +157,11 @@ export default async function AnnaiPage() {
     sql<AreaOpt[]>`select id, name from areas where is_active = true order by sort_order asc`,
     // オプションのセラピスト対応（行があるオプションは対応セラピストのみ / spec 3-4・判断#37）
     sql<{ option_id: string; therapist_id: string }[]>`select option_id, therapist_id from option_availability`,
+    // 時系列タブ用（当日の配車ボード / 判断 Q2）。権限は同じ manage_reservations。
+    getDispatchBoard(todayISO),
   ]);
   const { active, retired } = buildBoard(rows, nowMs);
+  const dispatchItems = dispatch.ok ? (dispatch.data ?? []) : [];
 
   // option_availability に行があるオプションは対応セラピストのみ表示（行が無ければ全員対応）。
   // 板は行=セラピストごとに押せる OP をここで絞る（非対応 OP は engine/loadOptionSnapshots で
@@ -164,9 +171,8 @@ export default async function AnnaiPage() {
     filterOptionsForTherapist(options, therapistId, optIndex);
   const booking: Booking = { courses, options, areas };
 
-  return (
-    <main style={{ padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
-      <h1 style={{ color: "#1C2321", marginBottom: 4 }}>案内表</h1>
+  const boardView = (
+    <>
       <p style={{ color: "#5b625f", fontSize: 13, marginBottom: 12 }}>
         次案内可能が早い順（{formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd HH:mm")}）。名前=予定/売上、予約カード=詳細へ。終了分は<span style={{ color: "#B4453C", fontWeight: 700 }}>要清算</span>/<span style={{ color: "#2c6152", fontWeight: 700 }}>✔会計済</span>を表示（清算は詳細ページ）。
       </p>
@@ -190,6 +196,22 @@ export default async function AnnaiPage() {
       {active.length === 0 && retired.length === 0 && (
         <p style={{ color: "#9BA5AF" }}>本日の出勤・予約がありません。</p>
       )}
+    </>
+  );
+
+  const timelineView = (
+    <>
+      {!dispatch.ok && (
+        <p style={{ color: "#B4453C", fontSize: 13, marginBottom: 8 }}>{dispatch.error ?? "配車ボードの取得に失敗しました"}</p>
+      )}
+      <DispatchBoardClient initialItems={dispatchItems} initialDate={todayISO} todayISO={todayISO} syncUrl={false} />
+    </>
+  );
+
+  return (
+    <main style={{ padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
+      <h1 style={{ color: "#1C2321", marginBottom: 10 }}>案内表</h1>
+      <ConsoleTabs board={boardView} timeline={timelineView} />
     </main>
   );
 }
