@@ -18,6 +18,7 @@ import type { RevenueLineDraft, PointLiabilityBreakdown, BooksPeriod } from '@/d
 import { businessDayRange } from '@/domain/accounting';
 import {
   addExpenseCore,
+  deleteExpenseCore,
   getAccountingSummaryCore,
   listExpensesCore,
   postReservationRevenueCore,
@@ -373,6 +374,22 @@ export async function listExpenses(
   } catch (e) {
     console.error('listExpenses failed:', e);
     return { ok: false, error: '経費の取得に失敗しました' };
+  }
+}
+
+/** 経費を1件削除（G2・訂正用）。RLS（staff）で守る。 */
+export async function deleteExpense(id: string): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  const parsed = z.string().uuid().safeParse(id);
+  if (!parsed.success) return { ok: false, error: '不正な経費です' };
+  try {
+    const ok = await deleteExpenseCore(getClient(), session, parsed.data);
+    if (!ok) return { ok: false, error: '削除できませんでした（既に削除済み、または権限がありません）' };
+    return { ok: true };
+  } catch (e) {
+    console.error('deleteExpense failed:', e);
+    return { ok: false, error: '経費の削除に失敗しました' };
   }
 }
 
