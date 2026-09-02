@@ -8,16 +8,12 @@ import BookingPopup, { type CourseOpt, type OptionOpt, type AreaOpt } from "./Bo
 export default function BookingLauncher({
   therapistId,
   therapistSlug,
-  todayISO,
-  defaultHHMM,
   courses,
   options,
   areas,
 }: {
   therapistId: string;
   therapistSlug: string;
-  todayISO: string;
-  defaultHHMM: string;
   courses: CourseOpt[];
   options: OptionOpt[];
   areas: AreaOpt[];
@@ -49,13 +45,11 @@ export default function BookingLauncher({
         <BookingPopup
           therapistId={therapistId}
           therapistSlug={therapistSlug}
-          todayISO={todayISO}
-          defaultHHMM={defaultHHMM}
           courses={courses}
           options={options}
           areas={areas}
           onCreated={() => {
-            setOpen(false);
+            // 完了表示（✓）はポップ側で出す。板の実績反映のためサーバ再取得のみ。
             router.refresh();
           }}
         />

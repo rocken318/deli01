@@ -11,8 +11,6 @@ import BookingLauncher from "./BookingLauncher";
 import type { CourseOpt, OptionOpt, AreaOpt } from "./BookingPopup";
 
 interface Booking {
-  todayISO: string;
-  nowMs: number;
   courses: CourseOpt[];
   options: OptionOpt[];
   areas: AreaOpt[];
@@ -105,8 +103,6 @@ function Row({ r, booking }: { r: BoardRow; booking?: Booking }) {
         <BookingLauncher
           therapistId={r.therapistId}
           therapistSlug={r.slug}
-          todayISO={booking.todayISO}
-          defaultHHMM={hmMs(r.window.fromMs ?? booking.nowMs)}
           courses={booking.courses}
           options={booking.options}
           areas={booking.areas}
@@ -136,13 +132,7 @@ export default async function AnnaiPage() {
     sql<AreaOpt[]>`select id, name from areas where is_active = true order by sort_order asc`,
   ]);
   const { active, retired } = buildBoard(rows, nowMs);
-  const booking: Booking = {
-    todayISO: formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd"),
-    nowMs,
-    courses,
-    options,
-    areas,
-  };
+  const booking: Booking = { courses, options, areas };
 
   return (
     <main style={{ padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
