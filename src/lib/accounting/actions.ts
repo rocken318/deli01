@@ -14,7 +14,8 @@ import { z } from 'zod';
 import { getClient } from '@/lib/db-client';
 import { getDevSession } from '@/lib/cms/dev-session';
 import { loadBookingFees } from '@/lib/booking/holds';
-import type { RevenueLineDraft, PointLiabilityBreakdown } from '@/domain/accounting';
+import type { RevenueLineDraft, PointLiabilityBreakdown, BooksPeriod } from '@/domain/accounting';
+import { businessDayRange } from '@/domain/accounting';
 import {
   addExpenseCore,
   getAccountingSummaryCore,
@@ -25,6 +26,8 @@ import {
   sellTicketCore,
 } from './queries';
 import type { AccountingSummary, ExpenseItem } from './queries';
+import { getDailyBooksCore } from './daily-books';
+import type { DailyBooksResult } from './daily-books';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -370,6 +373,58 @@ export async function listExpenses(
   } catch (e) {
     console.error('listExpenses failed:', e);
     return { ok: false, error: '経費の取得に失敗しました' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// G 日次会計（受付表の確認用 / SGS 形）: 営業日（06:00 JST 境界）の日/週/月ロールアップ
+// ---------------------------------------------------------------------------
+
+const dailyBooksSchema = z.object({
+  dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  period: z.enum(['day', 'week', 'month']),
+});
+
+export interface DailyBooksView extends DailyBooksResult {
+  label: string;
+  period: BooksPeriod;
+  anchorDate: string;
+  /** 経費入力/一覧に使う暦日範囲（半開 [fromDate, toDate)） */
+  fromDate: string;
+  toDate: string;
+}
+
+/**
+ * 営業日（06:00 JST 境界）× 期間（日/週/月）の日次会計を返す。
+ * 売上/バック/経費/粗利・個人別・支払方法内訳（読み取り専用・締めロックなし）。
+ * RLS（owner/admin）で守る。
+ */
+export async function getDailyBooks(
+  input: z.infer<typeof dailyBooksSchema>,
+): Promise<ActionResult<DailyBooksView>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+
+  const parsed = dailyBooksSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: '入力が不正です' };
+
+  try {
+    const range = businessDayRange(parsed.data.dateISO, parsed.data.period);
+    const core = await getDailyBooksCore(getClient(), session, range);
+    return {
+      ok: true,
+      data: {
+        ...core,
+        label: range.label,
+        period: range.period,
+        anchorDate: range.anchorDate,
+        fromDate: range.fromDate,
+        toDate: range.toDate,
+      },
+    };
+  } catch (e) {
+    console.error('getDailyBooks failed:', e);
+    return { ok: false, error: '日次会計の取得に失敗しました' };
   }
 }
 
