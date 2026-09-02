@@ -35,6 +35,12 @@ const ADVANCE_LABEL: Partial<Record<DispatchStatus, string>> = {
 interface Props {
   initialItems: TherapistTimelineItem[];
   asSlug?: string;
+  /**
+   * 表示中の日付が「今日」か。過去/未来の履歴閲覧では false にして、
+   * ステータス前進ボタンと「次の出発時刻」を出さない（読み取り専用の履歴）。
+   * 省略時は true（従来どおり当日運用）。
+   */
+  isToday?: boolean;
 }
 
 interface ItemState {
@@ -43,7 +49,7 @@ interface ItemState {
   error?: string;
 }
 
-export default function TimelineView({ initialItems, asSlug }: Props) {
+export default function TimelineView({ initialItems, asSlug, isToday = true }: Props) {
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>(() => {
     const s: Record<string, ItemState> = {};
     for (const item of initialItems) {
@@ -101,15 +107,15 @@ export default function TimelineView({ initialItems, asSlug }: Props) {
           borderRadius: '4px',
         }}
       >
-        本日の予定はありません
+        {isToday ? '本日の予定はありません' : '予定はありません'}
       </div>
     );
   }
 
   return (
     <div>
-      {/* 次の出発時刻（最上部・大きく） */}
-      {nextItem && (
+      {/* 次の出発時刻（最上部・大きく）。当日のみ＝過去/未来の履歴では出さない */}
+      {isToday && nextItem && (
         <div
           className="rounded p-4 mb-4 text-center"
           style={{
@@ -283,8 +289,8 @@ export default function TimelineView({ initialItems, asSlug }: Props) {
                 asSlug={asSlug}
               />
 
-              {/* ワンタップ前進ボタン */}
-              {!isDone && canAdv && toSt && (
+              {/* ワンタップ前進ボタン（当日のみ。過去/未来の履歴では出さない） */}
+              {isToday && !isDone && canAdv && toSt && (
                 <div className="px-4 pb-3">
                   <button
                     type="button"
