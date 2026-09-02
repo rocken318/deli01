@@ -276,6 +276,8 @@ export async function markPayoutPaid(
 const myEarningsSchema = z.object({
   from: dateSchema,
   to: dateSchema,
+  /** 基準日（この日を「その日」として日次・月内累計を出す）。省略時は今日。 */
+  asOf: dateSchema.optional(),
   /** dev なりすまし用 slug（therapist-portal-actions と同じ流儀） */
   asSlug: z.string().min(1).max(100).optional(),
 });
@@ -297,6 +299,7 @@ export async function getMyEarnings(
     const outcome = await getMyEarningsCore(getClient(), session, {
       fromDate: parsed.data.from,
       toDate: parsed.data.to,
+      asOfDate: parsed.data.asOf,
     });
     if (outcome.kind === 'forbidden') {
       return { ok: false, error: 'セラピスト本人のみ利用できます' };
