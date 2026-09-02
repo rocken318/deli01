@@ -8,6 +8,7 @@ import {
 import TimelineView from './TimelineView';
 import EmergencyButton from './EmergencyButton';
 import EarningsSection from './EarningsSection';
+import PhotoSubmitSection from './PhotoSubmitSection';
 import ScheduleSection from './ScheduleSection';
 import ShiftSelfRegister from './ShiftSelfRegister';
 import HandoverSection from './HandoverSection';
@@ -168,6 +169,11 @@ export default async function MyPage({
         {/* 報酬（フェーズ18）。表示中の日付基準（過去日はその日の報酬・月内累計） */}
         <section aria-label="報酬">
           <EarningsSection asSlug={asSlug} dateISO={dateISO} todayISO={todayISO} />
+        </section>
+
+        {/* プロフィール写真の提出（機能H・承認制） */}
+        <section aria-label="プロフィール写真">
+          <PhotoSubmitSection asSlug={asSlug} />
         </section>
 
         {/* 緊急連絡ボタン（常時表示） */}
