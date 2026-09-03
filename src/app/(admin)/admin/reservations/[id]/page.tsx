@@ -195,6 +195,14 @@ export default async function ReservationDetailPage({ params }: PageProps) {
     notFound();
   }
 
+  // 架電履歴（電話確認の記録・全結果）。記録が可視化されるように詳細に出す。
+  const callLogs = await withUser(sql, session, (tx) =>
+    tx<{ result: string; note: string | null; called_at: Date }[]>`
+      select result::text as result, note, called_at
+      from call_logs where reservation_id = ${id}::uuid order by called_at desc
+    `,
+  );
+
   const businessDate = formatInTimeZone(row.start_at, TZ, 'yyyy-MM-dd');
   const therapistScheduleHref = `/admin/therapists/${row.therapist_slug}/schedule?date=${businessDate}`;
 
@@ -339,6 +347,25 @@ export default async function ReservationDetailPage({ params }: PageProps) {
               </span>
             ) : (
               <span className="text-adm-muted">未確認</span>
+            )}
+          </Row>
+          <Row label="架電履歴">
+            {callLogs.length === 0 ? (
+              <span className="text-adm-muted">記録なし</span>
+            ) : (
+              <ul className="space-y-1">
+                {callLogs.map((cl, i) => (
+                  <li key={i} className="text-sm">
+                    {formatInTimeZone(cl.called_at, TZ, 'MM-dd HH:mm')}{' '}
+                    <span
+                      style={{ color: cl.result === 'confirmed' ? '#3F7A6B' : cl.result === 'no_answer' ? '#B4453C' : '#C98A2B' }}
+                    >
+                      {cl.result === 'confirmed' ? '確認' : cl.result === 'no_answer' ? '不通' : 'その他'}
+                    </span>
+                    {cl.note ? `｜${cl.note}` : ''}
+                  </li>
+                ))}
+              </ul>
             )}
           </Row>
           <Row label="入室電話">

@@ -129,6 +129,13 @@ export default function PhoneConfirmList({ initialReservations }: Props) {
                     <span className="inline-block px-2 py-0.5 text-xs rounded bg-yellow-100 text-yellow-800 border border-yellow-200">
                       未確認
                     </span>
+                    {r.callCount > 0 && (
+                      <div className="text-xs text-adm-muted mt-1">
+                        架電{r.callCount}回・最終:{' '}
+                        {r.lastResult === 'no_answer' ? '不通' : r.lastResult === 'other' ? 'その他' : '確認'}
+                        {r.lastCalledAtISO ? ` (${formatStartAt(r.lastCalledAtISO)})` : ''}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <button
