@@ -47,6 +47,7 @@ export function computeAvailableWindow(
   row: BoardInput,
   nowMs: number,
   buffers: { afterBufferMin: number; travelMin: number } = DEFAULT_BUFFERS,
+  minBookableMin = 0,
 ): AvailWindow {
   if (row.attendanceState === "done") {
     return { kind: "done", fromMs: null, untilMs: null, gapMin: null, busyNow: false };
@@ -81,6 +82,12 @@ export function computeAvailableWindow(
       if (e > cursor) cursor = e; // この予約の後ろへ開始をずらす
       continue;
     }
+    // Gap found: cursor..s is free. Check if it is long enough to be bookable.
+    if (minBookableMin > 0 && (s - cursor) < minBookableMin * MIN) {
+      // Too short — skip this gap, push cursor past this occupation and keep looking.
+      cursor = e;
+      continue;
+    }
     untilMs = s; // 次の占有が始まる＝ここまで空き
     break;
   }
@@ -99,8 +106,9 @@ export function buildBoard(
   rows: BoardInput[],
   nowMs: number,
   buffers: { afterBufferMin: number; travelMin: number } = DEFAULT_BUFFERS,
+  minBookableMin = 0,
 ): { active: BoardRow[]; retired: BoardRow[] } {
-  const withWin: BoardRow[] = rows.map((r) => ({ ...r, window: computeAvailableWindow(r, nowMs, buffers) }));
+  const withWin: BoardRow[] = rows.map((r) => ({ ...r, window: computeAvailableWindow(r, nowMs, buffers, minBookableMin) }));
   const retired = withWin.filter((r) => r.window.kind === "done");
   const active = withWin
     .filter((r) => r.window.kind !== "done" && r.window.kind !== "off")

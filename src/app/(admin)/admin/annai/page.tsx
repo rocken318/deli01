@@ -10,6 +10,7 @@ import {
   buildBoard,
   indexOptionAvailability,
   filterOptionsForTherapist,
+  DEFAULT_BUFFERS,
   type BoardRow,
   type AvailWindow,
   type JobItem,
@@ -160,7 +161,16 @@ export default async function AnnaiPage() {
     // 時系列タブ用（当日の配車ボード / 判断 Q2）。権限は同じ manage_reservations。
     getDispatchBoard(todayISO),
   ]);
-  const { active, retired } = buildBoard(rows, nowMs);
+  // 最短コース duration + 前バッファ5分(出発前準備・定数) + 上がりバッファ + 移動
+  // = セラピストが次の予約に向けて動き出すまでに必要な最小時間
+  // 前バッファ: travel_buffers テーブルの before 既定を使うのが理想だが、
+  // ここでは定数5分（現場運用上の最低準備時間）で代替。理由: annai 判断は概算で十分。
+  const minDurationMin = courses.length > 0
+    ? Math.min(...courses.map((c) => c.duration_min))
+    : 0;
+  const BEFORE_BUFFER_MIN = 5; // 出発前準備（最低限）
+  const minBookableMin = minDurationMin + BEFORE_BUFFER_MIN + DEFAULT_BUFFERS.afterBufferMin + DEFAULT_BUFFERS.travelMin;
+  const { active, retired } = buildBoard(rows, nowMs, DEFAULT_BUFFERS, minBookableMin > 0 ? minBookableMin : 0);
   const dispatchItems = dispatch.ok ? (dispatch.data ?? []) : [];
 
   // option_availability に行があるオプションは対応セラピストのみ表示（行が無ければ全員対応）。

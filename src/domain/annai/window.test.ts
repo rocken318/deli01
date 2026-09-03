@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBoard, computeAvailableWindow, type BoardInput, type JobItem } from "./window";
+import { buildBoard, computeAvailableWindow, DEFAULT_BUFFERS, type BoardInput, type JobItem } from "./window";
 
 const at = (h: number, m = 0) => new Date(2026, 8, 1, h, m, 0);
 const job = (sh: number, eh: number, extra: Partial<JobItem> = {}): JobItem => ({
@@ -96,6 +96,59 @@ describe("computeAvailableWindow", () => {
     // 17:45 のような間の空きを出さず、2件目の後ろまでずれる
     expect(w.fromMs).not.toBeNull();
     expect(w.fromMs!).toBeGreaterThanOrEqual(at(18, 40).getTime());
+  });
+
+  it("minBookableMin: 短すぎる隙間はスキップして次予約の後ろを返す", () => {
+    // 次予約が 12:00（出発11:35）→ 11:00〜11:35=35分の隙間は 60分コース+バッファ(50分)に満たない
+    // minBookableMin=60 なら次予約の後ろへずれる
+    const row: BoardInput = {
+      ...base,
+      upcoming: [
+        job(12, 13, { status: "confirmed", departAt: at(11, 35), freeAt: at(13, 10) }),
+      ],
+    };
+    // now=11:00（出勤中、まだ接客なし）
+    const w = computeAvailableWindow(row, at(11).getTime(), DEFAULT_BUFFERS, 60);
+    // 11:00〜11:35 の35分隙間はスキップ → 次予約終了後 freeAt=13:10 から
+    expect(w.fromMs).not.toBeNull();
+    expect(w.fromMs!).toBeGreaterThanOrEqual(at(13, 10).getTime());
+    expect(w.kind).toBe("from");
+  });
+
+  it("minBookableMin: 十分な隙間はそのまま通す", () => {
+    // 次予約が 14:00（出発13:35）→ 11:00〜13:35=155分の隙間は 60分コースに十分
+    const row: BoardInput = {
+      ...base,
+      upcoming: [
+        job(14, 15, { status: "confirmed", departAt: at(13, 35), freeAt: at(15, 10) }),
+      ],
+    };
+    const w = computeAvailableWindow(row, at(11).getTime(), DEFAULT_BUFFERS, 60);
+    // 隙間は十分 → 今すぐ(now)、上限は 13:35（次予約の出発）
+    expect(w.kind).toBe("now");
+    expect(w.untilMs).toBe(at(13, 35).getTime());
+  });
+
+  it("minBookableMin: 予約なし・シフト残り時間がゼロ扱い → minBookableMin=0 と同じ（予約なしは常に案内可能）", () => {
+    // 予約なし → 隙間はシフト終了まで、minBookableMin があっても制約なし
+    const w = computeAvailableWindow(base, at(16).getTime(), DEFAULT_BUFFERS, 60);
+    expect(w.kind).toBe("now");
+    expect(w.untilMs).toBe(at(23).getTime());
+  });
+
+  it("minBookableMin省略=0: 従来動作（短い隙間もそのまま）", () => {
+    // 次予約が 11:30（出発11:05）→ 11:00〜11:05=5分しかないが minBookableMin=0 なら出す
+    const row: BoardInput = {
+      ...base,
+      upcoming: [
+        job(12, 13, { status: "confirmed", departAt: at(11, 5), freeAt: at(13, 10) }),
+      ],
+    };
+    const w = computeAvailableWindow(row, at(11).getTime());
+    // minBookableMin省略=0 → 短くても now/from を出す（既存動作）
+    expect(w.kind).toBe("now");
+    expect(w.untilMs).toBe(at(11, 5).getTime());
+    expect(w.gapMin).toBe(5);
   });
 });
 
