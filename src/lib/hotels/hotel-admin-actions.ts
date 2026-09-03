@@ -9,6 +9,7 @@
  * - name unique 違反 (23505) → 「同名のホテルが既にあります」
  * - FK 参照中 delete 失敗 (23503) → 「使用中のため削除できません。代わりに受け入れ停止にしてください」
  * - 金額なし。extra_minutes は整数 (check >=0 は DB 側)。
+ * - 0026: card_key_required / guest_charge_note / access_note / maps_url 追加。
  */
 
 import { revalidatePath } from "next/cache";
@@ -38,6 +39,14 @@ export interface HotelAdminRow {
   extraMinutes: number;
   isBlocked: boolean;
   note: string | null;
+  /** カードキー/フロント経由が必要か（0026） */
+  cardKeyRequired: boolean;
+  /** ゲストチャージ・同伴利用の注意（0026） */
+  guestChargeNote: string | null;
+  /** 止められた履歴・迎えの理由・入店注意（0026） */
+  accessNote: string | null;
+  /** Google Maps 経路URL（0026） */
+  mapsUrl: string | null;
 }
 
 export interface BookableHotel {
@@ -63,6 +72,11 @@ const createHotelSchema = z.object({
   parkingNote: z.string().max(1000).optional(),
   extraMinutes: z.number().int().min(0, "館内移動時間は0以上の整数です").default(0),
   note: z.string().max(2000).optional(),
+  /** 0026 */
+  cardKeyRequired: z.boolean().optional().default(false),
+  guestChargeNote: z.string().max(1000).optional(),
+  accessNote: z.string().max(1000).optional(),
+  mapsUrl: z.union([z.string().url("Google Maps URL の形式が正しくありません").max(2000), z.literal("")]).optional(),
 });
 
 const updateHotelSchema = z.object({
@@ -76,6 +90,11 @@ const updateHotelSchema = z.object({
   extraMinutes: z.number().int().min(0).optional(),
   isBlocked: z.boolean().optional(),
   note: z.string().max(2000).nullable().optional(),
+  /** 0026 */
+  cardKeyRequired: z.boolean().optional(),
+  guestChargeNote: z.string().max(1000).nullable().optional(),
+  accessNote: z.string().max(1000).nullable().optional(),
+  mapsUrl: z.union([z.string().url("Google Maps URL の形式が正しくありません").max(2000), z.literal(""), z.null()]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -108,6 +127,10 @@ interface HotelAdminRaw {
   extra_minutes: number;
   is_blocked: boolean;
   note: string | null;
+  card_key_required: boolean;
+  guest_charge_note: string | null;
+  access_note: string | null;
+  maps_url: string | null;
 }
 
 /** 全ホテル一覧（owner/admin）。is_blocked 含む。name asc。 */
@@ -126,7 +149,9 @@ export async function listHotelsAdmin(): Promise<ActionResult<HotelAdminRow[]>> 
           h.id, h.name, h.name_kana, h.address,
           h.area_id, a.name as area_name,
           h.entry_note, h.parking_note,
-          h.extra_minutes, h.is_blocked, h.note
+          h.extra_minutes, h.is_blocked, h.note,
+          h.card_key_required, h.guest_charge_note,
+          h.access_note, h.maps_url
         from hotels h
         left join areas a on a.id = h.area_id
         order by h.name asc
@@ -146,6 +171,10 @@ export async function listHotelsAdmin(): Promise<ActionResult<HotelAdminRow[]>> 
         extraMinutes: r.extra_minutes,
         isBlocked: r.is_blocked,
         note: r.note,
+        cardKeyRequired: r.card_key_required,
+        guestChargeNote: r.guest_charge_note,
+        accessNote: r.access_note,
+        mapsUrl: r.maps_url,
       })),
     };
   } catch (e) {
@@ -201,7 +230,7 @@ export async function listBookableHotels(): Promise<ActionResult<BookableHotel[]
 
 /** ホテルを新規作成する（owner/admin）。name 一意違反は UI 向け文言に変換。 */
 export async function createHotel(
-  input: z.infer<typeof createHotelSchema>,
+  input: z.input<typeof createHotelSchema>,
 ): Promise<ActionResult<{ id: string }>> {
   const session = await getDevSession();
   if (!session) return { ok: false, error: "認証が必要です" };
@@ -215,6 +244,9 @@ export async function createHotel(
   }
 
   const d = parsed.data;
+  // mapsUrl が空文字の場合は null として扱う
+  const mapsUrlVal = d.mapsUrl === "" ? null : (d.mapsUrl ?? null);
+
   const sql = getClient();
   try {
     const rows = await withUser(sql, session, async (tx) => {
@@ -222,7 +254,8 @@ export async function createHotel(
         insert into hotels (
           name, name_kana, address, area_id,
           entry_note, parking_note, extra_minutes, note,
-          is_blocked
+          is_blocked,
+          card_key_required, guest_charge_note, access_note, maps_url
         ) values (
           ${d.name},
           ${d.nameKana ?? null},
@@ -232,7 +265,11 @@ export async function createHotel(
           ${d.parkingNote ?? null},
           ${d.extraMinutes},
           ${d.note ?? null},
-          false
+          false,
+          ${d.cardKeyRequired},
+          ${d.guestChargeNote ?? null},
+          ${d.accessNote ?? null},
+          ${mapsUrlVal}
         )
         returning id
       `;
@@ -279,6 +316,11 @@ export async function updateHotel(
       if (d.extraMinutes !== undefined) updates.extra_minutes = d.extraMinutes;
       if (d.isBlocked !== undefined) updates.is_blocked = d.isBlocked;
       if (d.note !== undefined) updates.note = d.note;
+      // 0026
+      if (d.cardKeyRequired !== undefined) updates.card_key_required = d.cardKeyRequired;
+      if (d.guestChargeNote !== undefined) updates.guest_charge_note = d.guestChargeNote;
+      if (d.accessNote !== undefined) updates.access_note = d.accessNote;
+      if (d.mapsUrl !== undefined) updates.maps_url = d.mapsUrl === "" ? null : d.mapsUrl;
 
       await tx`update hotels set ${tx(updates)} where id = ${d.id}::uuid`;
     });
@@ -333,3 +375,5 @@ export async function deleteHotel(id: string): Promise<ActionResult<void>> {
     return { ok: false, error: pgErrToMessage(e) };
   }
 }
+
+

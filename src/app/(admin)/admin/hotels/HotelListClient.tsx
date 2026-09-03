@@ -5,6 +5,7 @@
  * - ホテル一覧テーブル（name/エリア/extra_minutes/entry_note/address/is_blocked）
  * - 新規追加フォーム
  * - 各行インライン編集・受け入れ停止トグル・削除
+ * - 0026: card_key_required / guest_charge_note / access_note / maps_url 追加
  * 3状態: 空状態 / ロード中 / エラー
  */
 
@@ -35,6 +36,11 @@ function AddHotelForm({ areas, onDone }: { areas: AreaOption[]; onDone: () => vo
   const [parkingNote, setParkingNote] = useState("");
   const [extraMinutes, setExtraMinutes] = useState(0);
   const [note, setNote] = useState("");
+  // 0026
+  const [cardKeyRequired, setCardKeyRequired] = useState(false);
+  const [guestChargeNote, setGuestChargeNote] = useState("");
+  const [accessNote, setAccessNote] = useState("");
+  const [mapsUrl, setMapsUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -51,6 +57,10 @@ function AddHotelForm({ areas, onDone }: { areas: AreaOption[]; onDone: () => vo
         parkingNote: parkingNote.trim() || undefined,
         extraMinutes,
         note: note.trim() || undefined,
+        cardKeyRequired,
+        guestChargeNote: guestChargeNote.trim() || undefined,
+        accessNote: accessNote.trim() || undefined,
+        mapsUrl: mapsUrl.trim() || undefined,
       });
       if (result.ok) {
         setName("");
@@ -61,6 +71,10 @@ function AddHotelForm({ areas, onDone }: { areas: AreaOption[]; onDone: () => vo
         setParkingNote("");
         setExtraMinutes(0);
         setNote("");
+        setCardKeyRequired(false);
+        setGuestChargeNote("");
+        setAccessNote("");
+        setMapsUrl("");
         onDone();
       } else {
         setError(result.error ?? "追加に失敗しました");
@@ -114,6 +128,45 @@ function AddHotelForm({ areas, onDone }: { areas: AreaOption[]; onDone: () => vo
           <label className="block text-xs text-adm-text/70 mb-1">メモ</label>
           <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} style={r4} placeholder="内部メモ" />
         </div>
+
+        {/* 0026: 入店ノウハウ */}
+        <div className="col-span-3 border-t border-adm-border pt-3">
+          <p className="text-xs font-semibold text-adm-text mb-2">入店ノウハウ</p>
+        </div>
+        <div className="col-span-3 flex items-center gap-2">
+          <input
+            type="checkbox" id="add-card-key" checked={cardKeyRequired}
+            onChange={(e) => setCardKeyRequired(e.target.checked)}
+            className="accent-adm-primary"
+          />
+          <label htmlFor="add-card-key" className="text-sm text-adm-text">カードキー / フロント経由が必要</label>
+        </div>
+        <div className="col-span-3">
+          <label className="block text-xs text-adm-text/70 mb-1">ゲストチャージ・同伴の注意</label>
+          <textarea
+            value={guestChargeNote} onChange={(e) => setGuestChargeNote(e.target.value)}
+            rows={2} maxLength={1000}
+            className={inputCls} style={r4}
+            placeholder="ゲストチャージ1泊あたり2,000円。同伴者は事前申告が必要"
+          />
+        </div>
+        <div className="col-span-3">
+          <label className="block text-xs text-adm-text/70 mb-1">入店注意・止められた履歴・迎えの理由</label>
+          <textarea
+            value={accessNote} onChange={(e) => setAccessNote(e.target.value)}
+            rows={2} maxLength={1000}
+            className={inputCls} style={r4}
+            placeholder="2024/3に一度断られた。フロント担当による。迎えは駐車場で待機"
+          />
+        </div>
+        <div className="col-span-3">
+          <label className="block text-xs text-adm-text/70 mb-1">Google Maps 経路URL</label>
+          <input
+            type="url" value={mapsUrl} onChange={(e) => setMapsUrl(e.target.value)}
+            className={inputCls} style={r4}
+            placeholder="https://maps.google.com/..."
+          />
+        </div>
       </div>
       {error && <p className="text-xs text-adm-danger">{error}</p>}
       <button
@@ -142,6 +195,10 @@ function HotelRow({ hotel, areas, onDone }: { hotel: HotelAdminRow; areas: AreaO
     parkingNote: hotel.parkingNote ?? "",
     extraMinutes: hotel.extraMinutes,
     note: hotel.note ?? "",
+    cardKeyRequired: hotel.cardKeyRequired,
+    guestChargeNote: hotel.guestChargeNote ?? "",
+    accessNote: hotel.accessNote ?? "",
+    mapsUrl: hotel.mapsUrl ?? "",
   });
   const [rowError, setRowError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -162,6 +219,10 @@ function HotelRow({ hotel, areas, onDone }: { hotel: HotelAdminRow; areas: AreaO
         parkingNote: editData.parkingNote.trim() || null,
         extraMinutes: editData.extraMinutes,
         note: editData.note.trim() || null,
+        cardKeyRequired: editData.cardKeyRequired,
+        guestChargeNote: editData.guestChargeNote.trim() || null,
+        accessNote: editData.accessNote.trim() || null,
+        mapsUrl: editData.mapsUrl.trim() || null,
       });
       if (result.ok) {
         setEditing(false);
@@ -198,7 +259,7 @@ function HotelRow({ hotel, areas, onDone }: { hotel: HotelAdminRow; areas: AreaO
   if (editing) {
     return (
       <tr className="border-b border-adm-border align-top">
-        <td colSpan={7} className="px-3 py-3">
+        <td colSpan={8} className="px-3 py-3">
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-xs text-adm-text/70">ホテル名</label>
@@ -235,6 +296,37 @@ function HotelRow({ hotel, areas, onDone }: { hotel: HotelAdminRow; areas: AreaO
               <label className="text-xs text-adm-text/70">メモ</label>
               <input value={editData.note} onChange={(e) => setEditData((d) => ({ ...d, note: e.target.value }))} className={inputCls} style={r4} />
             </div>
+
+            {/* 0026: 入店ノウハウ */}
+            <div className="col-span-3 border-t border-adm-border pt-2">
+              <p className="text-xs font-semibold text-adm-text mb-2">入店ノウハウ</p>
+            </div>
+            <div className="col-span-3 flex items-center gap-2">
+              <input
+                type="checkbox" id={`edit-card-key-${hotel.id}`} checked={editData.cardKeyRequired}
+                onChange={(e) => setEditData((d) => ({ ...d, cardKeyRequired: e.target.checked }))}
+                className="accent-adm-primary"
+              />
+              <label htmlFor={`edit-card-key-${hotel.id}`} className="text-sm text-adm-text">カードキー / フロント経由が必要</label>
+            </div>
+            <div className="col-span-3">
+              <label className="text-xs text-adm-text/70">ゲストチャージ・同伴の注意</label>
+              <textarea
+                value={editData.guestChargeNote} onChange={(e) => setEditData((d) => ({ ...d, guestChargeNote: e.target.value }))}
+                rows={2} maxLength={1000} className={inputCls} style={r4}
+              />
+            </div>
+            <div className="col-span-3">
+              <label className="text-xs text-adm-text/70">入店注意・止められた履歴・迎えの理由</label>
+              <textarea
+                value={editData.accessNote} onChange={(e) => setEditData((d) => ({ ...d, accessNote: e.target.value }))}
+                rows={2} maxLength={1000} className={inputCls} style={r4}
+              />
+            </div>
+            <div className="col-span-3">
+              <label className="text-xs text-adm-text/70">Google Maps 経路URL</label>
+              <input type="url" value={editData.mapsUrl} onChange={(e) => setEditData((d) => ({ ...d, mapsUrl: e.target.value }))} className={inputCls} style={r4} />
+            </div>
           </div>
           {rowError && <p className="text-xs text-adm-danger mt-1">{rowError}</p>}
           <div className="flex gap-2 mt-2">
@@ -259,8 +351,20 @@ function HotelRow({ hotel, areas, onDone }: { hotel: HotelAdminRow; areas: AreaO
       </td>
       <td className="px-3 py-2 text-adm-text/70">{hotel.areaName ?? "—"}</td>
       <td className="px-3 py-2 text-adm-text/70 whitespace-nowrap">{hotel.extraMinutes}分</td>
-      <td className="px-3 py-2 text-adm-text/70 max-w-[200px] truncate">{hotel.entryNote ?? "—"}</td>
-      <td className="px-3 py-2 text-adm-text/70 max-w-[180px] truncate">{hotel.address ?? "—"}</td>
+      <td className="px-3 py-2 text-adm-text/70 max-w-[160px] truncate">{hotel.entryNote ?? "—"}</td>
+      <td className="px-3 py-2 text-adm-text/70 max-w-[160px] truncate">{hotel.address ?? "—"}</td>
+      <td className="px-3 py-2 text-center">
+        {hotel.cardKeyRequired ? (
+          <span className="px-2 py-0.5 text-xs bg-adm-caution/10 text-adm-caution" style={r4}>要カードキー</span>
+        ) : (
+          <span className="px-2 py-0.5 text-xs text-adm-text/40" style={r4}>—</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-adm-text/70 max-w-[120px] truncate">
+        {hotel.mapsUrl ? (
+          <a href={hotel.mapsUrl} target="_blank" rel="noopener noreferrer" className="text-adm-primary underline text-xs">地図</a>
+        ) : "—"}
+      </td>
       <td className="px-3 py-2 text-center">
         {hotel.isBlocked
           ? <span className="px-2 py-0.5 text-xs bg-adm-danger/10 text-adm-danger" style={r4}>停止中</span>
@@ -308,6 +412,8 @@ export function HotelListClient({ hotels, areas }: { hotels: HotelAdminRow[]; ar
                 <th className="px-3 py-2 text-left text-xs font-medium text-adm-text/70">追加移動</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-adm-text/70">入り方</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-adm-text/70">住所</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-adm-text/70">カードキー</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-adm-text/70">地図</th>
                 <th className="px-3 py-2 text-center text-xs font-medium text-adm-text/70">状態</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-adm-text/70">操作</th>
               </tr>

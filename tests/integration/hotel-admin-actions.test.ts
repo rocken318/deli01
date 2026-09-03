@@ -3,6 +3,7 @@
  *
  * ADMIN_DEV_SESSION=1 が有効な環境で getDevSession() が owner セッションを返すことを前提にする。
  * テスト用ホテルはテスト内で作成・削除する（db:reset/db:seed はしない）。
+ * 0026: card_key_required / guest_charge_note / access_note / maps_url の保存・取得を追加。
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import postgres from "postgres";
@@ -58,6 +59,38 @@ describe("createHotel", () => {
     const result = await createHotel({ name: TEST_PREFIX + "negative", extraMinutes: -1 });
     expect(result.ok).toBe(false);
   });
+
+  it("0026: card_key_required=true で保存・取得できる", async () => {
+    const result = await createHotel({
+      name: TEST_PREFIX + "カードキーテスト",
+      extraMinutes: 0,
+      cardKeyRequired: true,
+      guestChargeNote: "ゲストチャージ2000円",
+      accessNote: "2024/3に断られた",
+      mapsUrl: "https://maps.google.com/?q=test",
+    });
+    expect(result.ok).toBe(true);
+    const list = await listHotelsAdmin();
+    const row = list.data?.find((h) => h.id === result.data?.id);
+    expect(row?.cardKeyRequired).toBe(true);
+    expect(row?.guestChargeNote).toBe("ゲストチャージ2000円");
+    expect(row?.accessNote).toBe("2024/3に断られた");
+    expect(row?.mapsUrl).toBe("https://maps.google.com/?q=test");
+  });
+
+  it("0026: card_key_required デフォルトは false", async () => {
+    const result = await createHotel({
+      name: TEST_PREFIX + "デフォルトテスト",
+      extraMinutes: 0,
+    });
+    expect(result.ok).toBe(true);
+    const list = await listHotelsAdmin();
+    const row = list.data?.find((h) => h.id === result.data?.id);
+    expect(row?.cardKeyRequired).toBe(false);
+    expect(row?.guestChargeNote).toBeNull();
+    expect(row?.accessNote).toBeNull();
+    expect(row?.mapsUrl).toBeNull();
+  });
 });
 
 describe("updateHotel", () => {
@@ -84,6 +117,31 @@ describe("updateHotel", () => {
     const row = list.data?.find((h) => h.id === hotelId);
     expect(row?.isBlocked).toBe(true);
   });
+
+  it("0026: card_key_required / guest_charge_note / access_note / maps_url を更新できる", async () => {
+    const r = await updateHotel({
+      id: hotelId,
+      cardKeyRequired: true,
+      guestChargeNote: "同伴不可",
+      accessNote: "裏口から入る",
+      mapsUrl: "https://maps.google.com/?q=updated",
+    });
+    expect(r.ok).toBe(true);
+    const list = await listHotelsAdmin();
+    const row = list.data?.find((h) => h.id === hotelId);
+    expect(row?.cardKeyRequired).toBe(true);
+    expect(row?.guestChargeNote).toBe("同伴不可");
+    expect(row?.accessNote).toBe("裏口から入る");
+    expect(row?.mapsUrl).toBe("https://maps.google.com/?q=updated");
+  });
+
+  it("0026: mapsUrl を null にクリアできる", async () => {
+    const r = await updateHotel({ id: hotelId, mapsUrl: null });
+    expect(r.ok).toBe(true);
+    const list = await listHotelsAdmin();
+    const row = list.data?.find((h) => h.id === hotelId);
+    expect(row?.mapsUrl).toBeNull();
+  });
 });
 
 describe("listHotelsAdmin", () => {
@@ -91,6 +149,18 @@ describe("listHotelsAdmin", () => {
     const r = await listHotelsAdmin();
     expect(r.ok).toBe(true);
     expect(Array.isArray(r.data)).toBe(true);
+  });
+
+  it("0026: 返り値に cardKeyRequired / guestChargeNote / accessNote / mapsUrl が含まれる", async () => {
+    const r = await listHotelsAdmin();
+    expect(r.ok).toBe(true);
+    if (r.data && r.data.length > 0) {
+      const row = r.data[0]!;
+      expect(typeof row.cardKeyRequired).toBe("boolean");
+      expect(row.guestChargeNote === null || typeof row.guestChargeNote === "string").toBe(true);
+      expect(row.accessNote === null || typeof row.accessNote === "string").toBe(true);
+      expect(row.mapsUrl === null || typeof row.mapsUrl === "string").toBe(true);
+    }
   });
 });
 
