@@ -571,7 +571,7 @@ const therapistRecordSeeds: {
  * - 名取は他の全エリアから遠方（車 or unreachable になる例）
  */
 // transport_fee = エリア別の車交通費（税別・整数円・1000円単位 / 発注者決定 2026-09-04）。
-// 立町（拠点＝国分町）無料 / その他仙台市中心部 2000 / 泉区・太白区・若林区 3000 / 名取市・富谷市 4000。
+// 立町（拠点）無料 / 国分町・その他仙台市中心部 2000 / 泉区・太白区・若林区 3000 / 名取市・富谷市 4000。
 const areaSeeds: {
   id: string;
   name: string;
@@ -581,7 +581,8 @@ const areaSeeds: {
   sort_order: number;
   transport_fee: number;
 }[] = [
-  { id: "cccccccc-0000-4000-8000-000000000001", name: "国分町", kind: "ward", lon: 140.8710, lat: 38.2640, sort_order: 10, transport_fee: 0 },
+  { id: "cccccccc-0000-4000-8000-000000000009", name: "立町", kind: "ward", lon: 140.8590, lat: 38.2660, sort_order: 5, transport_fee: 0 },
+  { id: "cccccccc-0000-4000-8000-000000000001", name: "国分町", kind: "ward", lon: 140.8710, lat: 38.2640, sort_order: 10, transport_fee: 2000 },
   { id: "cccccccc-0000-4000-8000-000000000002", name: "一番町", kind: "ward", lon: 140.8720, lat: 38.2610, sort_order: 20, transport_fee: 2000 },
   { id: "cccccccc-0000-4000-8000-000000000003", name: "仙台駅前", kind: "station", lon: 140.8823, lat: 38.2601, sort_order: 30, transport_fee: 2000 },
   { id: "cccccccc-0000-4000-8000-000000000004", name: "仙台市中心部", kind: "ward", lon: 140.8770, lat: 38.2625, sort_order: 40, transport_fee: 2000 },
