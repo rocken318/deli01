@@ -59,11 +59,29 @@ async function main() {
   }
 
   // ---- 対象セラピスト（既存の公開2人 + 新規4人）----
-  const targets = await sql<{ id: string; slug: string }[]>`
-    select id, slug from therapists
+  const targets = await sql<{ id: string; slug: string; rank_id: string | null }[]>`
+    select id, slug, rank_id from therapists
     where slug in ('aoi', 'ren', 'sakura', 'yuna', 'mei', 'rin')
     order by display_order
   `;
+
+  // 有効なコース率（個別 > ランク > 既定）を解決するためのレート表を先読み。
+  // デモ会計を「実エンジンと同じ率」で作るため（40% 固定の手打ちをやめる）。
+  const courseRates = await sql<
+    { therapist_id: string | null; rank_id: string | null; value: number }[]
+  >`
+    select therapist_id, rank_id, value
+    from payout_rates
+    where target_type = 'course' and calc_type = 'rate' and effective_to is null
+  `;
+  const resolveCourseRate = (t: { id: string; rank_id: string | null }): number => {
+    const individual = courseRates.find((r) => r.therapist_id === t.id);
+    if (individual) return individual.value;
+    const rank = t.rank_id ? courseRates.find((r) => r.rank_id === t.rank_id) : undefined;
+    if (rank) return rank.value;
+    const def = courseRates.find((r) => r.therapist_id === null && r.rank_id === null);
+    return def?.value ?? 50;
+  };
 
   // 参照データ
   const areaRows = await sql<{ id: string }[]>`select id from areas where name = '国分町' limit 1`;
@@ -209,12 +227,19 @@ async function main() {
   }
   console.log(`当日タイムライン(done+confirmed): ~${todayTimelineCount}`);
 
-  // ---- 3) 過去の接客(done予約) + 4) 報酬(payout_lines)----
-  // 各対象に、過去14日から数日おきに done 予約を作る（1日1件で exclusion 回避）
+  // ---- 3) 過去の接客(done予約) + 4) 売上+報酬(revenue_lines/payout_lines)----
+  // 各対象に、過去14日から数日おきに done 予約を作る（1日1件で exclusion 回避）。
+  // ★デモ会計は「売上（course+nomination）」と「バック（実レート）」を必ずセットで作る。
+  //   売上ゼロ・バック40%固定の旧デモは日次会計のバック率を壊すため、
+  //   デモ予約(dede0000-…)の既存台帳をいったん消してから正しい数字で作り直す（再実行で自己修復）。
+  await sql`delete from payments      where reservation_id::text like 'dede0000-%'`;
+  await sql`delete from payout_lines  where reservation_id::text like 'dede0000-%'`;
+  await sql`delete from revenue_lines where reservation_id::text like 'dede0000-%'`;
   let resCount = 0;
   let payoutCount = 0;
   for (let ti = 0; ti < targets.length; ti++) {
     const t = targets[ti]!;
+    const courseRate = resolveCourseRate(t);
     for (let k = 0; k < 6; k++) {
       const offset = -(2 + k * 2) - ti; // 過去日・セラピストごとにずらす
       const dateISO = addDaysISO(today, offset);
@@ -250,22 +275,38 @@ async function main() {
       `;
       resCount++;
 
-      // 報酬: コース40% + 指名100%（デモ用の単純計算・engine同等の枠組み）
+      // 売上（spec L856: 独立行・合算しない）。occurred_at は施術日(start_at)＝
+      //   日次会計の営業日境界(06:00)と揃う。course/nomination で total_amount と一致。
       const bizDate = dateISO;
-      const courseBack = Math.round(course.price * 0.4);
+      await sql`
+        insert into revenue_lines (reservation_id, line_type, amount, area_id, therapist_id, occurred_at)
+        values (${rid}::uuid, 'course', ${course.price}, ${areaId}::uuid, ${t.id}::uuid, ${startAt})
+      `;
+      if (nomFee > 0) {
+        await sql`
+          insert into revenue_lines (reservation_id, line_type, amount, area_id, therapist_id, occurred_at)
+          values (${rid}::uuid, 'nomination', ${nomFee}, ${areaId}::uuid, ${t.id}::uuid, ${startAt})
+        `;
+      }
+      // 支払方法（現金）。日次会計の支払方法内訳が空にならないように。
+      await sql`
+        insert into payments (reservation_id, method, amount, occurred_at)
+        values (${rid}::uuid, 'cash', ${total}, ${startAt})
+      `;
+
+      // 報酬: コースは実レート（個別>ランク>既定）、指名は100%（engine と同じ枠組み）。
+      const courseBack = Math.floor((course.price * courseRate) / 100);
       await sql`
         insert into payout_lines (therapist_id, business_date, reservation_id, category, amount, calc_note)
         values (${t.id}::uuid, ${bizDate}::date, ${rid}::uuid, 'course', ${courseBack},
-                ${sql.json({ demo: true, formula: "price*0.4", base: course.price })})
-        on conflict do nothing
+                ${sql.json({ demo: true, formula: `${course.price}*${courseRate}%`, base: course.price, rate: courseRate })})
       `;
       payoutCount++;
       if (nomFee > 0) {
         await sql`
           insert into payout_lines (therapist_id, business_date, reservation_id, category, amount, calc_note)
           values (${t.id}::uuid, ${bizDate}::date, ${rid}::uuid, 'nomination', ${nomFee},
-                  ${sql.json({ demo: true, formula: "nomination_fee*1.0", base: nomFee })})
-          on conflict do nothing
+                  ${sql.json({ demo: true, formula: "nomination_fee*100%", base: nomFee, rate: 100 })})
         `;
         payoutCount++;
       }
