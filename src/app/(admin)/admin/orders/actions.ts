@@ -439,7 +439,6 @@ export async function createPhoneOrder(
           set status = 'confirmed',
               customer_id = ${customerId}::uuid,
               address_id = ${addressId}::uuid,
-              // room_number 専用列に保存（0025）。addresses.label への書き込みは後方互換のため残置（transitional）
               room_number = ${d.roomNumber ?? null},
               source = 'phone'::reservation_source,
               phone_confirmed_at = now(),
