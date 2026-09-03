@@ -28,6 +28,8 @@ import {
 } from './queries';
 import type { AccountingSummary, ExpenseItem } from './queries';
 import { getDailyBooksCore } from './daily-books';
+import { postReservationPayoutCore } from '@/lib/payout/queries';
+import { loadPayoutSettings } from '@/lib/payout/policy';
 import type { DailyBooksResult } from './daily-books';
 
 export interface ActionResult<T = void> {
@@ -82,6 +84,53 @@ export interface PostRevenueData {
  * 回数券消化（redeemTicket）を先に済ませた予約は course 行の代わりに
  * 振替（ticket_redeem）だけが売上になる。
  */
+/**
+ * 売上＋報酬をまとめて会計台帳に計上する（完了時の自動計上／案内表の「計上」ボタン共用）。
+ * 冪等: 既計上（already_posted）や締め済み（period_closed）は「計上済み」として成功扱い。
+ * done でない予約は計上しない。best-effort で両方試す（片方失敗でも他方は進む）。
+ * staff セッション（RLS: owner/admin/reception が台帳 write）で実行。
+ */
+export async function postReservationAccounting(
+  reservationId: string,
+): Promise<ActionResult<{ revenuePosted: boolean; payoutPosted: boolean }>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  const parsed = z.string().uuid().safeParse(reservationId);
+  if (!parsed.success) return { ok: false, error: '不正な予約です' };
+
+  try {
+    const sql = getClient();
+    const [fees, settings] = await Promise.all([loadBookingFees(), loadPayoutSettings(sql)]);
+
+    const rev = await postReservationRevenueCore(sql, session, {
+      reservationId: parsed.data,
+      fees,
+    });
+    if (rev.kind === 'not_found') return { ok: false, error: '予約が見つかりません' };
+    if (rev.kind === 'not_done') return { ok: false, error: '施術完了（done）の予約のみ計上できます' };
+    if (rev.kind === 'inconsistent') return { ok: false, error: '売上の内訳が合いません（管理者に連絡してください）' };
+    // ok / already_posted は成功として続行
+
+    const pay = await postReservationPayoutCore(sql, session, {
+      reservationId: parsed.data,
+      fees,
+      settings,
+    });
+    // ok / already_posted / period_closed / invalid_status(noshow等) は許容。inconsistent のみ警告
+    if (pay.kind === 'inconsistent') {
+      return { ok: false, error: '報酬の内訳が合いません（売上は計上済み）' };
+    }
+
+    return {
+      ok: true,
+      data: { revenuePosted: rev.kind === 'ok', payoutPosted: pay.kind === 'ok' },
+    };
+  } catch (e) {
+    console.error('postReservationAccounting failed:', e);
+    return { ok: false, error: '会計計上に失敗しました' };
+  }
+}
+
 export async function postReservationRevenue(
   input: z.infer<typeof postRevenueSchema>,
 ): Promise<ActionResult<PostRevenueData>> {

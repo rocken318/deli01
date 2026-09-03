@@ -33,6 +33,7 @@ import type {
   TherapistTimelineItem,
 } from './queries';
 import { revalidatePath } from 'next/cache';
+import { postReservationAccounting } from '@/lib/accounting/actions';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -78,6 +79,14 @@ export async function advanceReservationStatus(
     );
     switch (outcome.kind) {
       case 'ok':
+        // 完了(done)に到達したら会計へ自動計上（best-effort・冪等。失敗しても前進は成功扱い）
+        if (parsed.data.toStatus === 'done') {
+          try {
+            await postReservationAccounting(parsed.data.reservationId);
+          } catch (e) {
+            console.error('auto-post on done failed:', e);
+          }
+        }
         return {
           ok: true,
           data: { reservationId: outcome.reservationId, version: outcome.version },
