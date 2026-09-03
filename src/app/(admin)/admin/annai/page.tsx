@@ -49,11 +49,19 @@ function centerText(w: AvailWindow): { big: string; sub: string } {
   return { big: "—", sub: "" };
 }
 
+const PROGRESS_LABEL: Record<string, { label: string; color: string }> = {
+  in_service: { label: "接客中", color: "#B4453C" },
+  enroute: { label: "移動中", color: "#5b625f" },
+  confirmed: { label: "未完了", color: "#C98A2B" },
+};
+
 function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
-  // done は清算状態で色分け: 会計済=緑枠 / 未清算(要清算)=橙枠。清算アクションは詳細ページ（#38）。
+  // 左(side=done)は「終わった/進行中」。done は清算状態で色分け（会計済=緑/要清算=橙）、
+  // done でない過去分（接客中/移動中/未完了）は進行ラベルを出す。清算/会計は done のみ。
+  const isDone = job.status === "done";
   const settled = job.reconciledAt !== null;
-  const bg = side === "done" ? (settled ? "#F3F7F5" : "#FBF3E6") : "#FBF3E6";
-  const bd = side === "done" ? (settled ? "#CBE0D6" : "#E0B36B") : "#E9D9BC";
+  const bg = side === "up" ? "#FBF3E6" : isDone ? (settled ? "#F3F7F5" : "#FBF3E6") : "#F6F7F5";
+  const bd = side === "up" ? "#E9D9BC" : isDone ? (settled ? "#CBE0D6" : "#E0B36B") : "#DFE3DE";
   return (
     <Link
       href={`/admin/reservations/${job.id}`}
@@ -75,10 +83,16 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
         {side === "done" ? `¥${job.totalAmount.toLocaleString()}` : `出発${hm(job.departAt)}`}
       </div>
       {side === "done" &&
-        (settled ? (
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#2c6152" }}>✔会計済</div>
+        (isDone ? (
+          settled ? (
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#2c6152" }}>✔会計済</div>
+          ) : (
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#B4453C" }}>要清算 →</div>
+          )
         ) : (
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#B4453C" }}>要清算 →</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: PROGRESS_LABEL[job.status]?.color ?? "#5b625f" }}>
+            {PROGRESS_LABEL[job.status]?.label ?? job.status}
+          </div>
         ))}
     </Link>
   );
@@ -87,8 +101,10 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
 function Row({ r, booking, rowOptions, postedIds }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[]; postedIds?: Set<string> }) {
   const chip = chipOf(r);
   const c = centerText(r.window);
-  const unsettled = r.done.filter((j) => j.reconciledAt === null).length;
-  const unposted = r.done.filter((j) => !postedIds?.has(j.id)).map((j) => j.id);
+  // 清算/計上は done のみが対象（左列には進行中の過去分も含まれるため status で絞る）
+  const doneJobs = r.done.filter((j) => j.status === "done");
+  const unsettled = doneJobs.filter((j) => j.reconciledAt === null).length;
+  const unposted = doneJobs.filter((j) => !postedIds?.has(j.id)).map((j) => j.id);
   return (
     <div style={{ background: "#fff", border: "1px solid #DFE3DE", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 156px 1fr", gap: 8, alignItems: "center" }}>
@@ -128,7 +144,7 @@ function Row({ r, booking, rowOptions, postedIds }: { r: BoardRow; booking?: Boo
         {unposted.length > 0 ? (
           <PostAccountingLauncher reservationIds={unposted} />
         ) : (
-          r.done.length > 0 && (
+          doneJobs.length > 0 && (
             <span style={{ color: "#2c6152", fontSize: 11, marginLeft: 4 }}>計上済み</span>
           )
         )}
