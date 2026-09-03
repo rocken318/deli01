@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 管理画面レイアウト（spec 12-2）。
  * - 背景 #F6F7F5 / 面 #FFFFFF / 文字 #1C2321 / 主色 #3F7A6B / 罫線 #DFE3DE
  * - 角丸4pxまで。影なし罫線区切り
@@ -43,6 +43,7 @@ const navItems = [
   { href: "/admin/therapists", label: "セラピスト" },
   { href: "/admin/photo-submissions", label: "写真承認" },
   { href: "/admin/areas", label: "派遣エリア" },
+  { href: "/admin/hotels", label: "派遣ホテル" },
   { href: "/admin/shifts", label: "出勤登録" },
   { href: "/admin/media", label: "メディア" },
   { href: "/admin/preview/home", label: "プレビュー" },

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * 案内表インライン予約ポップ（P1b）。
@@ -15,6 +15,8 @@ import {
   registerProvisionalHotel,
 } from "@/app/(admin)/admin/orders/actions";
 import { getAnnaiBookingSlots, type AnnaiSlot } from "./booking-actions";
+import { listBookableHotels } from "@/lib/hotels/hotel-admin-actions";
+import type { BookableHotel } from "@/lib/hotels/hotel-admin-actions";
 
 export interface CourseOpt {
   id: string;
@@ -85,6 +87,7 @@ export default function BookingPopup({
   const [selectedISO, setSelectedISO] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [msg, setMsg] = useState("");
+  const [allHotels, setAllHotels] = useState<BookableHotel[]>([]);
 
   const selectedTotal = slots.find((s) => s.startAtISO === selectedISO)?.totalAmount ?? null;
 
@@ -102,6 +105,13 @@ export default function BookingPopup({
       }
     }, 400);
   }, [phone]);
+
+  useEffect(() => {
+    void (async () => {
+      const r = await listBookableHotels();
+      if (r.ok && r.data) setAllHotels(r.data);
+    })();
+  }, []);
 
   // ホテル検索
   const hotelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -252,6 +262,25 @@ export default function BookingPopup({
             </select>
           </label>
           {dest === "hotel" ? (
+            <>
+            {allHotels.length > 0 && (
+              <label style={{ fontSize: 10, color: T.muted }}>ホテル一覧から選択<br />
+                <select
+                  style={{ ...field, width: 170 }}
+                  value={hotelId}
+                  onChange={(e) => {
+                    const h = allHotels.find((x) => x.id === e.target.value);
+                    if (h) selectHotel({ id: h.id, name: h.name, areaId: h.areaId, entryNote: h.entryNote });
+                    else { setHotelId(""); setHotelName(""); setHotelQuery(""); setHotelEntryNote(null); }
+                  }}
+                >
+                  <option value="">— 選択してください —</option>
+                  {allHotels.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div style={{ position: "relative" }}>
               <label style={{ fontSize: 10, color: T.muted }}>ホテル（入力/候補選択）<br />
                 <input style={{ ...field, width: 170 }} value={hotelQuery} onChange={(e) => { setHotelQuery(e.target.value); setHotelId(""); setHotelEntryNote(null); }} placeholder="ホテル名を入力" />
@@ -272,6 +301,7 @@ export default function BookingPopup({
               )}
               {hotelId && <span style={{ fontSize: 11, color: T.primary, marginLeft: 4 }}>✓{hotelName}</span>}
             </div>
+            </>
           ) : (
             <>
               <label style={{ fontSize: 10, color: T.muted }}>エリア<br />

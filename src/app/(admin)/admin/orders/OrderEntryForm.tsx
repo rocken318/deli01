@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -12,6 +12,8 @@ import {
 import type { OrderFormData, AvailableTherapistOption } from './actions';
 import type { PublicSlotView } from '@/lib/availability/public-slots';
 import { getPointBalance, usePoints as spendPoints } from '@/lib/points/actions';
+import { listBookableHotels } from '@/lib/hotels/hotel-admin-actions';
+import type { BookableHotel } from '@/lib/hotels/hotel-admin-actions';
 
 interface Therapist {
   id: string;
@@ -97,6 +99,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
   const [overrideReason, setOverrideReason] = useState('');
   const [showOverride, setShowOverride] = useState(false);
   const [provisionalHotelLoading, setProvisionalHotelLoading] = useState(false);
+  const [allHotels, setAllHotels] = useState<BookableHotel[]>([]);
 
   // ポイント関連 state
   const [customerPointBalance, setCustomerPointBalance] = useState<number | null>(null);
@@ -118,6 +121,13 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
   const nominationFee = selectedTherapistId ? (selectedCourse?.nomination_fee_default ?? 0) : 0;
   const transportFee = 0; // 表示用（サーバ側で計算）
   const totalAmount = coursePrice + optionTotal + nominationFee + transportFee;
+
+  useEffect(() => {
+    void (async () => {
+      const r = await listBookableHotels();
+      if (r.ok && r.data) setAllHotels(r.data);
+    })();
+  }, []);
 
   // Phone lookup with debounce（推奨9: note を preferences に自動補完）
   useEffect(() => {
@@ -560,6 +570,33 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
         {/* ホテルの場合 */}
         {destinationType === 'hotel' && (
           <>
+            {allHotels.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-adm-text mb-1">ホテル一覧から選択</label>
+                <select
+                  value={hotelId}
+                  onChange={(e) => {
+                    const h = allHotels.find((x) => x.id === e.target.value);
+                    if (h) {
+                      setHotelId(h.id);
+                      setHotelQuery(h.name);
+                      setHotelSuggestions([]);
+                      setHotelNotFound(false);
+                    } else {
+                      setHotelId("");
+                      setHotelQuery("");
+                    }
+                  }}
+                  className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
+                  tabIndex={4}
+                >
+                  <option value="">— 選択してください（または下のテキスト検索から）—</option>
+                  {allHotels.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="relative">
               <label className="block text-sm font-medium text-adm-text mb-1">ホテル名</label>
               <input
@@ -568,7 +605,7 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
                 onChange={(e) => { void handleHotelSearch(e.target.value); }}
                 placeholder="ホテル名を入力（予測入力）"
                 className="w-full border border-adm-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-adm-primary"
-                tabIndex={4}
+                tabIndex={5}
               />
               {hotelSuggestions.length > 0 && (
                 <ul className="absolute z-20 w-full bg-adm-surface border border-adm-border rounded mt-1 shadow">
