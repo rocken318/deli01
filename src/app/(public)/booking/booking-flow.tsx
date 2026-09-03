@@ -518,11 +518,12 @@ export function BookingFlow({
               id="booking-hotel"
               value={hotelId ?? ""}
               onChange={(e) => chooseHotel(e.target.value || null)}
-              className="w-full rounded border border-pub-border bg-pub-surface px-3 py-2 text-sm text-pub-text"
+              className="w-full rounded border border-pub-border bg-pub-surface px-3 py-2 text-sm text-pub-text [color-scheme:dark]"
             >
-              <option value="" />
+              {/* option に明示背景色（スマホの透明背景で見えなくなるのを防ぐ） */}
+              <option value="" style={{ backgroundColor: "#1E252D", color: "#EDE9E2" }} />
               {hotels.map((h) => (
-                <option key={h.id} value={h.id}>
+                <option key={h.id} value={h.id} style={{ backgroundColor: "#1E252D", color: "#EDE9E2" }}>
                   {h.name}
                 </option>
               ))}
