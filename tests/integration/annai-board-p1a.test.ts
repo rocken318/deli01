@@ -74,7 +74,17 @@ beforeAll(async () => {
   // 早朝の非重複スロット（他テストと衝突しない・自作therapistなので占有も独立）
   await makeRes(3, "done", refs);
   await makeRes(5, "done", refs);
-  await makeRes(8, "confirmed", refs);
+  // upcoming（これから）は「未来開始」でないと右に入らないため now+90分で作る
+  const fStart = new Date(NOW + 90 * 60_000);
+  const fEnd = new Date(fStart.getTime() + refs.duration * 60_000);
+  await sql`
+    insert into reservations (id, therapist_id, customer_id, address_id, area_id, course_id,
+      start_at, end_at, depart_at, free_at, travel_in_min, travel_out_min, buffer_min,
+      status, nomination_fee, transport_fee, total_amount, source, phone_confirmed_at, phone_confirmed_by)
+    values (${"a11a0000-0000-4000-8000-000000000f01"}::uuid, ${therapistId}::uuid, ${refs.custId}::uuid, ${refs.addressId}::uuid, ${refs.areaId}::uuid, ${refs.courseId}::uuid,
+      ${fStart}, ${fEnd}, ${new Date(fStart.getTime() - 25 * 60_000)}, ${new Date(fEnd.getTime() + 10 * 60_000)}, 15, 15, 30,
+      'confirmed'::reservation_status, 0, 0, 13000, 'phone'::reservation_source, ${fStart}, ${OWNER.userId}::uuid)
+    on conflict (id) do nothing`;
 });
 
 afterAll(async () => {

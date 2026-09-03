@@ -86,8 +86,12 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
         status: row.status ?? "",
         reconciledAt: row.reconciled_at,
       };
-      if (row.status === "done") b.done.push(job);
-      else b.upcoming.push(job);
+      // 左=終わった/進行中（過去）、右=これから（未来）で振り分ける。
+      // done でなくても開始時刻が過去なら右（これから）には出さない（過去の仕事が
+      // 「これから」に出る誤表示を防ぐ）。未来開始のみ upcoming。
+      const future = row.start_at.getTime() > nowMs;
+      if (row.status !== "done" && future) b.upcoming.push(job);
+      else b.done.push(job);
     }
   }
 
