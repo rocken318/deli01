@@ -284,7 +284,7 @@ describe("buildReservationPayout（spec 11-2・11-3）", () => {
     lateNightFee: 0,
   };
 
-  it("done: コース/オプション/指名/交通が独立行で立つ", () => {
+  it("done: コース/オプション/指名が独立行で立つ（交通費はバックに入れない）", () => {
     const { lines, unresolved } = buildReservationPayout({
       reservation: baseReservation,
       rates,
@@ -294,7 +294,8 @@ describe("buildReservationPayout（spec 11-2・11-3）", () => {
     expect(byCat["course"]).toBe(9350); // 17000×55%
     expect(byCat["option"]).toBe(1250); // 2500×50%
     expect(byCat["nomination"]).toBe(1000); // 100%
-    expect(byCat["transport"]).toBe(1000); // 100%
+    // 交通費は店の経費（発注者決定 2026-09-04）。バック行は立てない
+    expect(byCat["transport"]).toBeUndefined();
     expect(byCat["late_night"]).toBeUndefined(); // 深夜加算なし → 行なし
     expect(lines.find((l) => l.category === "option")?.optionId).toBe(OPT_A);
   });
@@ -309,13 +310,12 @@ describe("buildReservationPayout（spec 11-2・11-3）", () => {
     expect(course?.calcNote.base?.paidByTicket).toBe(true);
   });
 
-  it("noshow: 交通費のみ（spec L919 既定）", () => {
+  it("noshow: バックなし（交通費は本人に入れない / 発注者決定 2026-09-04）", () => {
     const { lines } = buildReservationPayout({
       reservation: { ...baseReservation, outcome: "noshow" },
       rates,
     });
-    expect(lines.map((l) => l.category)).toEqual(["transport"]);
-    expect(lines[0]?.amount).toBe(1000);
+    expect(lines).toEqual([]);
   });
 
   it("cancelled: キャンセル料 × cancel_fee レート（spec L918 既定は一部）", () => {
@@ -366,10 +366,10 @@ describe("buildReservationPayout（spec 11-2・11-3）", () => {
       rates: [rate({ targetType: "course", value: 55 })], // course のみ設定
     });
     expect(lines.map((l) => l.category)).toEqual(["course"]);
+    // 交通費はそもそも payout 対象にしないため unresolved にも現れない
     expect(unresolved.map((u) => u.targetType).sort()).toEqual([
       "nomination",
       "option",
-      "transport",
     ]);
   });
 

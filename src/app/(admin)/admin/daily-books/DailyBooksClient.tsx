@@ -193,6 +193,13 @@ export default function DailyBooksClient({
             </div>
           </div>
 
+          {/* 交通費お預り（売上・バック・粗利には含めない通過項目） */}
+          <p className="text-xs text-adm-muted">
+            交通費お預り（ドライバー代の原資・売上外）:{" "}
+            <span className="text-adm-text tabular-nums font-semibold">{yen(books.transportPassthrough)}</span>
+            <span className="ml-1">＝お客様から集金し店がドライバーへ支払う経費で相殺（粗利に影響なし）</span>
+          </p>
+
           {/* 個人別 */}
           <div className={card}>
             <div className="flex items-center justify-between mb-2">

@@ -204,16 +204,17 @@ export function buildReservationPayout(input: {
     });
   };
 
+  // ★交通費はセラピストのバックに一切入れない（発注者決定 2026-09-04）。
+  //   交通費は店がドライバーへ支払う経費＝本人の取り分ではない。よって done/noshow/
+  //   cancelled いずれでも transport の payout 行は立てない（旧: 交通費のみ支給）。
   if (r.outcome === "noshow") {
-    // 既定: 交通費のみ支給（spec L919）
-    push("transport", null, r.transportFee);
+    // 交通費は本人に入れないため、noshow は payout なし（移動費は店の経費で別管理）。
     return { lines, unresolved };
   }
 
   if (r.outcome === "cancelled") {
     // キャンセル料のバック配分（spec L918。配分率は cancel_fee レートの設定）
     push("cancel_fee", null, cancelFeeAmount);
-    push("transport", null, r.transportFee);
     return { lines, unresolved };
   }
 
@@ -240,7 +241,7 @@ export function buildReservationPayout(input: {
     push("option", opt.optionId, opt.price, opt.label, opt.optionId);
   }
   push("nomination", null, r.nominationFee);
-  push("transport", null, r.transportFee);
+  // transport は立てない（上記の発注者決定。店の経費として扱う）
   push("late_night", null, r.lateNightFee);
 
   return { lines, unresolved };

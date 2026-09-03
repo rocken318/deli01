@@ -10,7 +10,10 @@ import type { BusinessDayRange } from "@/domain/accounting";
  *
  * 既存台帳の上の読み取りレンズ（新規テーブルなし・締めロックなし / 発注者確認 2026-09-02）。
  * 営業日境界（06:00 JST）は businessDayRange が算出済みの range で受け取る。
- * - 売上 = revenue_lines（occurred_at 範囲・逆仕訳込みで sum＝analytics と同じ規約）
+ * - 売上 = revenue_lines（occurred_at 範囲・逆仕訳込みで sum）。ただし
+ *   **交通費（transport）は店の売上に含めない**（発注者決定 2026-09-04）。交通費は
+ *   お客様から集金し店がドライバーへ支払う経費＝相殺の預り金。売上・バックには入れず、
+ *   transportPassthrough として別枠で見せる（粗利は交通費で増減しない＝集金と支払が相殺）
  * - バック = payout_lines（**逆仕訳込みの純額**。予約行は予約 start_at 範囲で、
  *   調整行は business_date 暦日範囲で＝売上と同じ予約集合に揃える）。
  *   逆仕訳（reversal_of つき負行）も予約経由で同じ日に寄せて相殺する（過大計上を防ぐ）
@@ -44,6 +47,11 @@ export interface DailyBooksResult {
   byTherapist: TherapistBooksRow[];
   /** cash/card/emoney/ticket/point の合計 */
   paymentsByMethod: Record<string, number>;
+  /**
+   * 交通費のお預り（＝ドライバー代の原資）。お客様から集金し店が支払う経費で相殺される
+   * 通過項目。売上・バック・粗利には含めない（発注者決定 2026-09-04）。参考表示用。
+   */
+  transportPassthrough: number;
 }
 
 interface RevRow {
@@ -72,18 +80,26 @@ export async function getDailyBooksCore(
   return withUser(sql, session, async (tx) => {
     const { from, to, fromDate, toDate } = range;
 
-    // 1. 店舗合計の売上（全 revenue_lines・逆仕訳込み）
+    // 1. 店舗合計の売上（全 revenue_lines・逆仕訳込み）。★交通費は売上に含めない。
     const storeRev = await tx<{ revenue: number; res_count: number }[]>`
-      select coalesce(sum(amount), 0)::integer as revenue,
+      select coalesce(sum(amount) filter (where line_type <> 'transport'), 0)::integer as revenue,
              count(distinct reservation_id)::integer as res_count
       from revenue_lines
       where occurred_at >= ${from} and occurred_at < ${to}
     `;
 
-    // 2. セラピスト別の売上
+    // 1b. 交通費のお預り（通過項目・売上外）。ドライバー代の原資として別枠表示。
+    const transportRow = await tx<{ transport: number }[]>`
+      select coalesce(sum(amount), 0)::integer as transport
+      from revenue_lines
+      where occurred_at >= ${from} and occurred_at < ${to}
+        and line_type = 'transport'
+    `;
+
+    // 2. セラピスト別の売上（★交通費除外）
     const revRows = await tx<RevRow[]>`
       select therapist_id,
-             coalesce(sum(amount), 0)::integer as revenue,
+             coalesce(sum(amount) filter (where line_type <> 'transport'), 0)::integer as revenue,
              count(distinct reservation_id)::integer as res_count
       from revenue_lines
       where occurred_at >= ${from} and occurred_at < ${to}
@@ -180,6 +196,7 @@ export async function getDailyBooksCore(
       },
       byTherapist,
       paymentsByMethod,
+      transportPassthrough: transportRow[0]?.transport ?? 0,
     };
   });
 }

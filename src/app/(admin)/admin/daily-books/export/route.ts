@@ -59,6 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       csv += `店舗合計,${s.reservationCount},${s.revenue},${s.payout},${s.revenue - s.payout}\n`;
       csv += `（経費）,,,,${s.expenses}\n`;
       csv += `（粗利=売上−バック−経費）,,,,${s.grossProfit}\n`;
+      csv += `（交通費お預り・売上外/ドライバー代相殺）,,,,${books.transportPassthrough}\n`;
     } else {
       csv += "日付,カテゴリ,金額,メモ\n";
       const items = await listExpensesCore(sql, session, { fromDate: range.fromDate, toDate: range.toDate });

@@ -259,7 +259,7 @@ describe("A. レート優先順位（受入 L1096: 個別 > ランク別 > 既�
     expect(byCat["course"]).toBe(11050); // 17000×65%（個別）
     expect(byCat["option"]).toBe(1250); // 2500×50%（既定）
     expect(byCat["nomination"]).toBe(1000); // 100%
-    expect(byCat["transport"]).toBe(1000); // 100%
+    expect(byCat["transport"]).toBeUndefined(); // 交通費はバックに入れない（発注者決定 2026-09-04）
     const courseLine = outA.lines.find((l) => l.category === "course");
     expect(courseLine?.calcNote.scope).toBe("individual");
 
@@ -363,8 +363,8 @@ describe("C. 回数券消化でもバック（spec L917・受入 L1095）", () =
   });
 });
 
-describe("D. noshow は交通費のみ（spec L919 既定）", () => {
-  it("無断キャンセルで移動だけ発生 → transport 行のみ", async () => {
+describe("D. noshow はバックなし（交通費は本人に入れない / 発注者決定 2026-09-04）", () => {
+  it("無断キャンセルで移動だけ発生 → payout 行なし（交通費は店の経費）", async () => {
     const res = await insertReservation({
       therapistId: therapistA,
       offsetDays: 4,
@@ -377,8 +377,7 @@ describe("D. noshow は交通費のみ（spec L919 既定）", () => {
     const out = await postPayout(res);
     expect(out.kind).toBe("ok");
     if (out.kind !== "ok") return;
-    expect(out.lines.map((l) => l.category)).toEqual(["transport"]);
-    expect(out.lines[0]?.amount).toBe(1000);
+    expect(out.lines).toEqual([]);
   });
 });
 
