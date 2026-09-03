@@ -30,6 +30,7 @@ const navItems = [
   { href: "/admin/payouts", label: "報酬" },
   { href: "/admin/analytics", label: "集計" },
   { href: "/admin/dispatch-board", label: "配車ボード" },
+  { href: "/admin/dispatch-roster", label: "配車名簿" },
   { href: "/admin/reservations", label: "予約管理" },
   { href: "/admin/history", label: "接客履歴" },
   { href: "/admin/waitlists", label: "キャンセル待ち" },
