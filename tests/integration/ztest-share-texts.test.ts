@@ -32,13 +32,14 @@ afterAll(async () => {
     await sql`
       delete from reservation_options where reservation_id = ${createdReservationId}::uuid
     `;
+    // 予約→住所の順で削除（reservations が addresses を FK 参照するため）
+    await sql`
+      delete from reservations where id = ${createdReservationId}::uuid
+    `;
     await sql`
       delete from addresses where customer_id in (
         select id from customers where phone = ${PHONE}
       )
-    `;
-    await sql`
-      delete from reservations where id = ${createdReservationId}::uuid
     `;
     await sql`delete from customers where phone = ${PHONE}`;
   }
