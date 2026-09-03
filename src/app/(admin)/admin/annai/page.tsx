@@ -18,6 +18,7 @@ import {
 import BookingLauncher from "./BookingLauncher";
 import type { CourseOpt, OptionOpt, AreaOpt } from "./BookingPopup";
 import ConsoleTabs from "./ConsoleTabs";
+import PostAccountingLauncher from "./PostAccountingLauncher";
 import DispatchBoardClient from "../dispatch-board/DispatchBoardClient";
 import { getDispatchBoard } from "@/lib/dispatch-board/actions";
 
@@ -83,10 +84,11 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
   );
 }
 
-function Row({ r, booking, rowOptions }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[] }) {
+function Row({ r, booking, rowOptions, postedIds }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[]; postedIds?: Set<string> }) {
   const chip = chipOf(r);
   const c = centerText(r.window);
   const unsettled = r.done.filter((j) => j.reconciledAt === null).length;
+  const unposted = r.done.filter((j) => !postedIds?.has(j.id)).map((j) => j.id);
   return (
     <div style={{ background: "#fff", border: "1px solid #DFE3DE", borderRadius: 8, padding: "10px 12px", marginBottom: 6 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 156px 1fr", gap: 8, alignItems: "center" }}>
@@ -122,6 +124,13 @@ function Row({ r, booking, rowOptions }: { r: BoardRow; booking?: Booking; rowOp
           <span style={{ background: "#B4453C", color: "#fff", padding: "1px 7px", borderRadius: 4, fontSize: 11, marginLeft: 4 }}>
             要清算{unsettled}件
           </span>
+        )}
+        {unposted.length > 0 ? (
+          <PostAccountingLauncher reservationIds={unposted} />
+        ) : (
+          r.done.length > 0 && (
+            <span style={{ color: "#2c6152", fontSize: 11, marginLeft: 4 }}>計上済み</span>
+          )
         )}
       </div>
       {booking && (
@@ -173,6 +182,16 @@ export default async function AnnaiPage() {
   const { active, retired } = buildBoard(rows, nowMs, DEFAULT_BUFFERS, minBookableMin > 0 ? minBookableMin : 0);
   const dispatchItems = dispatch.ok ? (dispatch.data ?? []) : [];
 
+  // 会計計上済み（revenue_lines がある）done 予約の集合。案内表の「計上」ボタン表示に使う。
+  const doneIds = [...active, ...retired].flatMap((r) => r.done.map((j) => j.id));
+  const postedRows = doneIds.length
+    ? await sql<{ reservation_id: string }[]>`
+        select distinct reservation_id from revenue_lines
+        where reservation_id = any(${sql.array(doneIds)}::uuid[])
+      `
+    : [];
+  const postedIds = new Set(postedRows.map((p) => p.reservation_id));
+
   // option_availability に行があるオプションは対応セラピストのみ表示（行が無ければ全員対応）。
   // 板は行=セラピストごとに押せる OP をここで絞る（非対応 OP は engine/loadOptionSnapshots で
   // 黙って落ちて総額がズレるため、UI から出さない / 判断#37）。
@@ -192,14 +211,14 @@ export default async function AnnaiPage() {
         <div style={{ paddingLeft: 4 }}>これからの仕事 →</div>
       </div>
       {active.map((r) => (
-        <Row key={r.therapistId} r={r} booking={booking} rowOptions={optionsForTherapist(r.therapistId)} />
+        <Row key={r.therapistId} r={r} booking={booking} rowOptions={optionsForTherapist(r.therapistId)} postedIds={postedIds} />
       ))}
       {retired.length > 0 && (
         <>
           <div style={{ height: 5, background: "#404844", borderRadius: 3, margin: "10px 0 6px" }} />
           <div style={{ fontSize: 11, color: "#9BA5AF", fontWeight: 700, marginBottom: 6 }}>上がり</div>
           {retired.map((r) => (
-            <Row key={r.therapistId} r={r} />
+            <Row key={r.therapistId} r={r} postedIds={postedIds} />
           ))}
         </>
       )}
