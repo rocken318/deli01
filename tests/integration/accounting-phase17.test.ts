@@ -434,10 +434,11 @@ describe("F+G: 前受金・ポイント引当・売上・経費が分けて出�
     expect(s.revenue.byType.course).toBe(11000 + 10000);
     expect(s.revenue.byType.option).toBe(2000);
     expect(s.revenue.byType.nomination).toBe(1000);
-    expect(s.revenue.byType.transport).toBe(1000);
+    expect(s.revenue.byType.transport).toBe(1000); // 内訳には残す
     expect(s.revenue.byType.point_use).toBe(-300); // マイナスで分離（受入 L1104）
     expect(s.revenue.byType.ticket_redeem).toBe(0); // 逆仕訳で相殺済み
-    expect(s.revenue.total).toBe(11000 + 10000 + 2000 + 1000 + 1000 - 300);
+    // ★交通費は売上 total から除外（発注者決定 2026-09-04）。byType には残るが total には入らない
+    expect(s.revenue.total).toBe(11000 + 10000 + 2000 + 1000 - 300);
 
     // 支払方法内訳（現金 + 回数券は逆仕訳で 0）
     expect(s.payments.byMethod.cash).toBe(14700);

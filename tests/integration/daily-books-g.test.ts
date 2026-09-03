@@ -123,6 +123,29 @@ describe("getDailyBooksCore（G 日次会計・営業日境界）", () => {
     );
   });
 
+  it("交通費は売上に含めず transportPassthrough に別出しする（発注者決定 2026-09-04）", async () => {
+    const tid = "b00c0000-0000-4000-8000-000000000003";
+    // IN_RANGE(09-03 02:00 JST) と重ならない同営業日の別時刻（09-02 19:00 JST）
+    const IN_RANGE2 = new Date("2026-09-02T10:00:00Z");
+    await makeReservation(tid, IN_RANGE2, 15000);
+    await addRevenue(tid, 13000, IN_RANGE2); // course
+    // 交通費行（売上には入らない・お預りに入る）
+    await sql`
+      insert into revenue_lines (reservation_id, line_type, amount, area_id, therapist_id, occurred_at, created_by)
+      values (${tid}::uuid, 'transport'::revenue_line_type, 2000, ${areaId}::uuid, ${therapistId}::uuid, ${IN_RANGE2}, ${OWNER.userId}::uuid)`;
+
+    const range = businessDayRange(D, "day");
+    const r = await getDailyBooksCore(sql, OWNER, range);
+    const row = r.byTherapist.find((t) => t.therapistId === therapistId);
+    // このセラピストの売上は course のみ（13000×2件=26000）。交通費2000は含まれない
+    expect(row!.revenue).toBe(26000);
+    // 交通費は transportPassthrough に出る（≥2000）
+    expect(r.transportPassthrough).toBeGreaterThanOrEqual(2000);
+
+    await sql`delete from revenue_lines where reservation_id = ${tid}::uuid`;
+    await sql`delete from reservations where id = ${tid}::uuid`;
+  });
+
   it("経費の追加→削除（G2）が効き、一覧から消える", async () => {
     const range = businessDayRange(D, "day");
     const added = await addExpenseCore(sql, OWNER, {

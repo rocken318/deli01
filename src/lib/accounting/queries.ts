@@ -813,7 +813,12 @@ export async function getAccountingSummaryCore(
       REVENUE_TYPES.map((t) => [t, 0]),
     ) as Record<RevenueLineType, number>;
     for (const row of revRows) byType[row.line_type] = row.total;
-    const revenueTotal = REVENUE_TYPES.reduce((s, t) => s + byType[t], 0);
+    // ★交通費は店の売上に含めない（発注者決定 2026-09-04）。byType には残すが
+    //   revenueTotal（＝突合の売上）からは除外する。交通費は集金＝ドライバー代で相殺の通過項目。
+    const revenueTotal = REVENUE_TYPES.reduce(
+      (s, t) => s + (t === "transport" ? 0 : byType[t]),
+      0,
+    );
 
     // 2. 支払方法内訳（エリア/セラピストは予約経由で絞る）
     const payRows = await tx<{ method: PaymentMethod; total: number }[]>`
