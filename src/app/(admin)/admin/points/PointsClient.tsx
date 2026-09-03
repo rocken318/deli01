@@ -12,6 +12,7 @@ import { earnPoints, expirePoints, listPointLedger } from '@/lib/points/actions'
 import type { ExpiringLotItem } from '@/lib/points/queries';
 import type { PointLedgerEntry } from '@/lib/points/actions';
 import { addNgPair, removeNgPair } from '@/lib/nomination/actions';
+import { getCustomerPortalLink } from '@/lib/customer-portal/admin-actions';
 import type { NgPairRow } from '@/lib/nomination/actions';
 
 const TZ = 'Asia/Tokyo';
@@ -61,11 +62,13 @@ export function PointsClient({
   } | null>(null);
   const [lookupError, setLookupError] = useState('');
   const [lookupPending, startLookupTransition] = useTransition();
+  const [portalLink, setPortalLink] = useState<string | null>(null);
 
   function handleLookup() {
     if (!lookupInput.trim()) return;
     setLookupError('');
     setLookupResult(null);
+    setPortalLink(null);
     const isPhone = /^0[0-9]{9,10}$/.test(lookupInput.trim());
     const input = isPhone
       ? { phone: lookupInput.trim() }
@@ -75,6 +78,10 @@ export function PointsClient({
       const res = await listPointLedger(input);
       if (res.ok && res.data) {
         setLookupResult(res.data);
+        const link = await getCustomerPortalLink(input);
+        if (link.ok && link.data) {
+          setPortalLink(`${window.location.origin}${link.data.path}`);
+        }
       } else {
         setLookupError(res.error ?? '照会に失敗しました');
       }
@@ -230,6 +237,22 @@ export function PointsClient({
               </span>
               <span className="text-xs text-adm-muted">顧客ID: {lookupResult.customerId}</span>
             </div>
+
+            {portalLink && (
+              <div className="flex flex-wrap items-center gap-2 rounded border border-adm-line bg-adm-bg p-2">
+                <span className="text-xs text-adm-muted">顧客ページ（お客様に共有）:</span>
+                <a href={portalLink} target="_blank" rel="noreferrer" className="text-xs text-adm-primary underline break-all">
+                  {portalLink}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(portalLink)}
+                  className="text-xs px-2 py-0.5 rounded border border-adm-line text-adm-text"
+                >
+                  コピー
+                </button>
+              </div>
+            )}
 
             {lookupResult.entries.length === 0 ? (
               <p className="text-sm text-adm-muted">台帳履歴はありません</p>
