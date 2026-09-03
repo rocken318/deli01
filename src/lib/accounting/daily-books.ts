@@ -11,8 +11,9 @@ import type { BusinessDayRange } from "@/domain/accounting";
  * 既存台帳の上の読み取りレンズ（新規テーブルなし・締めロックなし / 発注者確認 2026-09-02）。
  * 営業日境界（06:00 JST）は businessDayRange が算出済みの range で受け取る。
  * - 売上 = revenue_lines（occurred_at 範囲・逆仕訳込みで sum＝analytics と同じ規約）
- * - バック = payout_lines（reversal_of is null。予約行は予約 start_at 範囲で、
- *   調整行は business_date 暦日範囲で＝売上と同じ予約集合に揃える）
+ * - バック = payout_lines（**逆仕訳込みの純額**。予約行は予約 start_at 範囲で、
+ *   調整行は business_date 暦日範囲で＝売上と同じ予約集合に揃える）。
+ *   逆仕訳（reversal_of つき負行）も予約経由で同じ日に寄せて相殺する（過大計上を防ぐ）
  * - 経費 = expenses（spent_on 暦日範囲）
  * - 粗利 = settlement()（売上 − バック − 経費）
  * 集計単位は個人別＋店舗合計（エリア別内訳は出さない / 発注者選択）。RLS 下（owner/admin）。
@@ -90,20 +91,20 @@ export async function getDailyBooksCore(
       group by therapist_id
     `;
 
-    // 3a. セラピスト別バック（予約行＝予約 start_at 範囲で売上に揃える）
+    // 3a. セラピスト別バック（予約行＝予約 start_at 範囲で売上に揃える）。
+    //     逆仕訳（reversal_of つき負行）も同じ予約経由で拾い、純額で相殺する。
     const payResRows = await tx<PayRow[]>`
       select pl.therapist_id, coalesce(sum(pl.amount), 0)::integer as payout
       from payout_lines pl
       join reservations r on r.id = pl.reservation_id
-      where pl.reversal_of is null
-        and r.start_at >= ${from} and r.start_at < ${to}
+      where r.start_at >= ${from} and r.start_at < ${to}
       group by pl.therapist_id
     `;
-    // 3b. 調整行（reservation_id null）は business_date 暦日範囲で
+    // 3b. 調整行（reservation_id null）は business_date 暦日範囲で（逆仕訳・調整とも純額）
     const payAdjRows = await tx<PayRow[]>`
       select pl.therapist_id, coalesce(sum(pl.amount), 0)::integer as payout
       from payout_lines pl
-      where pl.reversal_of is null and pl.reservation_id is null
+      where pl.reservation_id is null
         and pl.business_date >= ${fromDate}::date and pl.business_date < ${toDate}::date
       group by pl.therapist_id
     `;
