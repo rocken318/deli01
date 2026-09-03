@@ -25,6 +25,9 @@ test-results/
 # drizzle-kit の生成物はスクラッチ（正は migrations/）。コミットしない。
 /drizzle/generated/
 
+# worktrees
+.worktrees/
+
 # misc
 .DS_Store
 *.pem
