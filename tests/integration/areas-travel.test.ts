@@ -52,11 +52,12 @@ afterAll(async () => {
 });
 
 describe("シードの検証（spec 5-1・5-2・18章）", () => {
-  it("areas が10件・kind と center を持つ", async () => {
+  it("areas が9件・kind と center を持つ", async () => {
     const rows = await sql<{ n: string }[]>`
       select count(*)::text as n from areas where center is not null
     `;
-    expect(Number(rows[0]?.n)).toBe(8);
+    expect(Number(rows[0]?.n)).toBe(9);
+    expect(areaIds.get("立町")).toBeTruthy();
     expect(areaIds.get("国分町")).toBeTruthy();
     expect(areaIds.get("名取")).toBeTruthy();
     expect(areaIds.get("仙台駅前")).toBeTruthy();
@@ -207,7 +208,7 @@ describe("areas / travel テーブルの RLS（actor 別 / docs/auth-rls.md §4�
     const visible = await withUser(sql, sessionOf("reception"), async (tx) => {
       return tx<{ id: string }[]>`select id from areas`;
     });
-    expect(visible.length).toBe(8);
+    expect(visible.length).toBe(9);
 
     await expect(
       withUser(sql, sessionOf("reception"), async (tx) => {
