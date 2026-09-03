@@ -755,6 +755,12 @@ export interface UnconfirmedReservation {
   startAtISO: string;
   therapistName: string;
   source: string;
+  /** 架電記録の件数（call_logs）。0 なら未架電 */
+  callCount: number;
+  /** 直近の架電結果（confirmed/no_answer/other）。未架電なら null */
+  lastResult: string | null;
+  /** 直近の架電日時 ISO。未架電なら null */
+  lastCalledAtISO: string | null;
 }
 
 /**
@@ -777,6 +783,9 @@ export async function listUnconfirmedReservations(): Promise<
       therapist_name: string | null;
       therapist_slug: string;
       source: string;
+      call_count: number;
+      last_result: string | null;
+      last_called_at: Date | null;
     }[]>`
       select r.id,
              c.name as customer_name,
@@ -784,11 +793,20 @@ export async function listUnconfirmedReservations(): Promise<
              r.start_at,
              er.published->>'name' as therapist_name,
              t.slug as therapist_slug,
-             r.source::text
+             r.source::text,
+             coalesce(cl.cnt, 0)::int as call_count,
+             cl.last_result,
+             cl.last_called_at
       from reservations r
       join customers c on c.id = r.customer_id
       join therapists t on t.id = r.therapist_id
       left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
+      left join lateral (
+        select count(*) as cnt,
+               (array_agg(result::text order by called_at desc))[1] as last_result,
+               max(called_at) as last_called_at
+        from call_logs where reservation_id = r.id
+      ) cl on true
       where r.status = 'confirmed'
         and r.phone_confirmed_at is null
         and r.source = 'web'::reservation_source
@@ -806,6 +824,9 @@ export async function listUnconfirmedReservations(): Promise<
       startAtISO: r.start_at.toISOString(),
       therapistName: r.therapist_name ?? r.therapist_slug,
       source: r.source,
+      callCount: r.call_count,
+      lastResult: r.last_result,
+      lastCalledAtISO: r.last_called_at ? r.last_called_at.toISOString() : null,
     })),
   };
 }

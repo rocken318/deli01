@@ -37,6 +37,7 @@ import {
   confirmPhoneCall,
   createLostOrder,
   createPhoneOrder,
+  listUnconfirmedReservations,
   searchCustomerByPhone,
 } from "@/app/(admin)/admin/orders/actions";
 
@@ -696,6 +697,13 @@ describe("(g) confirmPhoneCall: 'confirmed' のみ確認済み・'no_answer' は
       order by called_at asc
     `;
     expect(logs.map((l) => l.result)).toEqual(["no_answer", "no_answer"]);
+
+    // 未確認一覧に架電サマリ（回数・直近結果）が反映される＝記録が可視化される
+    const listMid = await listUnconfirmedReservations();
+    const itemMid = listMid.ok ? listMid.data!.find((x) => x.id === reservationId) : undefined;
+    expect(itemMid).toBeTruthy();
+    expect(itemMid!.callCount).toBe(2);
+    expect(itemMid!.lastResult).toBe("no_answer");
 
     // 3回目: 本人につながった → confirmed でゲートが開く
     const third = await confirmPhoneCall(reservationId, "confirmed", "本人確認済み");
