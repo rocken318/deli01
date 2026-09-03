@@ -23,6 +23,16 @@ describe("transportFee（spec 18-3）", () => {
       transportFee("car", { ...DEFAULT_BOOKING_FEES, transportCar: 1000.5 }),
     ).toThrow(RangeError);
   });
+  it("エリア別交通費（areaFee）が渡れば車のときそれを使う（発注者決定 2026-09-04）", () => {
+    expect(transportFee("car", DEFAULT_BOOKING_FEES, 3000)).toBe(3000);
+    expect(transportFee("car", DEFAULT_BOOKING_FEES, 0)).toBe(0); // 立町/拠点相当
+  });
+  it("徒歩圏は areaFee があっても 0（交通費は車のときだけ）", () => {
+    expect(transportFee("walk", DEFAULT_BOOKING_FEES, 4000)).toBe(0);
+  });
+  it("areaFee 未指定なら従来の一律 transportCar にフォールバック", () => {
+    expect(transportFee("car", DEFAULT_BOOKING_FEES, null)).toBe(1000);
+  });
 });
 
 describe("midnightSurcharge（spec 18-3: 24:00〜5:00 開始で +3,000）", () => {
@@ -62,6 +72,18 @@ describe("feeBreakdown（spec 6章 手順9: 最後まで料金を隠さない合
     expect(b.transportFee).toBe(1000);
     expect(b.midnightSurcharge).toBe(3000);
     expect(b.totalAmount).toBe(10000 + 3000 + 1000 + 1000 + 3000);
+  });
+  it("areaTransportFee（エリア別）を渡すと車の交通費に反映される", () => {
+    const b = feeBreakdown({
+      coursePrice: 12000,
+      optionPrices: [],
+      nominationFee: 1000,
+      travelInMode: "car",
+      startAt: jst("2026-09-01T14:00:00"),
+      areaTransportFee: 3000, // 泉区/太白区/若林区 相当
+    });
+    expect(b.transportFee).toBe(3000);
+    expect(b.totalAmount).toBe(12000 + 1000 + 3000);
   });
   it("徒歩・昼はコース + オプション + 指名料のみ", () => {
     const b = feeBreakdown({

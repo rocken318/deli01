@@ -70,6 +70,13 @@ export async function getAnnaiBookingSlots(input: z.infer<typeof schema>): Promi
     const opts = await loadOptionSnapshots(sql, { optionIds: d.optionIds, therapistId: res.therapistId });
     const optionPrices = opts.map((o) => o.price);
     const settings = await loadBookingFees();
+    // エリア別交通費（車のとき使う。徒歩圏は 0 / 発注者決定 2026-09-04）
+    const areaFeeRows = res.areaId
+      ? await sql<{ transport_fee: number }[]>`
+          select transport_fee from areas where id = ${res.areaId}::uuid limit 1
+        `
+      : [];
+    const areaTransportFee = areaFeeRows[0]?.transport_fee ?? null;
 
     const slots: AnnaiSlot[] = res.rawSlots.map((slot) => {
       const b = feeBreakdown({
@@ -79,6 +86,7 @@ export async function getAnnaiBookingSlots(input: z.infer<typeof schema>): Promi
         travelInMode: slot.travelInMode,
         startAt: slot.startAt,
         settings,
+        areaTransportFee,
       });
       return {
         startAtISO: slot.startAt.toISOString(),

@@ -620,6 +620,13 @@ export async function createPhoneOrder(
 
       // 料金計算（サーバ側で計算 / クライアント値無視）
       const bookingFees = await loadBookingFees();
+      // エリア別交通費（車のとき使う。徒歩圏は 0 / 発注者決定 2026-09-04）
+      const feeAreaId = resolvedAreaId ?? engineResult?.areaId ?? null;
+      const areaFeeRows = feeAreaId
+        ? await sql<{ transport_fee: number }[]>`
+            select transport_fee from areas where id = ${feeAreaId}::uuid limit 1
+          `
+        : [];
       const breakdown = feeBreakdown({
         coursePrice: course.price,
         optionPrices: optionRows.map((o) => o.price),
@@ -627,6 +634,7 @@ export async function createPhoneOrder(
         travelInMode,
         startAt,
         settings: bookingFees,
+        areaTransportFee: areaFeeRows[0]?.transport_fee ?? null,
       });
 
       const result = await withUser(sql, session, async (tx) => {
