@@ -14,7 +14,10 @@ import {
   createDispatchArea,
   renameDispatchArea,
   setDispatchAreaActive,
+  setDispatchAreaTransportFee,
 } from "@/lib/cms/area-actions";
+
+const yen = (n: number) => `¥${n.toLocaleString()}`;
 
 // ---------------------------------------------------------------------------
 // 定数
@@ -39,6 +42,37 @@ function AreaRow({ area }: { area: DispatchArea }) {
   const [editName, setEditName] = useState(area.name);
   const [renameError, setRenameError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 交通費編集
+  const [feeEditing, setFeeEditing] = useState(false);
+  const [feeValue, setFeeValue] = useState(String(area.transportFee));
+  const [feeError, setFeeError] = useState<string | null>(null);
+
+  const handleFeeSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setFeeError(null);
+      const n = Number(feeValue);
+      if (!Number.isInteger(n) || n < 0 || n % 1000 !== 0) {
+        setFeeError("1000円単位の整数で入力してください");
+        return;
+      }
+      if (n === area.transportFee) {
+        setFeeEditing(false);
+        return;
+      }
+      startTransition(async () => {
+        const result = await setDispatchAreaTransportFee(area.id, n);
+        if (result.ok) {
+          setFeeEditing(false);
+          router.refresh();
+        } else {
+          setFeeError(result.error ?? "保存に失敗しました");
+        }
+      });
+    },
+    [area.id, area.transportFee, feeValue, router],
+  );
 
   const handleToggleActive = useCallback(() => {
     startTransition(async () => {
@@ -154,6 +188,56 @@ function AreaRow({ area }: { area: DispatchArea }) {
         {area.lon !== null && area.lat !== null
           ? `${area.lat.toFixed(4)}, ${area.lon.toFixed(4)}`
           : "—"}
+      </td>
+
+      {/* 交通費（税別・1000円単位） */}
+      <td className="py-2.5 pr-4 text-sm text-adm-text align-middle tabular-nums whitespace-nowrap">
+        {feeEditing ? (
+          <form onSubmit={handleFeeSubmit} className="flex items-center gap-2">
+            <input
+              type="number"
+              step={1000}
+              min={0}
+              value={feeValue}
+              onChange={(e) => setFeeValue(e.target.value)}
+              disabled={isPending}
+              className="border border-adm-border bg-white px-2 py-1 text-sm text-adm-text w-24 tabular-nums [color-scheme:light]"
+              style={{ borderRadius: "4px" }}
+              aria-label="交通費（税別）"
+            />
+            <button
+              type="submit"
+              disabled={isPending}
+              className="px-2 py-1 bg-adm-primary text-white text-xs font-medium hover:opacity-90 disabled:opacity-50"
+              style={{ borderRadius: "4px" }}
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              onClick={() => { setFeeEditing(false); setFeeValue(String(area.transportFee)); setFeeError(null); }}
+              disabled={isPending}
+              className="px-2 py-1 border border-adm-border text-xs text-adm-text hover:border-adm-primary disabled:opacity-50"
+              style={{ borderRadius: "4px" }}
+            >
+              取消
+            </button>
+            {feeError && <span className="text-xs text-adm-danger">{feeError}</span>}
+          </form>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span>{area.transportFee === 0 ? "無料" : `${yen(area.transportFee)}（税別）`}</span>
+            <button
+              type="button"
+              onClick={() => { setFeeValue(String(area.transportFee)); setFeeError(null); setFeeEditing(true); }}
+              className="text-xs text-adm-text/50 hover:text-adm-primary border border-transparent hover:border-adm-border px-1.5 py-0.5"
+              style={{ borderRadius: "4px" }}
+              title="交通費を編集"
+            >
+              編集
+            </button>
+          </div>
+        )}
       </td>
 
       {/* 状態トグル */}
@@ -358,6 +442,8 @@ export function AreaListClient({ areas }: { areas: DispatchArea[] }) {
         style={{ borderRadius: "4px" }}
       >
         ここで追加した有効エリアは、出勤登録の「対応エリア」チェックに自動で出ます。エリア間の移動時間は未設定間は暫定推定になります（後から調整可）。
+        <br />
+        <span className="text-adm-text/60">交通費はエリア別・税別・1000円単位（車のとき適用／徒歩圏は0円）。店がドライバーへ支払う経費として扱い、売上・バックには入れません。</span>
       </div>
 
       {/* 追加フォーム */}
@@ -374,7 +460,7 @@ export function AreaListClient({ areas }: { areas: DispatchArea[] }) {
           className="border border-adm-border bg-adm-surface overflow-x-auto"
           style={{ borderRadius: "4px" }}
         >
-          <table className="w-full min-w-[480px]">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-adm-border">
                 <th className="py-2.5 px-4 text-left text-xs font-semibold text-adm-text/70">
@@ -385,6 +471,9 @@ export function AreaListClient({ areas }: { areas: DispatchArea[] }) {
                 </th>
                 <th className="py-2.5 pr-4 text-left text-xs font-semibold text-adm-text/70">
                   中心座標（緯度, 経度）
+                </th>
+                <th className="py-2.5 pr-4 text-left text-xs font-semibold text-adm-text/70">
+                  交通費（税別・1000円単位）
                 </th>
                 <th className="py-2.5 pr-4 text-left text-xs font-semibold text-adm-text/70">
                   状態

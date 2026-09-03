@@ -34,6 +34,8 @@ export interface DispatchArea {
   isActive: boolean;
   lon: number | null;
   lat: number | null;
+  /** エリア別の車交通費（税別・整数円・1000円単位）。徒歩圏は 0 / 発注者決定 2026-09-04 */
+  transportFee: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,17 @@ const setActiveSchema = z.object({
   isActive: z.boolean(),
 });
 
+const setTransportFeeSchema = z.object({
+  id: uuidSchema,
+  // 税別・整数円・1000円単位（発注者決定 2026-09-04）。0（拠点/徒歩圏）も可。
+  transportFee: z
+    .number()
+    .int("交通費は整数で入力してください")
+    .min(0, "交通費は0以上で入力してください")
+    .max(100000, "交通費が大きすぎます")
+    .refine((v) => v % 1000 === 0, "交通費は1000円単位で入力してください"),
+});
+
 // ---------------------------------------------------------------------------
 // 一覧
 // ---------------------------------------------------------------------------
@@ -76,6 +89,7 @@ interface AreaRow {
   is_active: boolean;
   lon: number | null;
   lat: number | null;
+  transport_fee: number;
 }
 
 /** 派遣エリア一覧を取得する（owner/admin のみ）。sort_order → name asc 順。 */
@@ -95,7 +109,8 @@ export async function listDispatchAreas(): Promise<DispatchArea[]> {
         sort_order,
         is_active,
         ST_X(center::geometry) as lon,
-        ST_Y(center::geometry) as lat
+        ST_Y(center::geometry) as lat,
+        transport_fee
       from areas
       order by sort_order asc, name asc
     `;
@@ -109,6 +124,7 @@ export async function listDispatchAreas(): Promise<DispatchArea[]> {
     isActive: r.is_active,
     lon: r.lon,
     lat: r.lat,
+    transportFee: r.transport_fee,
   }));
 }
 
@@ -238,6 +254,66 @@ export async function setDispatchAreaActive(
 
     revalidatePath("/admin/areas");
     revalidatePath("/admin/shifts");
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "不明なエラー";
+    return { ok: false, error: msg };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 交通費（エリア別・税別・1000円単位）
+// ---------------------------------------------------------------------------
+
+/**
+ * エリアの車交通費を設定する（owner/admin のみ / 発注者決定 2026-09-04）。
+ * 税別・整数円・1000円単位。徒歩圏は 0。予約時に reservations.transport_fee へスナップショット。
+ * 交通費は店がドライバーへ支払う経費で、売上・バックには入れない（会計方針と対）。
+ */
+export async function setDispatchAreaTransportFee(
+  id: string,
+  transportFee: number,
+): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: "認証が必要です" };
+  if (!can(toActor(session), "manage_cms")) {
+    return { ok: false, error: "この操作には owner または admin のロールが必要です" };
+  }
+
+  const parsed = setTransportFeeSchema.safeParse({ id, transportFee });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.errors.map((e) => e.message).join(", ") };
+  }
+
+  const sql = getClient();
+
+  try {
+    await withUser(sql, session, async (tx) => {
+      const rows = await tx<{ id: string; transport_fee: number }[]>`
+        select id, transport_fee from areas where id = ${parsed.data.id}::uuid
+      `;
+      const before = rows[0];
+      if (!before) throw new Error("対象のエリアが見つかりません");
+
+      await tx`
+        update areas set transport_fee = ${parsed.data.transportFee}
+        where id = ${parsed.data.id}::uuid
+      `;
+
+      await tx`
+        insert into audit_logs (actor_user_id, action, entity, entity_id, before, after)
+        values (
+          ${session.userId}::uuid,
+          'update',
+          'area',
+          ${parsed.data.id}::uuid,
+          ${tx.json({ transportFee: before.transport_fee })},
+          ${tx.json({ transportFee: parsed.data.transportFee })}
+        )
+      `;
+    });
+
+    revalidatePath("/admin/areas");
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "不明なエラー";

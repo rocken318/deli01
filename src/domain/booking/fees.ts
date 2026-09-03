@@ -60,15 +60,25 @@ function assertSettings(s: BookingFeeSettings): void {
 }
 
 /**
- * 交通費（円・整数）。徒歩圏は 0、車は設定額（spec 18-3）。
+ * 交通費（円・整数）。徒歩圏は 0、車はエリア別の固定額（spec 3-8・18-3）。
  * 判定は空き枠エンジンが出した到着側の移動手段（travelInMode）に従う。
+ *
+ * areaFee（areas.transport_fee のスナップショット。税別・整数円）が渡されれば
+ * 車のときそれを使う（エリア別固定額 / 発注者決定 2026-09-04）。未指定なら従来の
+ * 一律 settings.transportCar にフォールバックする。徒歩圏は常に transportWalk（既定 0）。
  */
 export function transportFee(
   travelInMode: "walk" | "car",
   settings: BookingFeeSettings = DEFAULT_BOOKING_FEES,
+  areaFee?: number | null,
 ): number {
   assertSettings(settings);
-  return travelInMode === "car" ? settings.transportCar : settings.transportWalk;
+  if (travelInMode !== "car") return settings.transportWalk;
+  if (areaFee != null) {
+    assertIntMin(areaFee, "areaFee", 0);
+    return areaFee;
+  }
+  return settings.transportCar;
 }
 
 /**
@@ -112,6 +122,8 @@ export function feeBreakdown(input: {
   startAt: Date;
   settings?: BookingFeeSettings;
   timeZone?: string;
+  /** エリア別交通費（areas.transport_fee・税別整数円）。車のとき優先で使う */
+  areaTransportFee?: number | null;
 }): FeeBreakdown {
   const settings = input.settings ?? DEFAULT_BOOKING_FEES;
   assertIntMin(input.coursePrice, "coursePrice", 0);
@@ -121,7 +133,7 @@ export function feeBreakdown(input: {
     assertIntMin(p, "optionPrice", 0);
     optionsTotal += p;
   }
-  const transport = transportFee(input.travelInMode, settings);
+  const transport = transportFee(input.travelInMode, settings, input.areaTransportFee);
   const midnight = midnightSurcharge(input.startAt, settings, input.timeZone);
   return {
     coursePrice: input.coursePrice,

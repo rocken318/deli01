@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import postgres from "postgres";
 import { addDaysISO, localDateISO } from "@/domain/availability";
 import { getTherapistSlots } from "@/lib/availability/public-slots";
-import { createHold, loadBookingFees } from "@/lib/booking/holds";
+import { createHold } from "@/lib/booking/holds";
 import { canGenerateDispatch } from "@/lib/booking/phone-confirmation";
 import { withUser } from "@/lib/auth/with-user";
 import type { Session } from "@/lib/auth/session";
@@ -525,11 +525,17 @@ describe("(e) 枠外(override) 近傍枠なし: 暫定バッファでも end_at 
     expect(row.buffer_min).toBe(
       buf.arrive_min + buf.parking_min + buf.before_min + buf.after_min,
     );
-    const fees = await loadBookingFees();
-    expect(row.transport_fee).toBe(fees.transportCar);
+    // 交通費はエリア別（areas.transport_fee）。この予約のエリアの設定額と一致する
+    const areaFeeRows = await sql<{ transport_fee: number }[]>`
+      select a.transport_fee from areas a
+      join reservations r on r.area_id = a.id
+      where r.id = ${res.data!.reservationId}::uuid
+    `;
+    const areaFee = areaFeeRows[0]!.transport_fee;
+    expect(row.transport_fee).toBe(areaFee);
     // JST 23:30 開始は深夜帯 [0,5) に入らない → 深夜加算なし
     expect(row.total_amount).toBe(
-      shortCourse.price + ext30.price + shortCourse.nomination_fee_default + fees.transportCar,
+      shortCourse.price + ext30.price + shortCourse.nomination_fee_default + areaFee,
     );
   });
 });

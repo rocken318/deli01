@@ -231,6 +231,14 @@ async function attemptCreateHold(params: HoldParams, now: Date): Promise<HoldRes
   const course = courseRows[0];
   if (!course) return { ok: false, error: "invalid" };
 
+  // エリア別交通費（車のとき使う。徒歩圏は 0 / spec 3-8・発注者決定 2026-09-04）
+  const areaFeeRows = result.areaId
+    ? await sql<{ transport_fee: number }[]>`
+        select transport_fee from areas where id = ${result.areaId}::uuid limit 1
+      `
+    : [];
+  const areaTransportFee = areaFeeRows[0]?.transport_fee ?? null;
+
   // 指名料: 公開フローで特定セラピストを選ぶ = 指名（通常指名の既定額 / spec 18-3。
   // 個人別特別指名・therapist_courses の上書きはフェーズ16/18 で精緻化）
   const breakdown = feeBreakdown({
@@ -240,6 +248,7 @@ async function attemptCreateHold(params: HoldParams, now: Date): Promise<HoldRes
     travelInMode: slot.travelInMode,
     startAt: slot.startAt,
     settings: fees,
+    areaTransportFee,
   });
 
   const expiresAt = new Date(now.getTime() + HOLD_MINUTES * 60_000);

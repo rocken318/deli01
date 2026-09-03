@@ -570,6 +570,8 @@ const therapistRecordSeeds: {
  * - 国分町の代表点と一番町は約0.7kmで徒歩上限内（徒歩上限1.6km 以内 → walk になる例）
  * - 名取は他の全エリアから遠方（車 or unreachable になる例）
  */
+// transport_fee = エリア別の車交通費（税別・整数円・1000円単位 / 発注者決定 2026-09-04）。
+// 立町（拠点＝国分町）無料 / その他仙台市中心部 2000 / 泉区・太白区・若林区 3000 / 名取市・富谷市 4000。
 const areaSeeds: {
   id: string;
   name: string;
@@ -577,15 +579,16 @@ const areaSeeds: {
   lon: number;
   lat: number;
   sort_order: number;
+  transport_fee: number;
 }[] = [
-  { id: "cccccccc-0000-4000-8000-000000000001", name: "国分町", kind: "ward", lon: 140.8710, lat: 38.2640, sort_order: 10 },
-  { id: "cccccccc-0000-4000-8000-000000000002", name: "一番町", kind: "ward", lon: 140.8720, lat: 38.2610, sort_order: 20 },
-  { id: "cccccccc-0000-4000-8000-000000000003", name: "仙台駅前", kind: "station", lon: 140.8823, lat: 38.2601, sort_order: 30 },
-  { id: "cccccccc-0000-4000-8000-000000000004", name: "仙台市中心部", kind: "ward", lon: 140.8770, lat: 38.2625, sort_order: 40 },
-  { id: "cccccccc-0000-4000-8000-000000000005", name: "仙台市内", kind: "city", lon: 140.8694, lat: 38.2682, sort_order: 50 },
-  { id: "cccccccc-0000-4000-8000-000000000006", name: "泉中央", kind: "ward", lon: 140.8817, lat: 38.3253, sort_order: 60 },
-  { id: "cccccccc-0000-4000-8000-000000000007", name: "長町", kind: "ward", lon: 140.8860, lat: 38.2249, sort_order: 70 },
-  { id: "cccccccc-0000-4000-8000-000000000008", name: "名取", kind: "city", lon: 140.8912, lat: 38.1717, sort_order: 80 },
+  { id: "cccccccc-0000-4000-8000-000000000001", name: "国分町", kind: "ward", lon: 140.8710, lat: 38.2640, sort_order: 10, transport_fee: 0 },
+  { id: "cccccccc-0000-4000-8000-000000000002", name: "一番町", kind: "ward", lon: 140.8720, lat: 38.2610, sort_order: 20, transport_fee: 2000 },
+  { id: "cccccccc-0000-4000-8000-000000000003", name: "仙台駅前", kind: "station", lon: 140.8823, lat: 38.2601, sort_order: 30, transport_fee: 2000 },
+  { id: "cccccccc-0000-4000-8000-000000000004", name: "仙台市中心部", kind: "ward", lon: 140.8770, lat: 38.2625, sort_order: 40, transport_fee: 2000 },
+  { id: "cccccccc-0000-4000-8000-000000000005", name: "仙台市内", kind: "city", lon: 140.8694, lat: 38.2682, sort_order: 50, transport_fee: 2000 },
+  { id: "cccccccc-0000-4000-8000-000000000006", name: "泉中央", kind: "ward", lon: 140.8817, lat: 38.3253, sort_order: 60, transport_fee: 3000 },
+  { id: "cccccccc-0000-4000-8000-000000000007", name: "長町", kind: "ward", lon: 140.8860, lat: 38.2249, sort_order: 70, transport_fee: 3000 },
+  { id: "cccccccc-0000-4000-8000-000000000008", name: "名取", kind: "city", lon: 140.8912, lat: 38.1717, sort_order: 80, transport_fee: 4000 },
 ];
 
 /** エリア名 → id（マトリクス定義を読みやすくする） */
@@ -1409,18 +1412,19 @@ async function main() {
 
     for (const a of areaSeeds) {
       await sql`
-        insert into areas (id, name, kind, center, sort_order, is_active)
+        insert into areas (id, name, kind, center, sort_order, is_active, transport_fee)
         values (
           ${a.id}::uuid, ${a.name}, ${a.kind},
           st_setsrid(st_makepoint(${a.lon}::float8, ${a.lat}::float8), 4326)::geography,
-          ${a.sort_order}, true
+          ${a.sort_order}, true, ${a.transport_fee}
         )
         on conflict (id) do update set
-          name       = excluded.name,
-          kind       = excluded.kind,
-          center     = excluded.center,
-          sort_order = excluded.sort_order,
-          is_active  = excluded.is_active
+          name         = excluded.name,
+          kind         = excluded.kind,
+          center       = excluded.center,
+          sort_order   = excluded.sort_order,
+          is_active    = excluded.is_active,
+          transport_fee = excluded.transport_fee
       `;
     }
 
