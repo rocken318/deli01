@@ -24,12 +24,15 @@ import {
   advanceReservationStatusCore,
   getDispatchBoardCore,
   getTherapistTimelineCore,
+  updateDispatchFieldsCore,
+  dispatchFieldsSchema,
 } from './queries';
 import type {
   AdvanceTarget,
   DispatchBoardItem,
   TherapistTimelineItem,
 } from './queries';
+import { revalidatePath } from 'next/cache';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -151,5 +154,38 @@ export async function getDispatchBoard(
   } catch (e) {
     console.error('getDispatchBoard failed:', e);
     return { ok: false, error: '配車ボードの取得に失敗しました' };
+  }
+}
+
+/**
+ * 配車ボードのドライバー・メモをインライン更新する（0024 / spec 7-1）。
+ * driver と memo はどちらか一方だけでも更新可。省略は変更なし。
+ * 権限: manage_reservations（owner/admin/reception）のみ。
+ */
+export async function updateDispatchFields(
+  reservationId: string,
+  fields: { driver?: string; memo?: string },
+): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+
+  const parsed = dispatchFieldsSchema.safeParse({ reservationId, ...fields });
+  if (!parsed.success) return { ok: false, error: '入力が不正です' };
+
+  try {
+    const outcome = await updateDispatchFieldsCore(getClient(), session, parsed.data);
+    switch (outcome.kind) {
+      case 'ok':
+        revalidatePath('/admin/dispatch-board');
+        revalidatePath('/admin/annai');
+        return { ok: true };
+      case 'not_found':
+        return { ok: false, error: '予約が見つかりません' };
+      case 'forbidden':
+        return { ok: false, error: '配車ボードは運営権限のみ利用できます' };
+    }
+  } catch (e) {
+    console.error('updateDispatchFields failed:', e);
+    return { ok: false, error: 'ドライバー/メモの更新に失敗しました' };
   }
 }
