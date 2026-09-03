@@ -2,8 +2,20 @@ import "server-only";
 import type { TransactionSql } from "postgres";
 import { formatInTimeZone } from "date-fns-tz";
 import type { BoardInput, JobItem, AttendanceState } from "@/domain/annai";
+import { businessDayRange } from "@/domain/accounting";
 
 const TZ = "Asia/Tokyo";
+
+/** now の「営業日」（06:00 JST 境界）。営業 15:00-27:00＝翌3時までは同じ営業日。 */
+function operatingDayISO(nowMs: number): string {
+  const hhmm = formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd'T'HH:mm");
+  const dateISO = hhmm.slice(0, 10);
+  const hour = Number(hhmm.slice(11, 13));
+  if (hour >= 6) return dateISO;
+  // 06:00 前は前日の営業日（深夜帯 = 前日の 25:00〜）
+  const [y, m, d] = dateISO.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! - 1)).toISOString().slice(0, 10);
+}
 
 interface ResRow {
   therapist_id: string;
@@ -28,7 +40,11 @@ interface ResRow {
  * done/upcoming 予約を集約して BoardInput[] を返す。RLS 下で呼ぶこと。
  */
 export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Promise<BoardInput[]> {
-  const wd = formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd");
+  // 営業日（06:00 JST 境界）。営業 15:00-27:00 の深夜帯（翌 1〜3時＝25〜27時）も
+  // 同じ営業日として板に載せる。shifts/attendances の work_date は営業日の日付、
+  // 予約は [営業日06:00, 翌06:00) の timestamptz 範囲で拾う（日跨ぎ対応）。
+  const wd = operatingDayISO(nowMs);
+  const { from, to } = businessDayRange(wd, "day");
   const rows = await tx<ResRow[]>`
     select
       t.id as therapist_id, t.slug as slug,
@@ -43,7 +59,7 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
     left join shifts s on s.therapist_id = t.id and s.work_date = ${wd} and s.is_day_off = false
     left join reservations r
       on r.therapist_id = t.id
-     and (r.start_at at time zone ${TZ})::date = ${wd}::date
+     and r.start_at >= ${from} and r.start_at < ${to}
      and r.status in ('confirmed','enroute','in_service','done')
     where t.status = 'active'
     order by t.display_order, r.start_at nulls last
