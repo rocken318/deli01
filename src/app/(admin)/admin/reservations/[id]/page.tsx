@@ -13,6 +13,7 @@ import { withUser } from '@/lib/auth/with-user';
 import { formatInTimeZone } from 'date-fns-tz';
 import EntryCallButton from './EntryCallButton';
 import SettlePanel from './SettlePanel';
+import LineShareButtons from './LineShareButtons';
 
 export const dynamic = 'force-dynamic';
 
@@ -361,6 +362,14 @@ export default async function ReservationDetailPage({ params }: PageProps) {
           isCard={row.is_card_payment}
           settleNote={row.settle_note}
         />
+      </SectionBox>
+
+      {/* LINE 共有 */}
+      <SectionBox title="LINEで共有">
+        <p className="text-xs text-adm-muted mb-3">
+          ボタンを押すとテキストをクリップボードにコピーします。LINE に貼り付けて送信してください。
+        </p>
+        <LineShareButtons reservationId={row.id} />
       </SectionBox>
     </div>
   );

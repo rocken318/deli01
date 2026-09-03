@@ -7,7 +7,7 @@
  * 延長は P2 送り。交通費・オプション絞込は枠計算に含まれる。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   searchCustomerByPhone,
   searchHotels,
@@ -17,6 +17,7 @@ import {
 import { getAnnaiBookingSlots, type AnnaiSlot } from "./booking-actions";
 import { listBookableHotels } from "@/lib/hotels/hotel-admin-actions";
 import type { BookableHotel } from "@/lib/hotels/hotel-admin-actions";
+import { getBookingShareTexts } from "@/lib/booking/share-texts";
 
 export interface CourseOpt {
   id: string;
@@ -88,6 +89,7 @@ export default function BookingPopup({
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [msg, setMsg] = useState("");
   const [allHotels, setAllHotels] = useState<BookableHotel[]>([]);
+  const [createdReservationId, setCreatedReservationId] = useState<string | null>(null);
 
   const selectedTotal = slots.find((s) => s.startAtISO === selectedISO)?.totalAmount ?? null;
 
@@ -221,6 +223,9 @@ export default function BookingPopup({
       if (r.ok) {
         setState("done");
         setMsg("予約を作成しました");
+        if (r.data?.reservationId) {
+          setCreatedReservationId(r.data.reservationId);
+        }
         onCreated();
       } else {
         setState("error");
@@ -234,9 +239,13 @@ export default function BookingPopup({
 
   if (state === "done") {
     return (
-      <div style={{ borderTop: `2px dashed ${T.primary}`, paddingTop: 10, marginTop: 8, color: T.primary, fontSize: 14 }}>
-        ✓ {msg}
-      </div>
+      <BookingDonePanel
+        msg={msg}
+        reservationId={createdReservationId}
+        primary={T.primary}
+        border={T.border}
+        muted={T.muted}
+      />
     );
   }
 
@@ -368,6 +377,223 @@ export default function BookingPopup({
         </button>
         {state === "error" && <p style={{ color: "#F3B0AB", fontSize: 12, marginTop: 8, whiteSpace: "pre-wrap" }}>{msg}</p>}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 予約完了後のパネル（LINE 共有ボタン付き）
+// ---------------------------------------------------------------------------
+
+function BookingDonePanel({
+  msg,
+  reservationId,
+  primary,
+  border,
+  muted,
+}: {
+  msg: string;
+  reservationId: string | null;
+  primary: string;
+  border: string;
+  muted: string;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [toast, setToast] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [fallbackText, setFallbackText] = useState<string | null>(null);
+  const [fallbackLabel, setFallbackLabel] = useState<string>("");
+
+  const showToast = (text: string) => {
+    setToast(text);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleCopy = (kind: "therapist" | "driver") => {
+    if (!reservationId) return;
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await getBookingShareTexts(reservationId);
+      if (!result.ok || !result.data) {
+        setErrorMsg(result.error ?? "テキストの生成に失敗しました");
+        return;
+      }
+      const text = kind === "therapist" ? result.data.therapist : result.data.driver;
+      const label = kind === "therapist" ? "セラピスト向けテキスト" : "ドライバー向けテキスト";
+      let clipOk = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        clipOk = true;
+      } catch {
+        // フォールバック
+      }
+      if (clipOk) {
+        showToast(`${label}をコピーしました`);
+      } else {
+        setFallbackText(text);
+        setFallbackLabel(label);
+      }
+    });
+  };
+
+  return (
+    <div style={{ borderTop: `2px dashed ${primary}`, paddingTop: 10, marginTop: 8 }}>
+      {/* トースト */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 16,
+            right: 16,
+            zIndex: 9999,
+            background: primary,
+            color: "#fff",
+            padding: "6px 14px",
+            borderRadius: 4,
+            fontSize: 13,
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
+      <p style={{ color: primary, fontSize: 14, marginBottom: 10 }}>✓ {msg}</p>
+
+      {/* LINE 共有ボタン（reservationId が取れた場合のみ表示） */}
+      {reservationId && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => handleCopy("therapist")}
+            disabled={isPending}
+            style={{
+              fontSize: 12,
+              padding: "5px 10px",
+              border: `1px solid ${border}`,
+              borderRadius: 4,
+              background: "#fff",
+              color: "#1C2321",
+              cursor: isPending ? "not-allowed" : "pointer",
+              opacity: isPending ? 0.5 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isPending ? "生成中…" : "セラピストにLINE（コピー）"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleCopy("driver")}
+            disabled={isPending}
+            style={{
+              fontSize: 12,
+              padding: "5px 10px",
+              border: `1px solid ${border}`,
+              borderRadius: 4,
+              background: "#fff",
+              color: "#1C2321",
+              cursor: isPending ? "not-allowed" : "pointer",
+              opacity: isPending ? 0.5 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isPending ? "生成中…" : "ドライバーにLINE（コピー）"}
+          </button>
+        </div>
+      )}
+
+      {errorMsg && (
+        <p style={{ color: "#B4453C", fontSize: 12, marginTop: 6 }}>
+          {errorMsg}
+          <button
+            onClick={() => setErrorMsg(null)}
+            style={{ marginLeft: 6, fontSize: 11, color: "#B4453C", textDecoration: "underline", background: "none", border: "none", cursor: "pointer" }}
+          >
+            閉じる
+          </button>
+        </p>
+      )}
+
+      {/* フォールバックモーダル */}
+      {fallbackText && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9998,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              border: `1px solid ${border}`,
+              borderRadius: 4,
+              padding: 20,
+              width: "100%",
+              maxWidth: 420,
+              margin: "0 16px",
+            }}
+          >
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{fallbackLabel}</p>
+            <p style={{ fontSize: 11, color: muted, marginBottom: 10 }}>
+              自動コピーできませんでした。以下を手動でコピーしてください。
+            </p>
+            <pre
+              style={{
+                fontSize: 12,
+                whiteSpace: "pre-wrap",
+                fontFamily: "monospace",
+                background: "#F6F7F5",
+                border: `1px solid ${border}`,
+                borderRadius: 4,
+                padding: 10,
+                maxHeight: 200,
+                overflowY: "auto",
+                marginBottom: 12,
+              }}
+            >
+              {fallbackText}
+            </pre>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => {
+                  void navigator.clipboard.writeText(fallbackText).catch(() => undefined);
+                  showToast("コピーしました");
+                  setFallbackText(null);
+                }}
+                style={{
+                  flex: 1,
+                  background: primary,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 4,
+                  padding: "7px 12px",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                コピー
+              </button>
+              <button
+                onClick={() => setFallbackText(null)}
+                style={{
+                  padding: "7px 12px",
+                  border: `1px solid ${border}`,
+                  borderRadius: 4,
+                  fontSize: 13,
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
