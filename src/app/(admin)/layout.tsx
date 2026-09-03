@@ -42,6 +42,7 @@ const navItems = [
   { href: "/admin/settings", label: "サイト設定" },
   { href: "/admin/pages", label: "固定ページ" },
   { href: "/admin/therapists", label: "セラピスト" },
+  { href: "/admin/lineup", label: "表ページ並び順" },
   { href: "/admin/photo-submissions", label: "写真承認" },
   { href: "/admin/areas", label: "派遣エリア" },
   { href: "/admin/hotels", label: "派遣ホテル" },
@@ -70,6 +71,16 @@ export default async function AdminLayout({
           </Link>
           <AdminNav items={[...navItems]} />
           <div className="ml-auto flex items-center gap-3 text-sm">
+            <a
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 border border-adm-border hover:border-adm-primary hover:text-adm-primary shrink-0"
+              style={{ borderRadius: "4px" }}
+              title="公開中の表ページを別タブで開く"
+            >
+              表ページを見る ↗
+            </a>
             <span className="text-adm-text/70">
               {session ? session.role : "未ログイン"}
             </span>
