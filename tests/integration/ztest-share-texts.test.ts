@@ -51,7 +51,7 @@ describe.skipIf(!enabled)("getBookingShareTexts", () => {
 
     // シードに含まれるホテルを1件取得（ホテルルートでテスト）
     const hotels = await sql<{ id: string; name: string; area_id: string | null }[]>`
-      select id, name, area_id from hotels where is_provisional = false limit 1
+      select id, name, area_id from hotels where is_blocked = false limit 1
     `;
     if (hotels.length === 0) return; // シードなし → スキップ
 
