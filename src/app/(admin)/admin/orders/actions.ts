@@ -1,4 +1,4 @@
-'use server';
+﻿'use server';
 
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
@@ -322,7 +322,7 @@ const orderFormSchema = z.object({
   addressDetail: z.string().optional(),
   areaId: z.string().uuid().optional(),
   hotelId: z.string().uuid().optional(),
-  roomNumber: z.string().optional(),
+  roomNumber: z.string().max(50).optional(),
   therapistId: z.string().uuid(),        // 必須
   therapistSlug: z.string().min(1),      // 必須
   courseId: z.string().uuid(),
@@ -439,6 +439,7 @@ export async function createPhoneOrder(
           set status = 'confirmed',
               customer_id = ${customerId}::uuid,
               address_id = ${addressId}::uuid,
+              room_number = ${d.roomNumber ?? null},
               source = 'phone'::reservation_source,
               phone_confirmed_at = now(),
               phone_confirmed_by = ${session.userId}::uuid,
@@ -672,7 +673,7 @@ export async function createPhoneOrder(
             hotel_id, start_at, end_at, depart_at, free_at,
             travel_in_min, travel_out_min, buffer_min,
             status, nomination_fee, transport_fee, total_amount,
-            source, phone_confirmed_at, phone_confirmed_by
+            source, phone_confirmed_at, phone_confirmed_by, room_number -- room_number（0025 専用列）
           ) values (
             ${d.therapistId}::uuid,
             ${customerId}::uuid,
@@ -686,7 +687,8 @@ export async function createPhoneOrder(
             ${breakdown.nominationFee}, ${breakdown.transportFee}, ${breakdown.totalAmount},
             'phone'::reservation_source,
             now(),
-            ${session.userId}::uuid
+            ${session.userId}::uuid,
+            ${d.roomNumber ?? null}
           )
           returning id
         `;

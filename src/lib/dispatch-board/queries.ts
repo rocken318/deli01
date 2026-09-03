@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 import type { Sql } from "postgres";
 import { addDays } from "date-fns";
 import { fromZonedTime } from "date-fns-tz";
@@ -321,6 +321,8 @@ export interface DispatchBoardItem {
   hotelName: string | null;
   /** 部屋番号・住所ラベル（addresses.label。ホテルでは「部屋○○」等が入る） */
   addressLabel: string | null;
+  /** 部屋番号専用列（reservations.room_number / 0025）。addressLabel より優先表示 */
+  roomNumber: string | null;
   customerName: string | null;
   /** タップ発信用（spec 7-1 L692）。staff 経路のみ。therapist には決して返さない */
   customerPhone: string | null;
@@ -350,6 +352,7 @@ interface BoardRow extends Omit<TimelineRow, "customer_name" | "customer_note"> 
   customer_phone: string | null;
   first_visit: boolean;
   address_label: string | null;
+  room_number: string | null;
   dispatch_driver: string | null;
   dispatch_memo: string | null;
 }
@@ -383,6 +386,7 @@ export async function getDispatchBoardCore(
         ar.name          as area_name,
         h.name           as hotel_name,
         a.label          as address_label,
+        r.room_number,
         c.name           as customer_name,
         c.phone          as customer_phone,
         (r.customer_id is not null and not exists (
@@ -428,6 +432,7 @@ export async function getDispatchBoardCore(
       areaName: r.area_name,
       hotelName: r.hotel_name,
       addressLabel: r.address_label,
+      roomNumber: r.room_number,
       customerName: r.customer_name,
       customerPhone: r.customer_phone,
       firstVisit: r.first_visit,

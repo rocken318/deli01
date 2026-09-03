@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 /**
  * 配車ボードクライアントコンポーネント（spec 7-1・7-3 / 改修: 1行=1配車の表）。
@@ -28,6 +28,7 @@ import {
   isDelayed,
   isExitOverdue,
 } from '@/domain/dispatch-board';
+import Link from 'next/link';
 import {
   advanceReservationStatus,
   getDispatchBoard,
@@ -283,9 +284,9 @@ function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps
         {formatDestination(item)}
       </td>
 
-      {/* 部屋（addressLabel）*/}
+      {/* 部屋（room_number 優先、旧データは addressLabel フォールバック）*/}
       <td style={{ ...TD_STYLE, maxWidth: 80 }}>
-        {item.addressLabel ?? '—'}
+        {item.roomNumber ?? item.addressLabel ?? '—'}
       </td>
 
       {/* 出発（enroute_at 実、なければ depart_at 予定）*/}
@@ -701,6 +702,12 @@ export default function DispatchBoardClient({
         >
           {isPending ? '読込中…' : '更新'}
         </button>
+        <Link
+          href="/admin/dispatch-roster"
+          className="text-sm text-adm-primary underline underline-offset-2"
+        >
+          配車名簿
+        </Link>
       </div>
 
       {/* ローディング状態 */}
@@ -799,3 +806,4 @@ export default function DispatchBoardClient({
     </div>
   );
 }
+
