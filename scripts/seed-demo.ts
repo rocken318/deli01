@@ -86,6 +86,16 @@ async function main() {
   // 参照データ
   const areaRows = await sql<{ id: string }[]>`select id from areas where name = '国分町' limit 1`;
   const areaId = areaRows[0]!.id;
+  // シフトの対応エリア（shift_areas）に付ける全アクティブエリア。
+  // ★これが無いと空き枠エンジンが枠を1件も返さず「調整中」になる（earliest.ts）。
+  const activeAreas = await sql<{ id: string }[]>`select id from areas where is_active = true`;
+  const activeAreaIds = activeAreas.map((a) => a.id);
+  // 待機拠点（base）。★base が null だと base→目的地の距離が取れず枠が出ない
+  //   （reservation-data.buildTravelDataSource）。事務所拠点を出発/帰着に使う。
+  const baseRows = await sql<{ id: string }[]>`
+    select id from bases where kind = 'office' order by created_at limit 1
+  `;
+  const baseId = baseRows[0]?.id ?? null;
   const courses = await sql<{ id: string; price: number; duration_min: number; nomination_fee_default: number }[]>`
     select id, price, duration_min, nomination_fee_default from courses order by duration_min limit 3
   `;
@@ -114,11 +124,24 @@ async function main() {
       const start = `${String(startH).padStart(2, "0")}:00`;
       const end = `${String(startH + 9).padStart(2, "0")}:00`;
       const { startAt, endAt } = shiftInstants(dateISO, start, end);
-      await sql`
-        insert into shifts (therapist_id, work_date, start_at, end_at, max_bookings)
-        values (${t.id}::uuid, ${dateISO}::date, ${startAt}, ${endAt}, 4)
-        on conflict (therapist_id, work_date) do nothing
+      const shiftRows = await sql<{ id: string }[]>`
+        insert into shifts (therapist_id, work_date, start_at, end_at, max_bookings, base_start_id, base_end_id)
+        values (${t.id}::uuid, ${dateISO}::date, ${startAt}, ${endAt}, 4, ${baseId}::uuid, ${baseId}::uuid)
+        on conflict (therapist_id, work_date) do update set
+          start_at = excluded.start_at, end_at = excluded.end_at, max_bookings = excluded.max_bookings,
+          base_start_id = excluded.base_start_id, base_end_id = excluded.base_end_id
+        returning id
       `;
+      const shiftId = shiftRows[0]!.id;
+      // 対応エリア（全アクティブエリア）を全置換。これが無いと枠が出ない＝調整中。
+      await sql`delete from shift_areas where shift_id = ${shiftId}::uuid`;
+      for (const aid of activeAreaIds) {
+        await sql`
+          insert into shift_areas (shift_id, area_id)
+          values (${shiftId}::uuid, ${aid}::uuid)
+          on conflict do nothing
+        `;
+      }
       shiftCount++;
     }
   }
