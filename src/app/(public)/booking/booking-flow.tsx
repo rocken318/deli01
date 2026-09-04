@@ -767,32 +767,16 @@ export function BookingFlow({
           </div>
         )}
 
-        {hold === null &&
-          (slotsState.slots.length === 0 ? (
-            <div className="rounded border border-pub-border bg-pub-surface px-4 py-8 text-center">
-              {labels.emptyTitle && (
-                <p className="font-heading text-base text-pub-text">{labels.emptyTitle}</p>
-              )}
-              {labels.emptyBody && (
-                <p className="mt-1 text-sm text-pub-subtext">{labels.emptyBody}</p>
-              )}
-            </div>
-          ) : (
-            <ul className={`flex flex-wrap gap-2 ${pending ? "opacity-60" : ""}`}>
-              {slotsState.slots.map((s) => (
-                <li key={s.startAtISO}>
-                  <button
-                    type="button"
-                    onClick={() => chooseSlot(s)}
-                    disabled={pending}
-                    className="inline-block rounded border border-pub-primary/50 bg-pub-primary/10 px-3 py-1.5 font-mono text-base font-medium tabular-nums text-pub-primary transition-colors hover:bg-pub-primary hover:text-pub-bg focus-visible:bg-pub-primary focus-visible:text-pub-bg"
-                  >
-                    {s.time}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ))}
+        {hold === null && slotsState.slots.length === 0 && (
+          <div className="rounded border border-pub-border bg-pub-surface px-4 py-8 text-center">
+            {labels.emptyTitle && (
+              <p className="font-heading text-base text-pub-text">{labels.emptyTitle}</p>
+            )}
+            {labels.emptyBody && (
+              <p className="mt-1 text-sm text-pub-subtext">{labels.emptyBody}</p>
+            )}
+          </div>
+        )}
 
         {/* ホールド中: 残り時間 + 入力フォーム（spec 5-5「残り時間を画面に出す」/ 6章 手順5〜6） */}
         {hold && (
