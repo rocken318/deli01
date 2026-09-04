@@ -251,6 +251,52 @@ async function main() {
   }
   console.log(`当日タイムライン(done+confirmed): ~${todayTimelineCount}`);
 
+  // ---- 2.7) 今月末まで各キャストにテスト予約を散らす（予約管理・配車ボードの動作確認用）----
+  // 明後日(dayOffset=2)から当月末まで、各対象に「1日1件・営業時間内・重複なし」の
+  // confirmed をゆるく散らす（曜日休みはスキップ、日ごとに時刻/コース/顧客を変える）。
+  let scatterCount = 0;
+  for (let ti = 0; ti < targets.length; ti++) {
+    const t = targets[ti]!;
+    for (let dayOffset = 2; dayOffset <= 40; dayOffset++) {
+      const dateISO = addDaysISO(today, dayOffset);
+      if (dateISO.slice(0, 7) !== month) break; // 当月末で打ち切り
+      const [yy, mm, dd] = dateISO.split("-").map(Number);
+      const dow = new Date(yy!, mm! - 1, dd!).getDay();
+      // シフトと同じ休み曜日はスキップ（出勤日にだけ予約が乗る）
+      const off = dow === (ti % 7) || (dow === 0 && ti % 2 === 0);
+      if (off) continue;
+      // 「適当に」= 3日に2日くらい入れる（キャストごとに位相をずらす）
+      if ((dayOffset + ti) % 3 === 0) continue;
+      const course = courses[(ti + dayOffset) % courses.length]!;
+      const cust = custs[(ti + dayOffset) % custs.length]!;
+      const startH = 17 + ((dayOffset + ti) % 5); // 17〜21時（営業15:00〜翌03:00内・1日1件で重複なし）
+      const start = `${String(startH).padStart(2, "0")}:00`;
+      const { startAt } = shiftInstants(dateISO, start, start);
+      const startMs = startAt.getTime();
+      const serviceEndAt = new Date(startMs + course.duration_min * 60_000);
+      const departAt = new Date(startMs - 25 * 60_000);
+      const freeAt = new Date(serviceEndAt.getTime() + 10 * 60_000);
+      const nomFee = course.nomination_fee_default;
+      const total = course.price + nomFee;
+      const rid = `5ca70000-0000-4000-8000-${String(ti).padStart(4, "0")}${String(dayOffset).padStart(8, "0")}`;
+      await sql`
+        insert into reservations (
+          id, therapist_id, customer_id, address_id, area_id, course_id,
+          start_at, end_at, depart_at, free_at, travel_in_min, travel_out_min, buffer_min,
+          status, nomination_fee, transport_fee, total_amount, source,
+          phone_confirmed_at, phone_confirmed_by
+        ) values (
+          ${rid}::uuid, ${t.id}::uuid, ${cust.id}::uuid, ${cust.address_id}::uuid, ${areaId}::uuid, ${course.id}::uuid,
+          ${startAt}, ${serviceEndAt}, ${departAt}, ${freeAt}, 15, 15, 30,
+          'confirmed'::reservation_status, ${nomFee}, 0, ${total}, 'phone'::reservation_source,
+          ${startAt}, ${RECEPTION}::uuid
+        ) on conflict (id) do nothing
+      `;
+      scatterCount++;
+    }
+  }
+  console.log(`今月末までの散らし予約(confirmed): ~${scatterCount}`);
+
   // ---- 3) 過去の接客(done予約) + 4) 売上+報酬(revenue_lines/payout_lines)----
   // 各対象に、過去14日から数日おきに done 予約を作る（1日1件で exclusion 回避）。
   // ★デモ会計は「売上（course+nomination）」と「バック（実レート）」を必ずセットで作る。
