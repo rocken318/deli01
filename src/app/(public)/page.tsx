@@ -8,7 +8,7 @@ import {
   earliestSlotForTherapist,
   type EarliestSlotInfo,
 } from "@/lib/availability/earliest";
-import { localDateISO } from "@/domain/availability";
+import { operatingDayISO } from "@/domain/availability";
 import Link from "next/link";
 import { renderBlock, collectBlockImageIds } from "./_components/block-renderer";
 import { EmptyState } from "./_components/empty-state";
@@ -162,7 +162,7 @@ export default async function HomePage() {
       ? `${conditionTemplate.replace("{area}", e.areaName)}${assumedNote}`
       : "";
 
-  const today = localDateISO(new Date());
+  const today = operatingDayISO(new Date());
   const earliestTemplate = label(ctx, "earliest_slot_template");
   const earliestTemplateFuture = label(ctx, "earliest_slot_template_future");
   const earliestPending = label(ctx, "earliest_slot_pending");

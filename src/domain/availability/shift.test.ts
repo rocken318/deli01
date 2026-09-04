@@ -3,11 +3,32 @@ import {
   addDaysISO,
   formatShiftTimeRange,
   localDateISO,
+  operatingDayISO,
   parseDateISO,
   remainingSlots,
   shiftInstants,
   weekdayIndex,
 } from "./shift";
+
+describe("operatingDayISO（営業日 = 15:00〜翌03:00 / 06:00 JST 境界）", () => {
+  const jst = (iso: string) => new Date(`${iso}+09:00`);
+  it("深夜1時は前暦日（当営業日＝前日15:00開始の回）", () => {
+    expect(operatingDayISO(jst("2026-09-11T01:00:00"))).toBe("2026-09-10");
+  });
+  it("03:00〜05:59 も前営業日（境界は06:00）", () => {
+    expect(operatingDayISO(jst("2026-09-11T02:59:00"))).toBe("2026-09-10");
+    expect(operatingDayISO(jst("2026-09-11T03:00:00"))).toBe("2026-09-10");
+    expect(operatingDayISO(jst("2026-09-11T05:59:00"))).toBe("2026-09-10");
+  });
+  it("06:00 以降は当暦日（次の営業回＝当日15:00開始）", () => {
+    expect(operatingDayISO(jst("2026-09-11T06:00:00"))).toBe("2026-09-11");
+    expect(operatingDayISO(jst("2026-09-11T15:30:00"))).toBe("2026-09-11");
+    expect(operatingDayISO(jst("2026-09-11T23:00:00"))).toBe("2026-09-11");
+  });
+  it("UTC 表記でも JST 壁時計で判定（UTC 2026-09-10T16:00Z = JST 09-11 01:00）", () => {
+    expect(operatingDayISO(new Date("2026-09-10T16:00:00Z"))).toBe("2026-09-10");
+  });
+});
 
 describe("shiftInstants（work_date + HH:MM → timestamptz / Asia/Tokyo）", () => {
   it("通常シフト: 2026-08-29 10:00-19:00 JST = 01:00Z-10:00Z", () => {

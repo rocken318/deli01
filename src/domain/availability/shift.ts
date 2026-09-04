@@ -92,6 +92,22 @@ export function localDateISO(at: Date, timeZone: string = APP_TIME_ZONE): string
 }
 
 /**
+ * now の「営業日」（work_date 基準の "YYYY-MM-DD"）。
+ *
+ * 営業は 15:00〜翌03:00（＝27:00）想定。深夜帯（00:00〜05:59）は前日の営業回に属する
+ * ので、**06:00 JST を日の境界**にする（03:00〜06:00 の待機時間も前営業日側）。
+ * 例: 深夜1時なら当営業日＝前暦日（前日15:00開始の枠）。空き枠の前方探索の起点に使い、
+ * 「現在時刻を跨いだ営業日」を正しく当日として扱う（03:00 を過ぎ 06:00 以降で翌営業日へ）。
+ */
+export function operatingDayISO(at: Date, timeZone: string = APP_TIME_ZONE): string {
+  const stamp = formatInTimeZone(at, timeZone, "yyyy-MM-dd'T'HH");
+  const dateISO = stamp.slice(0, 10);
+  const hour = Number(stamp.slice(11, 13));
+  if (hour >= 6) return dateISO;
+  return addDaysISO(dateISO, -1, timeZone);
+}
+
+/**
  * "YYYY-MM-DD" の曜日番号（0=日曜〜6=土曜、Asia/Tokyo 基準）。
  * 曜日の表示文字は CMS（ui_labels.schedule_weekdays）から引く。ここは番号だけ返す。
  */

@@ -52,6 +52,35 @@ export interface AvailabilityLabels {
   dateTodayLabel: string;
   /** 曜日ラベル（カンマ区切り "日,月,火,水,木,金,土"） */
   weekdays: string;
+  /** 日付選択の見出し（例: "日付を選ぶ"） */
+  dateHeading: string;
+  /** 「最短でおまかせ」= 日付未指定で最短の枠を探す選択肢 */
+  dateSoonest: string;
+}
+
+/** 予約可能な将来日数（当営業日＋この日数先まで選べる） */
+const DATE_HORIZON_DAYS = 14;
+
+/** iso("YYYY-MM-DD") に n 日足す（端末TZ非依存の純計算） */
+function addDaysISOLocal(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! + n)).toISOString().slice(0, 10);
+}
+
+/** "YYYY-MM-DD" → "M/d(曜)" 表示（曜日は weekdays ラベルから） */
+function dateLabel(iso: string, weekdays: string, todayLabel: string, today: string): string {
+  if (iso === today && todayLabel) return todayLabel;
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  const md = `${Number(parts[1])}/${Number(parts[2])}`;
+  const wds = weekdays ? weekdays.split(",") : [];
+  let wd = "";
+  try {
+    wd = wds[weekdayIndex(iso)] ?? "";
+  } catch {
+    wd = "";
+  }
+  return wd ? `${md}(${wd})` : md;
 }
 
 interface SlotsState {
@@ -98,6 +127,8 @@ export function AvailabilityPanel({
   const [areaId, setAreaId] = useState<string | null>(initialAreaId);
   const [courseId, setCourseId] = useState<string | null>(courses[0]?.id ?? null);
   const [optionIds, setOptionIds] = useState<string[]>([]);
+  // 選択中の日付（"" = 最短でおまかせ＝前方探索）
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [state, setState] = useState<SlotsState>({
     slots: initialSlots,
     areaName: initialAreaName,
@@ -112,14 +143,15 @@ export function AvailabilityPanel({
     areaId: string | null;
     courseId: string | null;
     optionIds: string[];
+    dateISO: string;
   }) => {
     setFailed(false);
     startTransition(async () => {
       try {
         const res = await recomputeSlots({
           slug,
-          // dateISO 未指定で前方探索する（セレクタ変更で最初の枠がある日を再探索）
-          dateISO: null,
+          // 日付指定ありはその日だけ、"" は前方探索（最短でおまかせ）
+          dateISO: next.dateISO || null,
           areaId: next.areaId,
           courseId: next.courseId,
           optionIds: next.optionIds,
@@ -143,19 +175,28 @@ export function AvailabilityPanel({
 
   const chooseArea = (id: string | null) => {
     setAreaId(id);
-    refresh({ areaId: id, courseId, optionIds });
+    refresh({ areaId: id, courseId, optionIds, dateISO: selectedDate });
   };
   const chooseCourse = (id: string) => {
     setCourseId(id);
-    refresh({ areaId, courseId: id, optionIds });
+    refresh({ areaId, courseId: id, optionIds, dateISO: selectedDate });
   };
   const toggleOption = (id: string) => {
     const next = optionIds.includes(id)
       ? optionIds.filter((o) => o !== id)
       : [...optionIds, id];
     setOptionIds(next);
-    refresh({ areaId, courseId, optionIds: next });
+    refresh({ areaId, courseId, optionIds: next, dateISO: selectedDate });
   };
+  const chooseDate = (iso: string) => {
+    setSelectedDate(iso);
+    refresh({ areaId, courseId, optionIds, dateISO: iso });
+  };
+
+  // 選べる日付（当営業日 today ＋ 先 DATE_HORIZON_DAYS 日）
+  const dateChoices = Array.from({ length: DATE_HORIZON_DAYS + 1 }, (_, i) =>
+    addDaysISOLocal(today, i),
+  );
 
   const condition =
     state.areaName && labels.conditionTemplate
@@ -188,6 +229,28 @@ export function AvailabilityPanel({
 
   return (
     <div className="space-y-6">
+      {/* 日付選択（当営業日＋将来日。最短でおまかせも可） */}
+      <section aria-label={labels.dateHeading || undefined}>
+        {labels.dateHeading && (
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-pub-subtext">
+            {labels.dateHeading}
+          </h3>
+        )}
+        <select
+          value={selectedDate}
+          onChange={(e) => chooseDate(e.target.value)}
+          aria-label={labels.dateHeading || undefined}
+          className="w-full rounded border border-pub-border bg-pub-surface px-3 py-2 text-sm text-pub-text focus-visible:border-pub-primary"
+        >
+          {labels.dateSoonest && <option value="">{labels.dateSoonest}</option>}
+          {dateChoices.map((iso) => (
+            <option key={iso} value={iso}>
+              {dateLabel(iso, labels.weekdays, labels.dateTodayLabel, today)}
+            </option>
+          ))}
+        </select>
+      </section>
+
       {/* エリア選択（チップ。名前は DB 由来） */}
       {areas.length > 0 && (
         <section aria-label={labels.areaHeading || undefined}>
