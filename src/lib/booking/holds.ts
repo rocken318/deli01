@@ -1,7 +1,7 @@
 import "server-only";
 import postgres from "postgres";
 import { getClient } from "@/lib/db-client";
-import { getTherapistSlots } from "@/lib/availability/public-slots";
+import { getTherapistSlots, listPublishedTherapistSlugs } from "@/lib/availability/public-slots";
 import type { AvailableSlot } from "@/domain/availability";
 import { DEFAULT_BOOKING_FEES, feeBreakdown } from "@/domain/booking";
 import type { BookingFeeSettings, FeeBreakdown } from "@/domain/booking";
@@ -180,6 +180,50 @@ export async function createHold(params: HoldParams): Promise<HoldResult> {
   return { ok: false, error: "slot_taken" };
 }
 
+interface FreeHoldParams {
+  dateISO: string;
+  startAtISO: string;
+  areaId?: string | null;
+  courseId: string;
+  optionIds?: readonly string[];
+  hotelId?: string | null;
+  sessionId: string;
+  now?: Date;
+}
+
+/**
+ * フリー（おまかせ）ホールド（発注者決定 2026-09-05）。
+ * 指定時刻に空いている公開セラピストを display_order 順に探し、最初に押さえられた
+ * 1人を **指名料 0** でホールドする（お店が後で担当変更可）。全員だめなら slot_gone。
+ * 並行で取られた（slot_taken）ら次の候補へ回す。
+ */
+export async function createFreeHold(params: FreeHoldParams): Promise<HoldResult> {
+  if (!isValidFunnelSession(params.sessionId)) return { ok: false, error: "invalid" };
+  if (!UUID_RE.test(params.courseId)) return { ok: false, error: "invalid" };
+  if (Number.isNaN(Date.parse(params.startAtISO))) return { ok: false, error: "invalid" };
+
+  const slugs = await listPublishedTherapistSlugs();
+  let lastError: Extract<HoldResult, { ok: false }>["error"] = "slot_gone";
+  for (const slug of slugs) {
+    const res = await createHold({
+      slug,
+      dateISO: params.dateISO,
+      startAtISO: params.startAtISO,
+      areaId: params.areaId ?? null,
+      courseId: params.courseId,
+      optionIds: params.optionIds ?? [],
+      hotelId: params.hotelId ?? null,
+      sessionId: params.sessionId,
+      nominate: false, // フリーは指名料なし
+      ...(params.now ? { now: params.now } : {}),
+    });
+    if (res.ok) return res;
+    if (res.error === "invalid") return res;
+    lastError = res.error; // slot_gone / slot_taken → 次の候補へ
+  }
+  return { ok: false, error: lastError };
+}
+
 interface HoldParams {
   slug: string;
   dateISO: string;
@@ -189,6 +233,8 @@ interface HoldParams {
   optionIds?: readonly string[];
   hotelId?: string | null;
   sessionId: string;
+  /** 指名するか（既定 true）。フリー（おまかせ）は false → 指名料 0（発注者決定 2026-09-05） */
+  nominate?: boolean;
   now?: Date;
 }
 
@@ -240,12 +286,13 @@ async function attemptCreateHold(params: HoldParams, now: Date): Promise<HoldRes
     : [];
   const areaTransportFee = areaFeeRows[0]?.transport_fee ?? null;
 
-  // 指名料: 公開フローで特定セラピストを選ぶ = 指名（通常指名の既定額 / spec 18-3。
-  // 個人別特別指名・therapist_courses の上書きはフェーズ16/18 で精緻化）
+  // 指名料: 指名（特定セラピストを選ぶ）は既定額、フリー（おまかせ）は 0
+  //  （発注者決定 2026-09-05: フリーは指名料なし / spec 18-3）
+  const nominate = params.nominate !== false;
   const breakdown = feeBreakdown({
     coursePrice: course.price,
     optionPrices: optionRows.map((o) => o.price),
-    nominationFee: course.nomination_fee_default,
+    nominationFee: nominate ? course.nomination_fee_default : 0,
     travelInMode: slot.travelInMode,
     startAt: slot.startAt,
     settings: fees,

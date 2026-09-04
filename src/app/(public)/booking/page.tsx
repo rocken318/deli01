@@ -50,6 +50,8 @@ export default async function BookingPage({
 
   const labels: BookingLabels = {
     stepTherapist: label(ctx, "booking_step_therapist"),
+    freeOption: label(ctx, "booking_free_option"),
+    freeNote: label(ctx, "booking_free_note"),
     stepDestination: label(ctx, "booking_step_destination"),
     destHome: label(ctx, "booking_dest_home"),
     destHotel: label(ctx, "booking_dest_hotel"),

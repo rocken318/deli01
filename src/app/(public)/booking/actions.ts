@@ -3,11 +3,13 @@
 import { z } from "zod";
 import {
   getTherapistSlots,
+  getFreeSlots,
   getPublicTherapistId,
   listPublicOptions,
 } from "@/lib/availability/public-slots";
 import type { PublicArea, PublicOption, PublicSlotView, BusyBlockView } from "@/lib/availability/public-slots";
-import { confirmReservation, createHold, releaseHold } from "@/lib/booking/holds";
+import { confirmReservation, createHold, createFreeHold, releaseHold } from "@/lib/booking/holds";
+import { listScheduleAreas } from "@/lib/schedule/queries";
 import type { ConfirmResult, HoldResult } from "@/lib/booking/holds";
 import { recordFunnelEvent } from "@/lib/booking/funnel";
 import type { FunnelStep } from "@/lib/booking/funnel";
@@ -106,6 +108,78 @@ export async function fetchBookingSlots(raw: unknown): Promise<BookingSlotsResul
   };
 }
 
+const FreeSlotsInputSchema = z.object({
+  dateISO: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  areaId: z.string().uuid().nullable().optional(),
+  courseId: z.string().uuid().nullable().optional(),
+  optionIds: z.array(z.string().uuid()).max(50).optional(),
+  hotelId: z.string().uuid().nullable().optional(),
+});
+
+/** フリー（おまかせ）: 全公開セラピストの空き枠を合算して返す（時間から選ぶ用） */
+export async function fetchFreeSlots(raw: unknown): Promise<BookingSlotsResult> {
+  const parsed = FreeSlotsInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      slots: [],
+      busy: [],
+      windowStartISO: null,
+      windowEndISO: null,
+      areas: [],
+      areaId: "",
+      areaName: "",
+      assumed: false,
+      dateISO: "",
+      serviceMinutes: 0,
+    };
+  }
+  const input = parsed.data;
+  const [result, areas] = await Promise.all([
+    getFreeSlots({
+      dateISO: input.dateISO ?? null,
+      areaId: input.areaId ?? null,
+      courseId: input.courseId ?? null,
+      optionIds: input.optionIds ?? [],
+      hotelId: input.hotelId ?? null,
+    }),
+    listScheduleAreas(),
+  ]);
+  const areaList: PublicArea[] = areas.map((a) => ({ id: a.id, name: a.name }));
+  if (!result) {
+    return {
+      ok: true,
+      slots: [],
+      busy: [],
+      windowStartISO: null,
+      windowEndISO: null,
+      areas: areaList,
+      areaId: input.areaId ?? "",
+      areaName: "",
+      assumed: !input.areaId,
+      dateISO: input.dateISO ?? "",
+      serviceMinutes: 0,
+    };
+  }
+  return {
+    ok: true,
+    slots: result.slots,
+    busy: result.busy,
+    windowStartISO: result.windowStartISO,
+    windowEndISO: result.windowEndISO,
+    areas: areaList,
+    areaId: result.areaId,
+    areaName: result.areaName,
+    assumed: result.assumed,
+    dateISO: result.dateISO,
+    serviceMinutes: 0,
+  };
+}
+
 const HoldInputSchema = z.object({
   slug: z.string().min(1).max(200),
   dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -116,6 +190,32 @@ const HoldInputSchema = z.object({
   hotelId: z.string().uuid().nullable().optional(),
   sessionId: SessionSchema,
 });
+
+const FreeHoldInputSchema = z.object({
+  dateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startAtISO: z.string().datetime(),
+  areaId: z.string().uuid().nullable().optional(),
+  courseId: z.string().uuid(),
+  optionIds: z.array(z.string().uuid()).max(50).optional(),
+  hotelId: z.string().uuid().nullable().optional(),
+  sessionId: SessionSchema,
+});
+
+/** フリー仮押さえ: 空いている担当を1人自動で押さえる（指名料なし） */
+export async function holdFreeSlot(raw: unknown): Promise<HoldResult> {
+  const parsed = FreeHoldInputSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "invalid" };
+  const input = parsed.data;
+  return createFreeHold({
+    dateISO: input.dateISO,
+    startAtISO: input.startAtISO,
+    areaId: input.areaId ?? null,
+    courseId: input.courseId,
+    optionIds: input.optionIds ?? [],
+    hotelId: input.hotelId ?? null,
+    sessionId: input.sessionId,
+  });
+}
 
 /** 仮押さえ（spec 5-5。exclusion 制約が同時取得を裁定する） */
 export async function holdSlot(raw: unknown): Promise<HoldResult> {

@@ -611,6 +611,104 @@ export async function getPublicTherapistId(slug: string): Promise<string | null>
   return rows[0]?.id ?? null;
 }
 
+/** 公開中・稼働中セラピストの slug（display_order 順）。フリー集約・自動割当に使う */
+export async function listPublishedTherapistSlugs(): Promise<string[]> {
+  const sql = getClient();
+  const rows = await sql<{ slug: string }[]>`
+    select t.slug
+    from therapists t
+    join entity_records r on r.entity = 'therapist' and r.slug = t.slug
+    where t.status = 'active' and r.published is not null
+    order by t.display_order asc, t.created_at asc
+  `;
+  return rows.map((r) => r.slug);
+}
+
+/** フリー（おまかせ）集約の戻り。busy は集約では出さない（[]） */
+export interface FreeSlotsResult {
+  slots: PublicSlotView[];
+  busy: BusyBlockView[];
+  windowStartISO: string | null;
+  windowEndISO: string | null;
+  areaId: string;
+  areaName: string;
+  assumed: boolean;
+  dateISO: string;
+}
+
+/**
+ * フリー（おまかせ）用: 全公開セラピストの空き枠を**合算（和集合）**して返す。
+ * 「その時間に誰か1人でも空いていれば案内可能」。指名せず時間から選ぶための材料。
+ * dateISO 指定はその日、未指定は営業日から前方探索で最初に枠が出る日を返す。
+ */
+export async function getFreeSlots(params: {
+  dateISO?: string | null;
+  areaId?: string | null;
+  courseId?: string | null;
+  optionIds?: readonly string[];
+  hotelId?: string | null;
+  now?: Date;
+}): Promise<FreeSlotsResult | null> {
+  const now = params.now ?? new Date();
+  const slugs = await listPublishedTherapistSlugs();
+  if (slugs.length === 0) return null;
+
+  const days = params.dateISO
+    ? [params.dateISO]
+    : Array.from({ length: DEFAULT_SEARCH_DAYS }, (_, d) =>
+        addDaysISO(operatingDayISO(now), d),
+      );
+
+  for (const day of days) {
+    const seen = new Map<string, PublicSlotView>();
+    let winStart: number | null = null;
+    let winEnd: number | null = null;
+    let areaId = "";
+    let areaName = "";
+    let assumed = true;
+    for (const slug of slugs) {
+      const res = await slotsForDate({
+        slug,
+        dateISO: day,
+        areaId: params.areaId ?? null,
+        courseId: params.courseId ?? null,
+        optionIds: params.optionIds ?? [],
+        hotelId: params.hotelId ?? null,
+        now,
+      });
+      if (!res) continue;
+      for (const s of res.slots) if (!seen.has(s.startAtISO)) seen.set(s.startAtISO, s);
+      if (res.windowStartISO) {
+        const ws = Date.parse(res.windowStartISO);
+        if (winStart === null || ws < winStart) winStart = ws;
+      }
+      if (res.windowEndISO) {
+        const we = Date.parse(res.windowEndISO);
+        if (winEnd === null || we > winEnd) winEnd = we;
+      }
+      if (res.areaName && areaName === "") {
+        areaName = res.areaName;
+        areaId = res.areaId;
+        assumed = res.assumed;
+      }
+    }
+    const slots = [...seen.values()].sort((a, b) => a.startAtISO.localeCompare(b.startAtISO));
+    if (slots.length > 0 || params.dateISO) {
+      return {
+        slots,
+        busy: [],
+        windowStartISO: winStart !== null ? new Date(winStart).toISOString() : null,
+        windowEndISO: winEnd !== null ? new Date(winEnd).toISOString() : null,
+        areaId,
+        areaName,
+        assumed,
+        dateISO: day,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * 最短で案内できる枠（spec 5-4）。earliest.ts の実装をそのまま公開側の入口として
  * 再輸出する。トップ・一覧・個人ページの EarliestSlot 用。

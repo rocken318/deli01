@@ -9,8 +9,10 @@ import { getFunnelSessionId } from "../_components/funnel-session";
 import {
   confirmBooking,
   fetchBookingSlots,
+  fetchFreeSlots,
   fetchTherapistOptions,
   holdSlot,
+  holdFreeSlot,
   releaseHeldSlot,
   trackFunnel,
 } from "./actions";
@@ -39,6 +41,10 @@ export interface BookingHotelItem {
 
 export interface BookingLabels {
   stepTherapist: string;
+  /** フリー（おまかせ）チップの文言 */
+  freeOption: string;
+  /** フリー選択時の注記（指名料なし・お店が担当を選ぶ 等） */
+  freeNote: string;
   stepDestination: string;
   destHome: string;
   destHotel: string;
@@ -164,6 +170,9 @@ export function BookingFlow({
 }) {
   const [sessionId, setSessionId] = useState("");
   const [slug, setSlug] = useState<string | null>(initialSlug);
+  // フリー（おまかせ）モード。true のとき担当を指名せず、時間から選ぶ（指名料なし）。
+  const [free, setFree] = useState(false);
+  const freeRef = useRef(false);
   const [destKind, setDestKind] = useState<"home" | "hotel">("home");
   const [hotelId, setHotelId] = useState<string | null>(null);
   const [areaId, setAreaId] = useState<string | null>(null);
@@ -219,22 +228,31 @@ export function BookingFlow({
       hotelId: string | null;
       dateISO?: string;
     }) => {
-      if (!next.slug) {
+      const isFree = freeRef.current;
+      if (!isFree && !next.slug) {
         setSlotsState(EMPTY_SLOTS);
         return;
       }
       const seq = ++requestSeq.current;
       startTransition(async () => {
         try {
-          const res = await fetchBookingSlots({
-            slug: next.slug,
-            // 日付指定ありはその日だけ、"" は前方探索（最短でおまかせ）
-            dateISO: next.dateISO || null,
-            areaId: next.areaId,
-            courseId: next.courseId,
-            optionIds: next.optionIds,
-            hotelId: next.hotelId,
-          });
+          const res = isFree
+            ? await fetchFreeSlots({
+                dateISO: next.dateISO || null,
+                areaId: next.areaId,
+                courseId: next.courseId,
+                optionIds: next.optionIds,
+                hotelId: next.hotelId,
+              })
+            : await fetchBookingSlots({
+                slug: next.slug,
+                // 日付指定ありはその日だけ、"" は前方探索（最短でおまかせ）
+                dateISO: next.dateISO || null,
+                areaId: next.areaId,
+                courseId: next.courseId,
+                optionIds: next.optionIds,
+                hotelId: next.hotelId,
+              });
           if (seq !== requestSeq.current) return;
           if (!res.ok) {
             setErrorKey("generic");
@@ -307,6 +325,8 @@ export function BookingFlow({
   };
 
   const chooseTherapist = (nextSlug: string) => {
+    setFree(false);
+    freeRef.current = false;
     setSlug(nextSlug);
     setAreaId(null);
     setOptionIds([]);
@@ -326,6 +346,26 @@ export function BookingFlow({
     refreshSlots({
       slug: nextSlug,
       areaId: null,
+      courseId,
+      optionIds: [],
+      hotelId: destKind === "hotel" ? hotelId : null,
+      dateISO: selectedDate,
+    });
+  };
+
+  // フリー（おまかせ）: 担当を指名せず時間から選ぶ。全公開セラピストの空き枠を合算。
+  const chooseFree = () => {
+    setFree(true);
+    freeRef.current = true;
+    setSlug(null);
+    setOptionIds([]);
+    // フリーは全体オプション（対応者がいるもの）に戻す
+    setOptions(initialOptions);
+    setErrorKey("");
+    discardHold(false);
+    refreshSlots({
+      slug: null,
+      areaId,
       courseId,
       optionIds: [],
       hotelId: destKind === "hotel" ? hotelId : null,
@@ -380,18 +420,20 @@ export function BookingFlow({
   };
 
   const chooseSlot = (slot: PublicSlotView) => {
-    if (!slug || !courseId || !sessionId || !slotsState.dateISO) return;
+    if (!courseId || !sessionId || !slotsState.dateISO) return;
+    if (!free && !slug) return;
     setErrorKey("");
-    void trackFunnel({
-      sessionId,
-      step: "select_slot",
-      therapistSlug: slug,
-      meta: { startAt: slot.startAtISO },
-    });
+    if (slug) {
+      void trackFunnel({
+        sessionId,
+        step: "select_slot",
+        therapistSlug: slug,
+        meta: { startAt: slot.startAtISO },
+      });
+    }
     startTransition(async () => {
       try {
-        const res = await holdSlot({
-          slug,
+        const holdParams = {
           dateISO: slotsState.dateISO,
           startAtISO: slot.startAtISO,
           areaId: destKind === "home" ? areaId : null,
@@ -399,7 +441,10 @@ export function BookingFlow({
           optionIds,
           hotelId: destKind === "hotel" ? hotelId : null,
           sessionId,
-        });
+        };
+        const res = free
+          ? await holdFreeSlot(holdParams)
+          : await holdSlot({ slug: slug!, ...holdParams });
         if (!res.ok) {
           setErrorKey(res.error);
           refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
@@ -459,7 +504,8 @@ export function BookingFlow({
     if (hold) return hold.fees;
     if (!selectedCourse) return null;
     const optionsTotal = selectedOptions.reduce((sum, o) => sum + o.price, 0);
-    const nomination = selectedCourse.nominationFeeDefault;
+    // フリー（おまかせ）は指名料なし（発注者決定 2026-09-05）
+    const nomination = free ? 0 : selectedCourse.nominationFeeDefault;
     return {
       coursePrice: selectedCourse.price,
       optionsTotal,
@@ -468,7 +514,7 @@ export function BookingFlow({
       midnightSurcharge: 0,
       totalAmount: selectedCourse.price + optionsTotal + nomination,
     };
-  }, [hold, selectedCourse, selectedOptions]);
+  }, [hold, selectedCourse, selectedOptions, free]);
 
   const condition =
     slotsState.areaName && labels.conditionTemplate
@@ -524,18 +570,32 @@ export function BookingFlow({
           </h2>
         )}
         <div className="flex flex-wrap gap-2" role="group" aria-label={labels.stepTherapist || undefined}>
+          {/* フリー（おまかせ）= 指名せず時間から選ぶ。指名料なし */}
+          {labels.freeOption && (
+            <button
+              type="button"
+              onClick={chooseFree}
+              aria-pressed={free}
+              className={chipClass(free)}
+            >
+              {labels.freeOption}
+            </button>
+          )}
           {therapists.map((t) => (
             <button
               key={t.slug}
               type="button"
               onClick={() => chooseTherapist(t.slug)}
-              aria-pressed={slug === t.slug}
-              className={chipClass(slug === t.slug)}
+              aria-pressed={!free && slug === t.slug}
+              className={chipClass(!free && slug === t.slug)}
             >
               {t.name || t.slug}
             </button>
           ))}
         </div>
+        {free && labels.freeNote && (
+          <p className="mt-2 text-xs text-pub-subtext">{labels.freeNote}</p>
+        )}
       </section>
 
       {/* 2. 派遣先（住居 / ホテル）→ エリア（spec 6章 手順2） */}
