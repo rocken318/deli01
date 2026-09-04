@@ -6,7 +6,7 @@ import {
   getTherapistTimelineCore,
 } from "@/lib/dispatch-board/queries";
 import type { Session } from "@/lib/auth/session";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 /**
  * フェーズ14 配車ボード・マイページ中核の統合テスト（実 Postgres）。
@@ -55,9 +55,11 @@ beforeAll(async () => {
             (select id from areas limit 1))
     returning id
   `;
-  // 開始60分後（今日・180分ゲート内）。日跨ぎ直前の実行では当日境界を跨ぎ得るが、
-  // テストは todayISO と startAt の両方を now 起点で組むため整合する
-  const start = new Date(Date.now() + 60 * 60_000);
+  // 当日 12:00 JST に固定（決定的）。now+60分だと深夜実行で翌暦日に跨ぎ、
+  // 当日ボード（dateISO=todayISO）に乗らずフレーキーになるため todayISO と揃える。
+  // ボード側のアドレス可視ゲートは表示用の可視時刻を返すだけで item 自体は返るので、
+  // 住所・顧客名のアサーションには影響しない。
+  const start = fromZonedTime(`${todayISO}T12:00:00`, "Asia/Tokyo");
   await sql`
     insert into reservations (
       id, therapist_id, customer_id, address_id, area_id, course_id,
