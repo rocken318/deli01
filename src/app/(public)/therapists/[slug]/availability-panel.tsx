@@ -431,21 +431,7 @@ export function AvailabilityPanel({
               <p className="mt-1 text-sm text-pub-subtext">{labels.emptyBody}</p>
             )}
           </div>
-        ) : (
-          <ul className={`flex flex-wrap gap-2 ${pending ? "opacity-60" : ""}`}>
-            {state.slots.map((s) => (
-              <li key={s.startAtISO}>
-                <a
-                  href={bookingHref}
-                  aria-label={labels.slotAria ? `${labels.slotAria} ${s.time}` : s.time}
-                  className="inline-block rounded border border-pub-primary/50 bg-pub-primary/10 px-3 py-1.5 font-mono text-base font-medium tabular-nums text-pub-primary transition-colors hover:bg-pub-primary hover:text-pub-bg focus-visible:bg-pub-primary focus-visible:text-pub-bg"
-                >
-                  {s.time}
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
+        ) : null}
       </section>
     </div>
   );
