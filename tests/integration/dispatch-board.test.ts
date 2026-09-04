@@ -35,8 +35,12 @@ let aoiId: string;
 let therapistSession: Session;
 const receptionSession: Session = { userId: RECEPTION_USER, role: "reception" };
 
-/** 今日（Asia/Tokyo）の "YYYY-MM-DD" */
-const todayISO = formatInTimeZone(new Date(), "Asia/Tokyo", "yyyy-MM-dd");
+// 予約開始は now+60分（住所可視ゲート=now基準の180分以内を満たす）。当日ボードの
+// dateISO は「予約開始の Asia/Tokyo 暦日」に揃える（深夜跨ぎで start が翌日になっても
+// ボードに乗り、かつゲート内で住所が見える＝時刻に依存せず決定的）。
+const NOW = new Date();
+const START_AT = new Date(NOW.getTime() + 60 * 60_000);
+const todayISO = formatInTimeZone(START_AT, "Asia/Tokyo", "yyyy-MM-dd");
 
 beforeAll(async () => {
   aoiId = (
@@ -55,9 +59,9 @@ beforeAll(async () => {
             (select id from areas limit 1))
     returning id
   `;
-  // 開始60分後（今日・180分ゲート内）。日跨ぎ直前の実行では当日境界を跨ぎ得るが、
-  // テストは todayISO と startAt の両方を now 起点で組むため整合する
-  const start = new Date(Date.now() + 60 * 60_000);
+  // start は now+60分。todayISO を start の暦日に合わせてあるため当日ボードに乗り、
+  // かつ住所可視ゲート（now基準）内で住所が見える。深夜跨ぎでも決定的。
+  const start = START_AT;
   await sql`
     insert into reservations (
       id, therapist_id, customer_id, address_id, area_id, course_id,
