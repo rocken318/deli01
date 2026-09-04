@@ -17,6 +17,8 @@ export interface FilterCard {
   card: TherapistCardView;
   earliestTime: string | null;
   conditionNote: string;
+  /** 本日出勤しているか（バッジ表示） */
+  workingToday?: boolean;
 }
 
 export function TherapistFilter({
@@ -34,6 +36,7 @@ export function TherapistFilter({
     earliestPending: string;
     emptyTitle: string;
     emptyBody: string;
+    todayBadge: string;
   };
 }) {
   const [activeTags, setActiveTags] = useState<string[]>([]);
@@ -104,6 +107,8 @@ export function TherapistFilter({
                 earliestPending={labels.earliestPending}
                 earliestTime={c.earliestTime}
                 conditionNote={c.conditionNote}
+                workingToday={c.workingToday ?? false}
+                todayBadgeLabel={labels.todayBadge}
               />
             </li>
           ))}

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { unstable_cache } from "next/cache";
 import { getSiteContext, getPublishedPage, getPublicTherapistFields, label } from "@/lib/public/content";
-import { listPublicTherapists } from "@/lib/public/queries";
+import { listPublicTherapists, getSlugsWorkingToday } from "@/lib/public/queries";
 import { buildTherapistCards } from "@/lib/public/therapist-view";
 import { getPublicMediaMap } from "@/lib/public/queries";
 import {
@@ -46,13 +46,15 @@ const loadSiteAndPage = unstable_cache(
 /** トップの読取一式（文言・セラピスト・メディア・空き枠）を1回にまとめて30秒キャッシュ */
 const loadHomeData = unstable_cache(
   async () => {
-    const [ctx, page, therapists, fields] = await Promise.all([
+    const [ctx, page, therapists, fields, workingTodaySet] = await Promise.all([
       getSiteContext(),
       getPublishedPage("home"),
       listPublicTherapists(),
       getPublicTherapistFields(),
+      getSlugsWorkingToday(),
     ]);
     const cards = await buildTherapistCards(therapists, fields);
+    const workingTodaySlugs = [...workingTodaySet];
     const mediaMap = await getPublicMediaMap(collectBlockImageIds(page.blocks), {
       requireConsent: false,
     });
@@ -80,6 +82,7 @@ const loadHomeData = unstable_cache(
       cards,
       mediaMapEntries: [...mediaMap.entries()],
       earliestEntries,
+      workingTodaySlugs,
     };
   },
   ["home-data-v1"],
@@ -111,6 +114,7 @@ const EMPTY_HOME_DATA: Awaited<ReturnType<typeof loadHomeData>> = {
   cards: [],
   mediaMapEntries: [],
   earliestEntries: [],
+  workingTodaySlugs: [],
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -140,10 +144,12 @@ export default async function HomePage() {
     const { resetClient } = await import("@/lib/db-client");
     resetClient();
   }
-  const { ctx, page, cards, mediaMapEntries, earliestEntries } =
+  const { ctx, page, cards, mediaMapEntries, earliestEntries, workingTodaySlugs } =
     data ?? EMPTY_HOME_DATA;
   const mediaMap = new Map(mediaMapEntries);
   const earliestBySlug = new Map(earliestEntries);
+  const workingTodaySet = new Set(workingTodaySlugs);
+  const todayBadge = label(ctx, "therapist_today_badge");
   // 署名要素（セクション見出し）は、いま案内できる中で最も早い枠を代表として出す
   const sectionEarliest = [...earliestBySlug.values()]
     .filter((e): e is NonNullable<typeof e> => e !== null)
@@ -246,6 +252,8 @@ export default async function HomePage() {
                   earliestDateISO={earliestBySlug.get(card.slug)?.dateISO ?? null}
                   today={today}
                   conditionNote={conditionNote(earliestBySlug.get(card.slug) ?? null)}
+                  workingToday={workingTodaySet.has(card.slug)}
+                  todayBadgeLabel={todayBadge}
                 />
               </li>
             ))}

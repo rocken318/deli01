@@ -114,6 +114,7 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       filter_good_at_heading: "得意な施術で絞り込む",
       filter_all: "すべて",
       therapist_detail_cta: "プロフィールを見る",
+      therapist_today_badge: "本日出勤",
       // 署名要素（{time} を空き枠エンジンの値で差し替え。枠が無い間は pending）
       earliest_slot_template: "最短 {time} から案内可能",
       earliest_slot_pending: "調整中",
