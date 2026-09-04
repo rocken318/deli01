@@ -6,7 +6,7 @@ import {
   getTherapistTimelineCore,
 } from "@/lib/dispatch-board/queries";
 import type { Session } from "@/lib/auth/session";
-import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone } from "date-fns-tz";
 
 /**
  * フェーズ14 配車ボード・マイページ中核の統合テスト（実 Postgres）。
@@ -35,8 +35,12 @@ let aoiId: string;
 let therapistSession: Session;
 const receptionSession: Session = { userId: RECEPTION_USER, role: "reception" };
 
-/** 今日（Asia/Tokyo）の "YYYY-MM-DD" */
-const todayISO = formatInTimeZone(new Date(), "Asia/Tokyo", "yyyy-MM-dd");
+// 予約開始は now+60分（住所可視ゲート=now基準の180分以内を満たす）。当日ボードの
+// dateISO は「予約開始の Asia/Tokyo 暦日」に揃える（深夜跨ぎで start が翌日になっても
+// ボードに乗り、かつゲート内で住所が見える＝時刻に依存せず決定的）。
+const NOW = new Date();
+const START_AT = new Date(NOW.getTime() + 60 * 60_000);
+const todayISO = formatInTimeZone(START_AT, "Asia/Tokyo", "yyyy-MM-dd");
 
 beforeAll(async () => {
   aoiId = (
@@ -55,11 +59,9 @@ beforeAll(async () => {
             (select id from areas limit 1))
     returning id
   `;
-  // 当日 12:00 JST に固定（決定的）。now+60分だと深夜実行で翌暦日に跨ぎ、
-  // 当日ボード（dateISO=todayISO）に乗らずフレーキーになるため todayISO と揃える。
-  // ボード側のアドレス可視ゲートは表示用の可視時刻を返すだけで item 自体は返るので、
-  // 住所・顧客名のアサーションには影響しない。
-  const start = fromZonedTime(`${todayISO}T12:00:00`, "Asia/Tokyo");
+  // start は now+60分。todayISO を start の暦日に合わせてあるため当日ボードに乗り、
+  // かつ住所可視ゲート（now基準）内で住所が見える。深夜跨ぎでも決定的。
+  const start = START_AT;
   await sql`
     insert into reservations (
       id, therapist_id, customer_id, address_id, area_id, course_id,
