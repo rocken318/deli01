@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import type { PublicArea, PublicCourse, PublicOption, PublicSlotView } from "@/lib/availability/public-slots";
 import type { FeeBreakdown } from "@/domain/booking";
 import { weekdayIndex } from "@/domain/availability/shift";
+import { SlotTimeline } from "../_components/slot-timeline";
 import { getFunnelSessionId } from "../_components/funnel-session";
 import {
   confirmBooking,
@@ -48,6 +49,7 @@ export interface BookingLabels {
   stepOptions: string;
   stepSlot: string;
   slotDateNote: string;
+  timelineBooked: string;
   dateHeading: string;
   dateSoonest: string;
   dateTodayLabel: string;
@@ -98,6 +100,9 @@ interface HoldState {
 
 interface SlotsState {
   slots: PublicSlotView[];
+  busy: { startISO: string; endISO: string }[];
+  windowStartISO: string | null;
+  windowEndISO: string | null;
   areas: PublicArea[];
   areaName: string;
   assumed: boolean;
@@ -106,6 +111,9 @@ interface SlotsState {
 
 const EMPTY_SLOTS: SlotsState = {
   slots: [],
+  busy: [],
+  windowStartISO: null,
+  windowEndISO: null,
   areas: [],
   areaName: "",
   assumed: true,
@@ -234,6 +242,9 @@ export function BookingFlow({
           }
           setSlotsState({
             slots: res.slots,
+            busy: res.busy,
+            windowStartISO: res.windowStartISO,
+            windowEndISO: res.windowEndISO,
             areas: res.areas,
             areaName: res.areaName,
             assumed: res.assumed,
@@ -739,6 +750,21 @@ export function BookingFlow({
           >
             {activeError}
           </p>
+        )}
+
+        {/* 縦タイムライン（視覚的な空き枠。タップでその枠をホールド） */}
+        {hold === null && slotsState.windowStartISO && (
+          <div className="mb-3">
+            <SlotTimeline
+              slots={slotsState.slots}
+              busy={slotsState.busy}
+              windowStartISO={slotsState.windowStartISO}
+              windowEndISO={slotsState.windowEndISO}
+              onPick={chooseSlot}
+              labels={{ booked: labels.timelineBooked }}
+              pending={pending}
+            />
+          </div>
         )}
 
         {hold === null &&

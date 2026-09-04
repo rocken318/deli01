@@ -98,6 +98,7 @@ export default async function TherapistDetailPage({
     weekdays: label(ctx, "schedule_weekdays"),
     dateHeading: label(ctx, "slots_date_heading"),
     dateSoonest: label(ctx, "slots_date_soonest"),
+    timelineBooked: label(ctx, "slots_timeline_booked"),
   };
 
   // JSON-LD (Person / spec 12-1)
@@ -231,6 +232,9 @@ export default async function TherapistDetailPage({
           courses={courses}
           options={options}
           initialSlots={initialSlots?.slots ?? []}
+          initialBusy={initialSlots?.busy ?? []}
+          initialWindowStartISO={initialSlots?.windowStartISO ?? null}
+          initialWindowEndISO={initialSlots?.windowEndISO ?? null}
           initialAreaId={null}
           initialAreaName={initialSlots?.areaName ?? ""}
           initialAssumed={initialSlots?.assumed ?? true}

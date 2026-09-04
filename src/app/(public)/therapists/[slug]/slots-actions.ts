@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { getTherapistSlots } from "@/lib/availability/public-slots";
-import type { PublicSlotView } from "@/lib/availability/public-slots";
+import type { PublicSlotView, BusyBlockView } from "@/lib/availability/public-slots";
 
 /**
  * 個人ページの空き枠再計算 Server Action（フェーズ10 / spec 2-3・5-3）。
@@ -28,6 +28,9 @@ const InputSchema = z.object({
 export interface RecomputeSlotsResult {
   ok: boolean;
   slots: PublicSlotView[];
+  busy: BusyBlockView[];
+  windowStartISO: string | null;
+  windowEndISO: string | null;
   areaId: string;
   areaName: string;
   assumed: boolean;
@@ -62,6 +65,9 @@ export async function recomputeSlots(
     return {
       ok: true,
       slots: [],
+      busy: [],
+      windowStartISO: null,
+      windowEndISO: null,
       areaId: input.areaId ?? "",
       areaName: "",
       assumed: !input.areaId,
@@ -73,6 +79,9 @@ export async function recomputeSlots(
   return {
     ok: true,
     slots: result.slots,
+    busy: result.busy,
+    windowStartISO: result.windowStartISO,
+    windowEndISO: result.windowEndISO,
     areaId: result.areaId,
     areaName: result.areaName,
     assumed: result.assumed,
@@ -85,6 +94,9 @@ function emptyFail(): RecomputeSlotsResult {
   return {
     ok: false,
     slots: [],
+    busy: [],
+    windowStartISO: null,
+    windowEndISO: null,
     areaId: "",
     areaName: "",
     assumed: false,

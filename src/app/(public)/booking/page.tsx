@@ -60,6 +60,7 @@ export default async function BookingPage({
     stepOptions: label(ctx, "slots_option_heading"),
     stepSlot: label(ctx, "booking_step_slot"),
     slotDateNote: label(ctx, "slots_date_note"),
+    timelineBooked: label(ctx, "slots_timeline_booked"),
     stepDetails: label(ctx, "booking_step_details"),
     nameLabel: label(ctx, "booking_name_label"),
     phoneLabel: label(ctx, "booking_phone_label"),

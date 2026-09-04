@@ -136,6 +136,7 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       slots_date_today: "本日の空き枠",
       slots_date_heading: "日付を選ぶ",
       slots_date_soonest: "最短でおまかせ",
+      slots_timeline_booked: "予約済み",
       // 最短案内の日付付きテンプレート（当日以外のとき。{date}{time} を差し替え）
       earliest_slot_template_future: "最短 {date} {time} から案内可能",
       // 空状態
