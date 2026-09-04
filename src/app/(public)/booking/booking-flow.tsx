@@ -48,9 +48,19 @@ export interface BookingLabels {
   stepDestination: string;
   destHome: string;
   destHotel: string;
+  /** エリアのみ（未定）派遣先の文言 */
+  destArea: string;
   hotelSelect: string;
+  /** ホテル絞り込み入力のプレースホルダ（例: "ホテル名で検索"） */
+  hotelSearch: string;
   areaHeading: string;
+  /** 未定時のエリア見出し（例: "大体のエリア"） */
+  areaRoughHeading: string;
   areaAll: string;
+  /** 最終的に電話確認する旨の注記 */
+  phoneConfirmNote: string;
+  /** 未定で住所未入力のときのプレースホルダ住所 */
+  addressPending: string;
   stepCourse: string;
   stepOptions: string;
   stepSlot: string;
@@ -173,8 +183,10 @@ export function BookingFlow({
   // フリー（おまかせ）モード。true のとき担当を指名せず、時間から選ぶ（指名料なし）。
   const [free, setFree] = useState(false);
   const freeRef = useRef(false);
-  const [destKind, setDestKind] = useState<"home" | "hotel">("home");
+  // 派遣先: home=自宅・滞在先 / hotel=ホテル / area=エリアのみ（未定）
+  const [destKind, setDestKind] = useState<"home" | "hotel" | "area">("home");
   const [hotelId, setHotelId] = useState<string | null>(null);
+  const [hotelQuery, setHotelQuery] = useState(""); // ホテル絞り込みの文字入力
   const [areaId, setAreaId] = useState<string | null>(null);
   const [courseId, setCourseId] = useState<string | null>(courses[0]?.id ?? null);
   const [options, setOptions] = useState<PublicOption[]>(initialOptions);
@@ -373,12 +385,13 @@ export function BookingFlow({
     });
   };
 
-  const chooseDestKind = (kind: "home" | "hotel") => {
+  const chooseDestKind = (kind: "home" | "hotel" | "area") => {
     setDestKind(kind);
     setErrorKey("");
     discardHold(false);
     const nextHotel = kind === "hotel" ? hotelId : null;
-    refreshSlots({ slug, areaId: kind === "home" ? areaId : null, courseId, optionIds, hotelId: nextHotel, dateISO: selectedDate });
+    // home / area（未定）はエリア基準、hotel はホテル基準
+    refreshSlots({ slug, areaId: kind === "hotel" ? null : areaId, courseId, optionIds, hotelId: nextHotel, dateISO: selectedDate });
   };
 
   const chooseHotel = (id: string | null) => {
@@ -436,7 +449,7 @@ export function BookingFlow({
         const holdParams = {
           dateISO: slotsState.dateISO,
           startAtISO: slot.startAtISO,
-          areaId: destKind === "home" ? areaId : null,
+          areaId: destKind === "hotel" ? null : areaId,
           courseId,
           optionIds,
           hotelId: destKind === "hotel" ? hotelId : null,
@@ -476,7 +489,8 @@ export function BookingFlow({
           version: hold.version,
           customerName,
           customerPhone,
-          addressDetail,
+          // 未定（エリアのみ）で住所未入力なら、電話確定のプレースホルダを入れる
+          addressDetail: addressDetail.trim() || labels.addressPending || slotsState.areaName || "-",
           addressLabel: null,
         });
         if (!res.ok) {
@@ -626,34 +640,59 @@ export function BookingFlow({
               {labels.destHotel}
             </button>
           )}
+          {labels.destArea && (
+            <button
+              type="button"
+              onClick={() => chooseDestKind("area")}
+              aria-pressed={destKind === "area"}
+              className={chipClass(destKind === "area")}
+            >
+              {labels.destArea}
+            </button>
+          )}
         </div>
 
+        {/* ホテル: 文字入力で絞り込み（あいうえお順の一覧から） */}
         {destKind === "hotel" && (
-          <div className="mt-3">
-            <label className="mb-1 block text-xs text-pub-subtext" htmlFor="booking-hotel">
-              {labels.hotelSelect}
-            </label>
-            <select
-              id="booking-hotel"
-              value={hotelId ?? ""}
-              onChange={(e) => chooseHotel(e.target.value || null)}
-              className="w-full rounded border border-pub-border bg-pub-surface px-3 py-2 text-sm text-pub-text [color-scheme:dark]"
-            >
-              {/* option に明示背景色（スマホの透明背景で見えなくなるのを防ぐ） */}
-              <option value="" style={{ backgroundColor: "#1E252D", color: "#EDE9E2" }} />
-              {hotels.map((h) => (
-                <option key={h.id} value={h.id} style={{ backgroundColor: "#1E252D", color: "#EDE9E2" }}>
-                  {h.name}
-                </option>
-              ))}
-            </select>
+          <div className="mt-3 space-y-2">
+            <input
+              type="text"
+              value={hotelQuery}
+              onChange={(e) => setHotelQuery(e.target.value)}
+              placeholder={labels.hotelSearch || labels.hotelSelect}
+              aria-label={labels.hotelSearch || labels.hotelSelect || undefined}
+              className="w-full rounded border border-pub-border bg-pub-bg px-3 py-2 text-sm text-pub-text"
+            />
+            <div className="max-h-52 overflow-y-auto rounded border border-pub-border">
+              {hotels
+                .filter((h) => hotelQuery.trim() === "" || h.name.includes(hotelQuery.trim()))
+                .slice(0, 60)
+                .map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => chooseHotel(h.id)}
+                    aria-pressed={hotelId === h.id}
+                    className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
+                      hotelId === h.id
+                        ? "bg-pub-primary text-pub-bg"
+                        : "text-pub-text hover:bg-pub-primary/10"
+                    }`}
+                  >
+                    {h.name}
+                  </button>
+                ))}
+            </div>
           </div>
         )}
 
-        {destKind === "home" && slotsState.areas.length > 0 && (
+        {/* 自宅・エリアのみ: エリア選択（未定は大体のエリア） */}
+        {(destKind === "home" || destKind === "area") && slotsState.areas.length > 0 && (
           <div className="mt-3">
             {labels.areaHeading && (
-              <h3 className="mb-2 text-xs text-pub-subtext">{labels.areaHeading}</h3>
+              <h3 className="mb-2 text-xs text-pub-subtext">
+                {destKind === "area" && labels.areaRoughHeading ? labels.areaRoughHeading : labels.areaHeading}
+              </h3>
             )}
             <div className="flex flex-wrap gap-2" role="group" aria-label={labels.areaHeading || undefined}>
               {labels.areaAll && (
@@ -679,6 +718,29 @@ export function BookingFlow({
               ))}
             </div>
           </div>
+        )}
+
+        {/* 住所・詳細（自宅は住所、ホテルは部屋番号など）。未定は電話で確定するため任意 */}
+        {destKind !== "area" && (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs text-pub-subtext" htmlFor="booking-dest-detail">
+              {destKind === "hotel" ? labels.addressHotelLabel : labels.addressLabel}
+            </label>
+            <input
+              id="booking-dest-detail"
+              value={addressDetail}
+              onChange={(e) => setAddressDetail(e.target.value)}
+              autoComplete="street-address"
+              className="w-full rounded border border-pub-border bg-pub-bg px-3 py-2 text-sm text-pub-text"
+            />
+          </div>
+        )}
+
+        {/* 最終確定は電話で（発注者要望 2026-09-05） */}
+        {labels.phoneConfirmNote && (
+          <p className="mt-3 rounded border border-pub-primary/40 bg-pub-primary/5 px-3 py-2 text-xs text-pub-subtext">
+            {labels.phoneConfirmNote}
+          </p>
         )}
       </section>
 
@@ -885,20 +947,14 @@ export function BookingFlow({
                   className="w-full rounded border border-pub-border bg-pub-bg px-3 py-2 font-mono text-sm text-pub-text"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-pub-subtext" htmlFor="booking-address">
-                  {destKind === "hotel" ? labels.addressHotelLabel : labels.addressLabel}
-                </label>
-                <textarea
-                  id="booking-address"
-                  value={addressDetail}
-                  onChange={(e) => setAddressDetail(e.target.value)}
-                  rows={2}
-                  autoComplete="street-address"
-                  className="w-full rounded border border-pub-border bg-pub-bg px-3 py-2 text-sm text-pub-text"
-                />
-              </div>
             </div>
+
+            {/* 最終確定は電話で（発注者要望 2026-09-05） */}
+            {labels.phoneConfirmNote && (
+              <p className="rounded border border-pub-primary/40 bg-pub-primary/5 px-3 py-2 text-xs text-pub-subtext">
+                {labels.phoneConfirmNote}
+              </p>
+            )}
 
             <div className="flex items-center justify-between gap-3">
               {labels.chooseAnother && (
@@ -917,7 +973,7 @@ export function BookingFlow({
                   confirmPending ||
                   customerName.trim() === "" ||
                   !/^0[0-9]{9,10}$/.test(customerPhone) ||
-                  addressDetail.trim() === ""
+                  (destKind !== "area" && addressDetail.trim() === "")
                 }
                 className="rounded bg-pub-primary px-6 py-2.5 text-sm font-medium text-pub-bg transition-opacity hover:opacity-90 disabled:opacity-40"
               >
