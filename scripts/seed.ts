@@ -161,6 +161,8 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       booking_pending_title: "オンライン予約は準備中です",
       booking_pending_body: "お電話でのご予約を承っています。",
       booking_step_therapist: "セラピストを選ぶ",
+      booking_free_option: "フリー（おまかせ）",
+      booking_free_note: "指名料なし。ご希望の時間に空いているセラピストをお店が手配します。",
       booking_step_destination: "お伺い先を選ぶ",
       booking_dest_home: "ご自宅・ご滞在先",
       booking_dest_hotel: "ホテル",
