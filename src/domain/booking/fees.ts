@@ -29,6 +29,8 @@ export interface BookingFeeSettings {
   midnightFromHour: number;
   /** 深夜帯の終了時（含まない。既定 5 = 5:00 開始から通常） */
   midnightToHour: number;
+  /** 受付リードタイム（分）。「今から何分後以降なら予約可」。既定 60（発注者決定 2026-09-05） */
+  leadTimeMin: number;
 }
 
 /** spec 18-3 のダミー既定値（CMS 未設定時のフォールバック） */
@@ -38,6 +40,7 @@ export const DEFAULT_BOOKING_FEES: BookingFeeSettings = {
   midnightSurcharge: 3000,
   midnightFromHour: 0,
   midnightToHour: 5,
+  leadTimeMin: 60,
 };
 
 function assertIntMin(value: number, label: string, min: number): void {
@@ -52,6 +55,7 @@ function assertSettings(s: BookingFeeSettings): void {
   assertIntMin(s.midnightSurcharge, "midnightSurcharge", 0);
   assertIntMin(s.midnightFromHour, "midnightFromHour", 0);
   assertIntMin(s.midnightToHour, "midnightToHour", 0);
+  assertIntMin(s.leadTimeMin, "leadTimeMin", 0);
   if (s.midnightFromHour > 23 || s.midnightToHour > 24) {
     throw new RangeError(
       `深夜帯の時刻が不正: ${s.midnightFromHour}〜${s.midnightToHour}`,

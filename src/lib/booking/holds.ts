@@ -144,6 +144,7 @@ export async function loadBookingFees(): Promise<BookingFeeSettings> {
     midnightSurcharge: int("midnight_surcharge", DEFAULT_BOOKING_FEES.midnightSurcharge),
     midnightFromHour: int("midnight_from_hour", DEFAULT_BOOKING_FEES.midnightFromHour),
     midnightToHour: int("midnight_to_hour", DEFAULT_BOOKING_FEES.midnightToHour),
+    leadTimeMin: int("lead_time_min", DEFAULT_BOOKING_FEES.leadTimeMin),
   };
 }
 
