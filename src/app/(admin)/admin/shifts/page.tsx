@@ -173,7 +173,7 @@ function TherapistShiftRow({
 
         <fieldset>
           <legend className="text-xs text-adm-text/70">
-            対応エリア（その日に対応できるエリア。全域とは限らない）
+            対応エリア（既定は全エリア。担当を限る場合はチェックを外す）
             <Link
               href="/admin/areas"
               className="ml-2 text-adm-primary underline hover:no-underline"
@@ -188,7 +188,8 @@ function TherapistShiftRow({
                   type="checkbox"
                   name="areaIds"
                   value={a.id}
-                  defaultChecked={shift?.areaIds.includes(a.id) ?? false}
+                  // 新規は全エリア既定。既存編集時はそのシフトの対応エリアを尊重。
+                  defaultChecked={shift ? shift.areaIds.includes(a.id) : true}
                   className="accent-[#3F7A6B]"
                 />
                 {a.name}
@@ -338,11 +339,11 @@ function BulkShiftForm({ board, date }: { board: ShiftBoard; date: string }) {
         </div>
 
         <fieldset>
-          <legend className="text-xs text-adm-text/70">対応エリア（登録する全日に同じエリアを設定）</legend>
+          <legend className="text-xs text-adm-text/70">対応エリア（既定は全エリア。登録する全日に同じエリアを設定）</legend>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
             {board.areas.map((a) => (
               <label key={a.id} className="flex items-center gap-1.5 text-sm text-adm-text">
-                <input type="checkbox" name="areaIds" value={a.id} className="accent-[#3F7A6B]" />
+                <input type="checkbox" name="areaIds" value={a.id} defaultChecked className="accent-[#3F7A6B]" />
                 {a.name}
               </label>
             ))}
