@@ -3,7 +3,7 @@ import { getClient } from "@/lib/db-client";
 import {
   addDaysISO,
   computeAvailableSlots,
-  localDateISO,
+  operatingDayISO,
   slotTimeLabel,
 } from "@/domain/availability";
 import type {
@@ -158,8 +158,8 @@ export async function earliestSlotForTherapist(
   }));
   const serviceMinutes = opts.serviceMinutes ?? courseRows[0]?.min_duration ?? 60;
 
-  // 今日 → 翌日の順で最初の枠を探す（spec 5-4: now 起点で最初の1件）
-  const today = localDateISO(now);
+  // 営業日 → 翌営業日の順で最初の枠を探す（深夜も当営業日を先に / spec 5-4）
+  const today = operatingDayISO(now);
   for (const dateISO of [today, addDaysISO(today, 1)]) {
     const info = await earliestForDate(sql, {
       therapist,

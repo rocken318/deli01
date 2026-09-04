@@ -134,6 +134,8 @@ const publicSiteSettings: { key: string; value: unknown }[] = [
       // 枠の日付表示（当日以外のとき。{date} を M/d(曜) で差し替え）
       slots_date_note: "{date} の空き枠",
       slots_date_today: "本日の空き枠",
+      slots_date_heading: "日付を選ぶ",
+      slots_date_soonest: "最短でおまかせ",
       // 最短案内の日付付きテンプレート（当日以外のとき。{date}{time} を差し替え）
       earliest_slot_template_future: "最短 {date} {time} から案内可能",
       // 空状態

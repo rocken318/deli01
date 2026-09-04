@@ -120,9 +120,10 @@ async function main() {
       // セラピストごとに休みの曜日をずらす（0=日,6=土は半分休み）
       const off = dow === (ti % 7) || (dow === 0 && ti % 2 === 0);
       if (off) continue;
-      const startH = 11 + (ti % 3); // 11/12/13時開始
+      // 営業 15:00〜翌03:00（=27:00）。開始をセラピストごとにずらす（15/16/17時）。
+      const startH = 15 + (ti % 3); // 15/16/17時開始
       const start = `${String(startH).padStart(2, "0")}:00`;
-      const end = `${String(startH + 9).padStart(2, "0")}:00`;
+      const end = "03:00"; // 翌03:00（shiftInstants が end<=start を日跨ぎで翌日へ）
       const { startAt, endAt } = shiftInstants(dateISO, start, end);
       const shiftRows = await sql<{ id: string }[]>`
         insert into shifts (therapist_id, work_date, start_at, end_at, max_bookings, base_start_id, base_end_id)
@@ -154,11 +155,11 @@ async function main() {
     const t = targets[ti]!;
     for (const dayOffset of [0, 1]) {
       const dateISO = addDaysISO(today, dayOffset);
-      // 1人1日 2件（12時・16時＝重ならない）
+      // 1人1日 2件（18時・22時＝営業時間内・重ならない）
       for (let j = 0; j < 2; j++) {
         const course = courses[(ti + j) % courses.length]!;
         const cust = custs[(ti + j) % custs.length]!;
-        const startH = 12 + j * 4; // 12, 16
+        const startH = 18 + j * 4; // 18, 22
         const start = `${String(startH).padStart(2, "0")}:00`;
         const { startAt } = shiftInstants(dateISO, start, start);
         const startMs = startAt.getTime();

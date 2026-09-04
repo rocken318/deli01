@@ -49,6 +49,7 @@ export {
   formatShiftTimeRange,
   isRealDateISO,
   localDateISO,
+  operatingDayISO,
   parseDateISO,
   remainingSlots,
   shiftInstants,

@@ -4,7 +4,7 @@ import {
   addDaysISO,
   computeAvailableSlots,
   isRealDateISO,
-  localDateISO,
+  operatingDayISO,
   slotTimeLabel,
 } from "@/domain/availability";
 import type {
@@ -186,7 +186,8 @@ export async function getTherapistSlots(params: {
   // 推奨3: 明示エリアでも「その日は対応外」なら次の日へ継続（earliest.ts と同じ方針）。
   // ただし「エリアを指定したが7日間どの日にも対応エリアに入っていない」場合は null を返す
   // （嘘の枠を出さない / spec 2-3 の精神を維持）。
-  const today = localDateISO(now);
+  // 前方探索の起点は「営業日」（深夜1時なら当営業日＝前暦日の枠を先に見る / spec 5-4）。
+  const today = operatingDayISO(now);
   let lastResult: TherapistSlotsResult | null = null;
   // エリア明示指定時: 少なくとも1日でもそのエリアを含むシフトが見つかったか
   let areaFoundOnAnyDay = false;

@@ -11,7 +11,7 @@ import {
   listPublicCourses,
   listPublicOptions,
 } from "@/lib/availability/public-slots";
-import { localDateISO } from "@/domain/availability";
+import { operatingDayISO } from "@/domain/availability";
 import { PublicImage } from "../../_components/public-image";
 import { EarliestSlot } from "../../_components/earliest-slot";
 import { FunnelPing } from "../../_components/funnel-ping";
@@ -78,7 +78,7 @@ export default async function TherapistDetailPage({
     getTherapistSlots({ slug, courseId: courses[0]?.id ?? null }).catch(() => null),
   ]);
 
-  const today = localDateISO(new Date());
+  const today = operatingDayISO(new Date());
 
   const availabilityLabels: AvailabilityLabels = {
     areaHeading: label(ctx, "slots_area_heading"),
@@ -96,6 +96,8 @@ export default async function TherapistDetailPage({
     dateNote: label(ctx, "slots_date_note"),
     dateTodayLabel: label(ctx, "slots_date_today"),
     weekdays: label(ctx, "schedule_weekdays"),
+    dateHeading: label(ctx, "slots_date_heading"),
+    dateSoonest: label(ctx, "slots_date_soonest"),
   };
 
   // JSON-LD (Person / spec 12-1)
