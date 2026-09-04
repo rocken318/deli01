@@ -324,13 +324,16 @@ async function slotsForDate(params: {
     windowEndAt: shift.end_at,
   });
 
-  // タイムライン表示用の予約済みブロック（施術区間 start_at〜end_at。期限切れ held は除外）
-  const busyRows = await sql<{ start_at: Date; end_at: Date }[]>`
-    select r.start_at, r.end_at
+  // タイムライン表示用の予約済みブロック。施術（start_at）〜後片付け/アイドル込みの
+  // 解放時刻（free_at）までを「予約済み」として塞ぐ（発注者要望 2026-09-05: 90分予約なら
+  // 90分＋アイドルタイムも選べないように）。空き枠計算は元々 depart_at〜free_at で占有済み。
+  // 期限切れ held は除外。
+  const busyRows = await sql<{ start_at: Date; free_at: Date }[]>`
+    select r.start_at, r.free_at
     from reservations r
     where r.therapist_id = ${therapist.id}::uuid
       and r.status in ('held', 'confirmed', 'enroute', 'in_service', 'done')
-      and r.start_at < ${shift.end_at} and r.end_at > ${shift.start_at}
+      and r.start_at < ${shift.end_at} and r.free_at > ${shift.start_at}
       and not (
         r.status = 'held'
         and exists (select 1 from slot_holds h where h.reservation_id = r.id and h.expires_at <= now())
@@ -425,7 +428,7 @@ async function slotsForDate(params: {
     slots: slots.map(toSlotView),
     busy: busyRows.map((b) => ({
       startISO: b.start_at.toISOString(),
-      endISO: b.end_at.toISOString(),
+      endISO: b.free_at.toISOString(),
     })),
     windowStartISO: shift.start_at.toISOString(),
     windowEndISO: shift.end_at.toISOString(),
