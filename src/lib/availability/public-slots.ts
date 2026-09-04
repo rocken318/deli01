@@ -88,10 +88,22 @@ export interface PublicSlotView {
   startAtISO: string;
 }
 
+/** タイムライン表示用の予約済みブロック（その日の占有区間・時刻は JST 表示側で整形） */
+export interface BusyBlockView {
+  startISO: string;
+  endISO: string;
+}
+
 /** getTherapistSlots の戻り（枠 + 前提エリア + メタ） */
 export interface TherapistSlotsResult {
   /** 算出した候補枠（昇順） */
   slots: PublicSlotView[];
+  /** タイムライン表示用: その日の予約済み区間（start_at〜end_at） */
+  busy: BusyBlockView[];
+  /** タイムライン表示用: 営業（シフト）帯の開始 ISO。出勤なしの日は null */
+  windowStartISO: string | null;
+  /** タイムライン表示用: 営業（シフト）帯の終了 ISO。出勤なしの日は null */
+  windowEndISO: string | null;
   /** 計算に使ったエリア（「〇〇区であれば案内可能」の表示に使う） */
   areaId: string;
   areaName: string;
@@ -312,6 +324,20 @@ async function slotsForDate(params: {
     windowEndAt: shift.end_at,
   });
 
+  // タイムライン表示用の予約済みブロック（施術区間 start_at〜end_at。期限切れ held は除外）
+  const busyRows = await sql<{ start_at: Date; end_at: Date }[]>`
+    select r.start_at, r.end_at
+    from reservations r
+    where r.therapist_id = ${therapist.id}::uuid
+      and r.status in ('held', 'confirmed', 'enroute', 'in_service', 'done')
+      and r.start_at < ${shift.end_at} and r.end_at > ${shift.start_at}
+      and not (
+        r.status = 'held'
+        and exists (select 1 from slot_holds h where h.reservation_id = r.id and h.expires_at <= now())
+      )
+    order by r.start_at asc
+  `;
+
   const destination: PlaceRef = hotel
     ? { id: `hotel:${hotel.id}`, areaId: destArea.id }
     : areaPlace(destArea.id);
@@ -397,6 +423,12 @@ async function slotsForDate(params: {
   const slots = computeAvailableSlots(input);
   return {
     slots: slots.map(toSlotView),
+    busy: busyRows.map((b) => ({
+      startISO: b.start_at.toISOString(),
+      endISO: b.end_at.toISOString(),
+    })),
+    windowStartISO: shift.start_at.toISOString(),
+    windowEndISO: shift.end_at.toISOString(),
     areaId: destArea.id,
     areaName: destArea.name,
     assumed,
@@ -417,6 +449,9 @@ function emptyResult(
 ): TherapistSlotsResult {
   return {
     slots: [],
+    busy: [],
+    windowStartISO: null,
+    windowEndISO: null,
     areaId: areaFilter ?? "",
     areaName: "",
     assumed: !areaFilter,

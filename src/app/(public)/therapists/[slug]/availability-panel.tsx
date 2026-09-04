@@ -9,6 +9,7 @@ import type {
   PublicSlotView,
 } from "@/lib/availability/public-slots";
 import { recomputeSlots } from "./slots-actions";
+import { SlotTimeline } from "../../_components/slot-timeline";
 
 /**
  * 空き枠パネル（spec 2-3 ★）。エリア・コース・オプションを選ぶと**都度再計算**し、
@@ -56,6 +57,8 @@ export interface AvailabilityLabels {
   dateHeading: string;
   /** 「最短でおまかせ」= 日付未指定で最短の枠を探す選択肢 */
   dateSoonest: string;
+  /** タイムラインの予約済みブロック文言（例: "予約済み"） */
+  timelineBooked: string;
 }
 
 /** 予約可能な将来日数（当営業日＋この日数先まで選べる） */
@@ -85,6 +88,9 @@ function dateLabel(iso: string, weekdays: string, todayLabel: string, today: str
 
 interface SlotsState {
   slots: PublicSlotView[];
+  busy: { startISO: string; endISO: string }[];
+  windowStartISO: string | null;
+  windowEndISO: string | null;
   areaName: string;
   assumed: boolean;
   ok: boolean;
@@ -99,6 +105,9 @@ export function AvailabilityPanel({
   courses,
   options,
   initialSlots,
+  initialBusy,
+  initialWindowStartISO,
+  initialWindowEndISO,
   initialAreaId,
   initialAreaName,
   initialAssumed,
@@ -114,6 +123,9 @@ export function AvailabilityPanel({
   courses: PublicCourse[];
   options: PublicOption[];
   initialSlots: PublicSlotView[];
+  initialBusy: { startISO: string; endISO: string }[];
+  initialWindowStartISO: string | null;
+  initialWindowEndISO: string | null;
   initialAreaId: string | null;
   initialAreaName: string;
   initialAssumed: boolean;
@@ -131,6 +143,9 @@ export function AvailabilityPanel({
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [state, setState] = useState<SlotsState>({
     slots: initialSlots,
+    busy: initialBusy,
+    windowStartISO: initialWindowStartISO,
+    windowEndISO: initialWindowEndISO,
     areaName: initialAreaName,
     assumed: initialAssumed,
     ok: true,
@@ -162,6 +177,9 @@ export function AvailabilityPanel({
         }
         setState({
           slots: res.slots,
+          busy: res.busy,
+          windowStartISO: res.windowStartISO,
+          windowEndISO: res.windowEndISO,
           areaName: res.areaName,
           assumed: res.assumed,
           ok: res.ok,
@@ -381,6 +399,23 @@ export function AvailabilityPanel({
           <p className="mb-2 text-xs font-medium text-pub-primary">
             {slotDateNote}
           </p>
+        )}
+
+        {/* 縦タイムライン（視覚的な空き枠。タップで予約導線へ） */}
+        {!failed && state.windowStartISO && (
+          <div className="mb-3">
+            <SlotTimeline
+              slots={state.slots}
+              busy={state.busy}
+              windowStartISO={state.windowStartISO}
+              windowEndISO={state.windowEndISO}
+              onPick={() => {
+                window.location.href = bookingHref;
+              }}
+              labels={{ booked: labels.timelineBooked }}
+              pending={pending}
+            />
+          </div>
         )}
 
         {failed ? (

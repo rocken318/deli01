@@ -6,7 +6,7 @@ import {
   getPublicTherapistId,
   listPublicOptions,
 } from "@/lib/availability/public-slots";
-import type { PublicArea, PublicOption, PublicSlotView } from "@/lib/availability/public-slots";
+import type { PublicArea, PublicOption, PublicSlotView, BusyBlockView } from "@/lib/availability/public-slots";
 import { confirmReservation, createHold, releaseHold } from "@/lib/booking/holds";
 import type { ConfirmResult, HoldResult } from "@/lib/booking/holds";
 import { recordFunnelEvent } from "@/lib/booking/funnel";
@@ -38,6 +38,9 @@ const SlotsInputSchema = z.object({
 export interface BookingSlotsResult {
   ok: boolean;
   slots: PublicSlotView[];
+  busy: BusyBlockView[];
+  windowStartISO: string | null;
+  windowEndISO: string | null;
   areas: PublicArea[];
   areaId: string;
   areaName: string;
@@ -53,6 +56,9 @@ export async function fetchBookingSlots(raw: unknown): Promise<BookingSlotsResul
     return {
       ok: false,
       slots: [],
+      busy: [],
+      windowStartISO: null,
+      windowEndISO: null,
       areas: [],
       areaId: "",
       areaName: "",
@@ -74,6 +80,9 @@ export async function fetchBookingSlots(raw: unknown): Promise<BookingSlotsResul
     return {
       ok: true,
       slots: [],
+      busy: [],
+      windowStartISO: null,
+      windowEndISO: null,
       areas: [],
       areaId: input.areaId ?? "",
       areaName: "",
@@ -85,6 +94,9 @@ export async function fetchBookingSlots(raw: unknown): Promise<BookingSlotsResul
   return {
     ok: true,
     slots: result.slots,
+    busy: result.busy,
+    windowStartISO: result.windowStartISO,
+    windowEndISO: result.windowEndISO,
     areas: result.areas,
     areaId: result.areaId,
     areaName: result.areaName,
