@@ -7,6 +7,7 @@ import {
   listPublicOptions,
 } from "@/lib/availability/public-slots";
 import { listBookableHotels } from "@/lib/booking/catalog";
+import { operatingDayISO } from "@/domain/availability";
 import { BookingFlow } from "./booking-flow";
 import type { BookingLabels, BookingTherapistItem } from "./booking-flow";
 import { EmptyState } from "../_components/empty-state";
@@ -91,7 +92,13 @@ export default async function BookingPage({
     errorInvalid: label(ctx, "booking_error_invalid"),
     conditionTemplate: label(ctx, "slots_condition_template"),
     assumedNote: label(ctx, "slots_assumed_note"),
+    dateHeading: label(ctx, "slots_date_heading"),
+    dateSoonest: label(ctx, "slots_date_soonest"),
+    dateTodayLabel: label(ctx, "slots_date_today"),
+    weekdays: label(ctx, "schedule_weekdays"),
   };
+
+  const today = operatingDayISO(new Date());
 
   const heading = label(ctx, "booking_page_title");
 
@@ -117,6 +124,7 @@ export default async function BookingPage({
         courses={courses}
         initialOptions={initialOptions}
         initialSlug={initialSlug}
+        today={today}
         labels={labels}
       />
     </div>

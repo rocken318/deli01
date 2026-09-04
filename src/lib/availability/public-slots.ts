@@ -21,6 +21,7 @@ import {
   areaPlace,
   buildTravelDataSource,
   loadActiveReservations,
+  loadLeadTimeMin,
 } from "./reservation-data";
 
 /**
@@ -361,6 +362,7 @@ async function slotsForDate(params: {
     multiplier: m.multiplier,
     additional: m.additional,
   }));
+  const leadTimeMin = await loadLeadTimeMin(sql);
 
   const input: AvailabilityInput = {
     therapist: {
@@ -384,6 +386,7 @@ async function slotsForDate(params: {
     // 場所つきで reservations に渡す（engine の R-3 契約。holds には流さない）
     reservations: engineReservations,
     now,
+    leadTimeMin,
     walkSettings,
     timeModifiers,
     bufferDefaults,

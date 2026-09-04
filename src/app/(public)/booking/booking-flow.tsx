@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { PublicArea, PublicCourse, PublicOption, PublicSlotView } from "@/lib/availability/public-slots";
 import type { FeeBreakdown } from "@/domain/booking";
+import { weekdayIndex } from "@/domain/availability/shift";
 import { getFunnelSessionId } from "../_components/funnel-session";
 import {
   confirmBooking,
@@ -47,6 +48,10 @@ export interface BookingLabels {
   stepOptions: string;
   stepSlot: string;
   slotDateNote: string;
+  dateHeading: string;
+  dateSoonest: string;
+  dateTodayLabel: string;
+  weekdays: string;
   stepDetails: string;
   nameLabel: string;
   phoneLabel: string;
@@ -107,12 +112,36 @@ const EMPTY_SLOTS: SlotsState = {
   dateISO: "",
 };
 
+/** 予約可能な将来日数（当営業日＋この日数先まで選べる） */
+const DATE_HORIZON_DAYS = 14;
+
+function addDaysISOLocal(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! + n)).toISOString().slice(0, 10);
+}
+
+function dateLabel(iso: string, weekdays: string, todayLabel: string, today: string): string {
+  if (iso === today && todayLabel) return todayLabel;
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  const md = `${Number(parts[1])}/${Number(parts[2])}`;
+  const wds = weekdays ? weekdays.split(",") : [];
+  let wd = "";
+  try {
+    wd = wds[weekdayIndex(iso)] ?? "";
+  } catch {
+    wd = "";
+  }
+  return wd ? `${md}(${wd})` : md;
+}
+
 export function BookingFlow({
   therapists,
   hotels,
   courses,
   initialOptions,
   initialSlug,
+  today,
   labels,
 }: {
   therapists: BookingTherapistItem[];
@@ -121,6 +150,8 @@ export function BookingFlow({
   /** initialSlug のセラピストが対応するオプション（未指定時は空） */
   initialOptions: PublicOption[];
   initialSlug: string | null;
+  /** 当営業日 "YYYY-MM-DD"（日付セレクタの起点・本日判定） */
+  today: string;
   labels: BookingLabels;
 }) {
   const [sessionId, setSessionId] = useState("");
@@ -131,6 +162,8 @@ export function BookingFlow({
   const [courseId, setCourseId] = useState<string | null>(courses[0]?.id ?? null);
   const [options, setOptions] = useState<PublicOption[]>(initialOptions);
   const [optionIds, setOptionIds] = useState<string[]>([]);
+  // 選択中の日付（"" = 最短でおまかせ＝前方探索）
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [slotsState, setSlotsState] = useState<SlotsState>(EMPTY_SLOTS);
   const [hold, setHold] = useState<HoldState | null>(null);
   const [remainingSec, setRemainingSec] = useState(0);
@@ -176,6 +209,7 @@ export function BookingFlow({
       courseId: string | null;
       optionIds: string[];
       hotelId: string | null;
+      dateISO?: string;
     }) => {
       if (!next.slug) {
         setSlotsState(EMPTY_SLOTS);
@@ -186,7 +220,8 @@ export function BookingFlow({
         try {
           const res = await fetchBookingSlots({
             slug: next.slug,
-            dateISO: null,
+            // 日付指定ありはその日だけ、"" は前方探索（最短でおまかせ）
+            dateISO: next.dateISO || null,
             areaId: next.areaId,
             courseId: next.courseId,
             optionIds: next.optionIds,
@@ -237,13 +272,18 @@ export function BookingFlow({
       if (rest === 0) {
         setHold(null);
         setErrorKey("hold_expired");
-        refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null });
+        refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
       }
     };
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [hold, slug, areaId, courseId, optionIds, hotelId, destKind, refreshSlots]);
+  }, [hold, slug, areaId, courseId, optionIds, hotelId, destKind, selectedDate, refreshSlots]);
+
+  // 選べる日付（当営業日 today ＋ 先 DATE_HORIZON_DAYS 日）
+  const dateChoices = Array.from({ length: DATE_HORIZON_DAYS + 1 }, (_, i) =>
+    addDaysISOLocal(today, i),
+  );
 
   const discardHold = (nextRefresh: boolean) => {
     if (hold && sessionId) {
@@ -251,7 +291,7 @@ export function BookingFlow({
     }
     setHold(null);
     if (nextRefresh) {
-      refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null });
+      refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
     }
   };
 
@@ -278,6 +318,7 @@ export function BookingFlow({
       courseId,
       optionIds: [],
       hotelId: destKind === "hotel" ? hotelId : null,
+      dateISO: selectedDate,
     });
   };
 
@@ -286,28 +327,35 @@ export function BookingFlow({
     setErrorKey("");
     discardHold(false);
     const nextHotel = kind === "hotel" ? hotelId : null;
-    refreshSlots({ slug, areaId: kind === "home" ? areaId : null, courseId, optionIds, hotelId: nextHotel });
+    refreshSlots({ slug, areaId: kind === "home" ? areaId : null, courseId, optionIds, hotelId: nextHotel, dateISO: selectedDate });
   };
 
   const chooseHotel = (id: string | null) => {
     setHotelId(id);
     setErrorKey("");
     discardHold(false);
-    refreshSlots({ slug, areaId: null, courseId, optionIds, hotelId: id });
+    refreshSlots({ slug, areaId: null, courseId, optionIds, hotelId: id, dateISO: selectedDate });
   };
 
   const chooseArea = (id: string | null) => {
     setAreaId(id);
     setErrorKey("");
     discardHold(false);
-    refreshSlots({ slug, areaId: id, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null });
+    refreshSlots({ slug, areaId: id, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
   };
 
   const chooseCourse = (id: string) => {
     setCourseId(id);
     setErrorKey("");
     discardHold(false);
-    refreshSlots({ slug, areaId, courseId: id, optionIds, hotelId: destKind === "hotel" ? hotelId : null });
+    refreshSlots({ slug, areaId, courseId: id, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
+  };
+
+  const chooseDate = (iso: string) => {
+    setSelectedDate(iso);
+    setErrorKey("");
+    discardHold(false);
+    refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: iso });
   };
 
   const toggleOption = (id: string) => {
@@ -317,7 +365,7 @@ export function BookingFlow({
     setOptionIds(next);
     setErrorKey("");
     discardHold(false);
-    refreshSlots({ slug, areaId, courseId, optionIds: next, hotelId: destKind === "hotel" ? hotelId : null });
+    refreshSlots({ slug, areaId, courseId, optionIds: next, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
   };
 
   const chooseSlot = (slot: PublicSlotView) => {
@@ -343,7 +391,7 @@ export function BookingFlow({
         });
         if (!res.ok) {
           setErrorKey(res.error);
-          refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null });
+          refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
           return;
         }
         setHold({
@@ -379,7 +427,7 @@ export function BookingFlow({
           setErrorKey(res.error);
           if (res.error === "hold_expired" || res.error === "hold_not_found") {
             setHold(null);
-            refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null });
+            refreshSlots({ slug, areaId, courseId, optionIds, hotelId: destKind === "hotel" ? hotelId : null, dateISO: selectedDate });
           }
           return;
         }
@@ -629,7 +677,35 @@ export function BookingFlow({
         </section>
       )}
 
-      {/* 5. 枠選択 → ホールド（spec 6章 手順4 / 5-5） */}
+      {/* 5. 日付選択（当営業日＋将来日／最短でおまかせ） */}
+      {slug && (
+        <section aria-label={labels.dateHeading || undefined}>
+          {labels.dateHeading && (
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-pub-subtext">
+              {labels.dateHeading}
+            </h2>
+          )}
+          <select
+            value={selectedDate}
+            onChange={(e) => chooseDate(e.target.value)}
+            aria-label={labels.dateHeading || undefined}
+            className="w-full rounded border border-pub-border bg-pub-surface px-3 py-2 text-sm text-pub-text [color-scheme:dark]"
+          >
+            {labels.dateSoonest && (
+              <option value="" style={{ backgroundColor: "#1E252D", color: "#EDE9E2" }}>
+                {labels.dateSoonest}
+              </option>
+            )}
+            {dateChoices.map((iso) => (
+              <option key={iso} value={iso} style={{ backgroundColor: "#1E252D", color: "#EDE9E2" }}>
+                {dateLabel(iso, labels.weekdays, labels.dateTodayLabel, today)}
+              </option>
+            ))}
+          </select>
+        </section>
+      )}
+
+      {/* 6. 枠選択 → ホールド（spec 6章 手順4 / 5-5） */}
       <section aria-label={labels.stepSlot || undefined} aria-busy={pending}>
         <div className="mb-2 flex items-center justify-between gap-2">
           {labels.stepSlot && (

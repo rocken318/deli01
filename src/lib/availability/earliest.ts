@@ -16,6 +16,7 @@ import {
   areaPlace,
   buildTravelDataSource,
   loadActiveReservations,
+  loadLeadTimeMin,
 } from "./reservation-data";
 
 /**
@@ -125,7 +126,7 @@ export async function earliestSlotForTherapist(
   const therapist = therapists[0];
   if (!therapist) return null;
 
-  const [walkRows, defaultBufferRows, modifierRows, courseRows] = await Promise.all([
+  const [walkRows, defaultBufferRows, modifierRows, courseRows, leadTimeMin] = await Promise.all([
     sql<{ detour_factor: number; speed_m_per_min: number; cap_meters: number }[]>`
       select detour_factor::float8, speed_m_per_min, cap_meters from walk_settings limit 1
     `,
@@ -140,6 +141,7 @@ export async function earliestSlotForTherapist(
     sql<{ min_duration: number | null }[]>`
       select min(duration_min)::int as min_duration from courses where is_active = true
     `,
+    loadLeadTimeMin(sql),
   ]);
 
   const walkSettings: WalkSettings = walkRows[0]
@@ -170,6 +172,7 @@ export async function earliestSlotForTherapist(
       walkSettings,
       bufferDefaults,
       timeModifiers,
+      leadTimeMin,
     });
     if (info) return info;
   }
@@ -187,6 +190,7 @@ async function earliestForDate(
     walkSettings: WalkSettings;
     bufferDefaults: BufferSettings;
     timeModifiers: TimeModifier[];
+    leadTimeMin: number;
   },
 ): Promise<EarliestSlotInfo | null> {
   const shifts = await sql<ShiftRow[]>`
@@ -261,6 +265,7 @@ async function earliestForDate(
     // 場所つきで reservations に渡す（engine の R-3 契約）
     reservations: engineReservations,
     now: params.now,
+    leadTimeMin: params.leadTimeMin,
     walkSettings: params.walkSettings,
     timeModifiers: params.timeModifiers,
     bufferDefaults: params.bufferDefaults,

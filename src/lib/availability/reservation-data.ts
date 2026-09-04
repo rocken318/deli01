@@ -56,6 +56,23 @@ export function areaPlace(areaId: string): PlaceRef {
   return { id: `area:${areaId}`, areaId };
 }
 
+/** 受付リードタイムの既定（分）。site_settings.booking_fees.lead_time_min 未設定時（発注者決定 2026-09-05） */
+const FALLBACK_LEAD_TIME_MIN = 60;
+
+/**
+ * 受付リードタイム（分）を site_settings.booking_fees.lead_time_min から読む。
+ * 「今から何分後以降なら予約可」。未設定・不正は既定 60。空き枠エンジンの now 下限に使う。
+ */
+export async function loadLeadTimeMin(sql: SqlClient): Promise<number> {
+  const rows = await sql<{ value: unknown }[]>`
+    select value from site_settings where key = 'booking_fees' limit 1
+  `;
+  const raw = rows[0]?.value;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return FALLBACK_LEAD_TIME_MIN;
+  const v = (raw as Record<string, unknown>)["lead_time_min"];
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : FALLBACK_LEAD_TIME_MIN;
+}
+
 /**
  * 目的地（エリア代表点 or ホテル所在地）と、待機場所・既存予約エリアとの間の
  * 距離（PostGIS 直線）+ 車マトリクス（area_travel_times）を一括で読み、
