@@ -68,6 +68,26 @@ export async function listPublicTherapists(): Promise<PublicTherapist[]> {
 }
 
 /**
+ * 本日（Asia/Tokyo の暦日）出勤しているセラピストの slug 集合を返す。
+ * shifts.work_date = 今日 かつ is_day_off=false の公開中・稼働中セラピスト。
+ * 「本日出勤」バッジ（TOP・一覧）に使う。RLS 非依存の公開読み取り。
+ */
+export async function getSlugsWorkingToday(): Promise<Set<string>> {
+  const sql = getClient();
+  const rows = await sql<{ slug: string }[]>`
+    select distinct t.slug
+    from shifts s
+    join therapists t on t.id = s.therapist_id
+    join entity_records r on r.entity = 'therapist' and r.slug = t.slug
+    where s.work_date = (now() at time zone 'Asia/Tokyo')::date
+      and s.is_day_off = false
+      and t.status = 'active'
+      and r.published is not null
+  `;
+  return new Set(rows.map((r) => r.slug));
+}
+
+/**
  * slug から公開中のセラピストを1件返す。
  * status='active' かつ published が非 null でなければ null（退職・未公開は 404 相当）。
  */

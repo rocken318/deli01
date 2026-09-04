@@ -20,6 +20,8 @@ export function TherapistCard({
   earliestDateISO = null,
   today = null,
   conditionNote = "",
+  workingToday = false,
+  todayBadgeLabel = "",
 }: {
   card: TherapistCardView;
   detailLabel: string;
@@ -37,6 +39,10 @@ export function TherapistCard({
   today?: string | null;
   /** 「〇〇区の場合」等の前提注記（代表エリア概算 / spec 2-3）。無ければ非表示 */
   conditionNote?: string;
+  /** 本日（Asia/Tokyo 暦日）出勤しているか。バッジ表示に使う */
+  workingToday?: boolean;
+  /** 「本日出勤」等のバッジ文言（content レイヤ由来。空なら非表示） */
+  todayBadgeLabel?: string;
 }) {
   const photo = card.photo;
   const showPhoto = photo !== null && photo.faceVisibility !== "none";
@@ -49,6 +55,11 @@ export function TherapistCard({
       aria-label={card.catchCopy || card.slug}
     >
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-pub-bg">
+        {workingToday && todayBadgeLabel && (
+          <span className="absolute left-2 top-2 z-10 rounded bg-pub-accent px-2 py-0.5 text-xs font-medium text-pub-bg shadow-sm">
+            {todayBadgeLabel}
+          </span>
+        )}
         {showPhoto ? (
           <>
             <PublicImage

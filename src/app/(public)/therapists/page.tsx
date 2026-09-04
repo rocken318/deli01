@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getSiteContext, getPublicTherapistFields, label } from "@/lib/public/content";
-import { listPublicTherapists } from "@/lib/public/queries";
+import { listPublicTherapists, getSlugsWorkingToday } from "@/lib/public/queries";
 import { buildTherapistCards, collectFilterTagChoices } from "@/lib/public/therapist-view";
 import { listScheduleAreas } from "@/lib/schedule/queries";
 import { earliestSlotForTherapist } from "@/lib/availability/earliest";
@@ -36,11 +36,12 @@ export default async function TherapistsPage({
   searchParams: Promise<{ area?: string }>;
 }) {
   const sp = await searchParams;
-  const [ctx, fields, therapists, areas] = await Promise.all([
+  const [ctx, fields, therapists, areas, workingTodaySet] = await Promise.all([
     getSiteContext(),
     getPublicTherapistFields(),
     listPublicTherapists(),
     listScheduleAreas(),
+    getSlugsWorkingToday(),
   ]);
 
   const areaId = areas.some((a) => a.id === sp.area) ? (sp.area ?? null) : null;
@@ -73,6 +74,7 @@ export default async function TherapistsPage({
         info && !info.assumed && info.areaName && conditionTemplate
           ? conditionTemplate.replace("{area}", info.areaName)
           : "",
+      workingToday: workingTodaySet.has(c.slug),
     };
   });
 
@@ -139,6 +141,7 @@ export default async function TherapistsPage({
           earliestPending: label(ctx, "earliest_slot_pending"),
           emptyTitle: label(ctx, "empty_therapists_title"),
           emptyBody: label(ctx, "empty_therapists_body"),
+          todayBadge: label(ctx, "therapist_today_badge"),
         }}
       />
     </div>
