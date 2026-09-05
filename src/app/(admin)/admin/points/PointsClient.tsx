@@ -12,7 +12,7 @@ import { earnPoints, expirePoints, listPointLedger } from '@/lib/points/actions'
 import type { ExpiringLotItem } from '@/lib/points/queries';
 import type { PointLedgerEntry } from '@/lib/points/actions';
 import { addNgPair, removeNgPair } from '@/lib/nomination/actions';
-import { getCustomerPortalLink } from '@/lib/customer-portal/admin-actions';
+import { getCustomerPortalLink, setCustomerPortalPin } from '@/lib/customer-portal/admin-actions';
 import type { NgPairRow } from '@/lib/nomination/actions';
 
 const TZ = 'Asia/Tokyo';
@@ -63,6 +63,27 @@ export function PointsClient({
   const [lookupError, setLookupError] = useState('');
   const [lookupPending, startLookupTransition] = useTransition();
   const [portalLink, setPortalLink] = useState<string | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinMsg, setPinMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pinPending, startPinTransition] = useTransition();
+
+  function handleSetPin() {
+    if (!lookupResult) return;
+    if (!/^[0-9]{4,6}$/.test(pinInput)) {
+      setPinMsg({ ok: false, text: '暗証番号は数字4〜6桁で入力してください' });
+      return;
+    }
+    setPinMsg(null);
+    startPinTransition(async () => {
+      const res = await setCustomerPortalPin({ customerId: lookupResult.customerId, pin: pinInput });
+      if (res.ok) {
+        setPinInput('');
+        setPinMsg({ ok: true, text: '暗証番号を設定しました。お客様は電話番号＋この番号で /member からログインできます。' });
+      } else {
+        setPinMsg({ ok: false, text: res.error ?? '設定に失敗しました' });
+      }
+    });
+  }
 
   function handleLookup() {
     if (!lookupInput.trim()) return;
@@ -253,6 +274,30 @@ export function PointsClient({
                 </button>
               </div>
             )}
+
+            {/* 会員ページの暗証番号（電話番号＋この番号でお客様がログイン） */}
+            <div className="flex flex-wrap items-center gap-2 rounded border border-adm-line bg-adm-bg p-2">
+              <span className="text-xs text-adm-muted">会員ページ暗証番号を設定:</span>
+              <input
+                inputMode="numeric"
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="4〜6桁"
+                maxLength={6}
+                className="w-24 rounded border border-adm-line bg-white px-2 py-1 text-sm text-adm-text tabular-nums [color-scheme:light]"
+              />
+              <button
+                type="button"
+                onClick={handleSetPin}
+                disabled={pinPending}
+                className="text-xs px-3 py-1 rounded bg-adm-primary text-white disabled:opacity-50"
+              >
+                {pinPending ? '設定中…' : '設定'}
+              </button>
+              {pinMsg && (
+                <span className={`text-xs ${pinMsg.ok ? 'text-adm-primary' : 'text-adm-danger'}`}>{pinMsg.text}</span>
+              )}
+            </div>
 
             {lookupResult.entries.length === 0 ? (
               <p className="text-sm text-adm-muted">台帳履歴はありません</p>

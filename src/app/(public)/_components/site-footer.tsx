@@ -58,6 +58,12 @@ export function SiteFooter({ ctx }: { ctx: SiteContext }) {
           </nav>
         )}
 
+        {ctx.labels["member_link"] && (
+          <Link href="/member" className="inline-block text-sm text-pub-primary hover:underline">
+            {ctx.labels["member_link"]}
+          </Link>
+        )}
+
         {ctx.legalNote && (
           <p className="whitespace-pre-wrap text-xs text-pub-subtext">{ctx.legalNote}</p>
         )}
