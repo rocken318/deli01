@@ -6,6 +6,7 @@ import { can } from "@/domain/auth";
 import { getClient } from "@/lib/db-client";
 import { withUser } from "@/lib/auth/with-user";
 import { listAnnaiBoardCore } from "@/lib/annai/queries";
+import { operatingDayISO } from "@/domain/availability";
 import {
   buildBoard,
   indexOptionAvailability,
@@ -30,8 +31,19 @@ interface Booking {
 
 export const dynamic = "force-dynamic";
 const TZ = "Asia/Tokyo";
-const hm = (d: Date) => formatInTimeZone(d, TZ, "HH:mm");
-const hmMs = (ms: number) => formatInTimeZone(new Date(ms), TZ, "HH:mm");
+/**
+ * 営業時間表記の時刻（発注者要望 2026-09-06）。営業日 opDay の深夜帯（翌暦日 00:00〜05:59）は
+ * 24時越え表記にして、当日夕方(16:00)か深夜(=翌朝4時→28:00)かを一目で分かるようにする。
+ */
+const hm = (d: Date, opDay: string) => {
+  const dateISO = formatInTimeZone(d, TZ, "yyyy-MM-dd");
+  if (dateISO > opDay) {
+    const h = Number(formatInTimeZone(d, TZ, "H"));
+    return `${h + 24}:${formatInTimeZone(d, TZ, "mm")}`;
+  }
+  return formatInTimeZone(d, TZ, "HH:mm");
+};
+const hmMs = (ms: number, opDay: string) => hm(new Date(ms), opDay);
 
 const CHIP_WORKING = { label: "待機中", bg: "#3F7A6B", fg: "#fff" } as const;
 const CHIP_BUSY = { label: "接客中", bg: "#B4453C", fg: "#fff" } as const;
@@ -42,10 +54,10 @@ function chipOf(r: BoardRow) {
   return r.window.busyNow ? CHIP_BUSY : CHIP_WORKING;
 }
 
-function centerText(w: AvailWindow): { big: string; sub: string } {
-  if (w.kind === "now") return { big: "今すぐ", sub: w.untilMs ? `〜${hmMs(w.untilMs)}` : "上限なし" };
+function centerText(w: AvailWindow, opDay: string): { big: string; sub: string } {
+  if (w.kind === "now") return { big: "今すぐ", sub: w.untilMs ? `〜${hmMs(w.untilMs, opDay)}` : "上限なし" };
   if (w.kind === "from" && w.fromMs !== null)
-    return { big: hmMs(w.fromMs), sub: w.untilMs ? `〜${hmMs(w.untilMs)}` : "上限なし" };
+    return { big: hmMs(w.fromMs, opDay), sub: w.untilMs ? `〜${hmMs(w.untilMs, opDay)}` : "上限なし" };
   return { big: "—", sub: "" };
 }
 
@@ -55,7 +67,7 @@ const PROGRESS_LABEL: Record<string, { label: string; color: string }> = {
   confirmed: { label: "未完了", color: "#C98A2B" },
 };
 
-function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
+function JobCard({ job, side, opDay }: { job: JobItem; side: "done" | "up"; opDay: string }) {
   // 左(side=done)は「終わった/進行中」。done は清算状態で色分け（会計済=緑/要清算=橙）、
   // done でない過去分（接客中/移動中/未完了）は進行ラベルを出す。清算/会計は done のみ。
   const isDone = job.status === "done";
@@ -76,11 +88,11 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
       }}
     >
       <div style={{ fontSize: 12, fontWeight: 700 }}>
-        {hm(job.startAt)}
-        {side === "done" ? `–${hm(job.endAt)}` : ""} ↗
+        {hm(job.startAt, opDay)}
+        {side === "done" ? `–${hm(job.endAt, opDay)}` : ""} ↗
       </div>
       <div style={{ fontSize: 10, color: side === "done" ? "#5b625f" : "#8a5d16" }}>
-        {side === "done" ? `¥${job.totalAmount.toLocaleString()}` : `出発${hm(job.departAt)}`}
+        {side === "done" ? `¥${job.totalAmount.toLocaleString()}` : `出発${hm(job.departAt, opDay)}`}
       </div>
       {side === "done" &&
         (isDone ? (
@@ -98,9 +110,9 @@ function JobCard({ job, side }: { job: JobItem; side: "done" | "up" }) {
   );
 }
 
-function Row({ r, booking, rowOptions, postedIds }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[]; postedIds?: Set<string> }) {
+function Row({ r, booking, rowOptions, postedIds, opDay }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[]; postedIds?: Set<string>; opDay: string }) {
   const chip = chipOf(r);
-  const c = centerText(r.window);
+  const c = centerText(r.window, opDay);
   // 清算/計上は done のみが対象（左列には進行中の過去分も含まれるため status で絞る）
   const doneJobs = r.done.filter((j) => j.status === "done");
   const unsettled = doneJobs.filter((j) => j.reconciledAt === null).length;
@@ -110,7 +122,7 @@ function Row({ r, booking, rowOptions, postedIds }: { r: BoardRow; booking?: Boo
       <div style={{ display: "grid", gridTemplateColumns: "1fr 156px 1fr", gap: 8, alignItems: "center" }}>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", overflowX: "auto" }}>
           {r.done.map((j) => (
-            <JobCard key={j.id} job={j} side="done" />
+            <JobCard key={j.id} job={j} side="done" opDay={opDay} />
           ))}
         </div>
         <div style={{ background: "#EAF3EF", border: "2px solid #3F7A6B", borderRadius: 8, padding: 5, textAlign: "center" }}>
@@ -124,7 +136,7 @@ function Row({ r, booking, rowOptions, postedIds }: { r: BoardRow; booking?: Boo
         </div>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-start", overflowX: "auto" }}>
           {r.upcoming.map((j) => (
-            <JobCard key={j.id} job={j} side="up" />
+            <JobCard key={j.id} job={j} side="up" opDay={opDay} />
           ))}
         </div>
       </div>
@@ -169,6 +181,8 @@ export default async function AnnaiPage() {
   }
   const nowMs = Date.now();
   const todayISO = formatInTimeZone(new Date(nowMs), TZ, "yyyy-MM-dd");
+  // 営業日（06:00境界）。深夜の予約を24時越え表記にするための基準。
+  const opDay = operatingDayISO(new Date(nowMs));
   const sql = getClient();
   const [rows, courses, options, areas, optAvail, dispatch] = await Promise.all([
     withUser(sql, session, (tx) => listAnnaiBoardCore(tx, nowMs)),
@@ -227,14 +241,14 @@ export default async function AnnaiPage() {
         <div style={{ paddingLeft: 4 }}>これからの仕事 →</div>
       </div>
       {active.map((r) => (
-        <Row key={r.therapistId} r={r} booking={booking} rowOptions={optionsForTherapist(r.therapistId)} postedIds={postedIds} />
+        <Row key={r.therapistId} r={r} booking={booking} rowOptions={optionsForTherapist(r.therapistId)} postedIds={postedIds} opDay={opDay} />
       ))}
       {retired.length > 0 && (
         <>
           <div style={{ height: 5, background: "#404844", borderRadius: 3, margin: "10px 0 6px" }} />
           <div style={{ fontSize: 11, color: "#9BA5AF", fontWeight: 700, marginBottom: 6 }}>上がり</div>
           {retired.map((r) => (
-            <Row key={r.therapistId} r={r} postedIds={postedIds} />
+            <Row key={r.therapistId} r={r} postedIds={postedIds} opDay={opDay} />
           ))}
         </>
       )}
