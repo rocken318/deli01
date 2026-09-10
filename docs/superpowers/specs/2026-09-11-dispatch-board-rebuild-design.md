@@ -87,7 +87,7 @@
 ### 4.8 バック単価表（当日給料）と雑費
 受付表「自動精算表」に準拠＝**率でなくバック単価表 × 本数 − 雑費(10%)**。
 - バック単価は既存 `payout_rates`（`calc_type='fixed'`・円）を素直に再利用。対象は `target_type`（course/option/nomination/late_night ほか）＋ `target_id`（コース/オプション個別）。既定（target_id null）＝その種別一律。延長・海外手当・指名ランク等は不足なら `payout_target_type` に値追加、または option/nomination で表現（実装計画で確定）。
-- **雑費**（合計の一定率控除）を `site_settings.payout_policy` に追加: `{"misc_deduction_rate": 10}`。丸めは確認事項（既定は切り捨て想定）。
+- **雑費**（合計の一定率控除）を `site_settings.payout_policy` に追加: `{"misc_deduction_rate": 10}`（率は設定で可変・既定10）。**丸めは切り捨て（floor）で確定**（2026-09-11 発注者確認）。
 - 当日給料 = Σ(本数 × バック単価) − floor(合計 × 雑費率/100)。**本数は当日 done 予約の course/options/nomination/延長から自動集計**（手修正は例外・理由を残す）。
 - 精算 = `payout_lines`（追記台帳）へ計上＋日次の支払記録。「この場で精算」で当日分を確定（既存 postReservationAccounting / settlePayout の思想に合わせ、二重計上は unique 制約で防止）。雑費は控除行（`payout_deductions` kind='other' か専用カテゴリ）で表現。
 
@@ -154,7 +154,7 @@
 
 ## 8. 確認事項（実装計画で確定 or 発注者確認）
 
-1. **雑費**: 10%固定でよいか／端数の丸め（切捨て想定）。金銭のため要確認。
+1. ~~**雑費**: 端数の丸め~~ → **切り捨て（floor）で確定**（2026-09-11）。率は既定10%・`site_settings` で可変。
 2. バック単価表: 延長・海外手当・指名ランク等の表現（`payout_target_type` 追加 vs option/nomination 流用）。女性ごとに単価が違うケースの有無（`payout_rates` の therapist_id 個別で吸収可）。
 3. 当日精算の**取消/再精算**の可否（追記台帳＝逆仕訳で戻す運用か）。
 4. 予約の車要否を後から外した時の未着手脚の自動削除可否。
