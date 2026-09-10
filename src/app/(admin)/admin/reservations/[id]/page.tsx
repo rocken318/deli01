@@ -14,6 +14,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import EntryCallButton from './EntryCallButton';
 import SettlePanel from './SettlePanel';
 import LineShareButtons from './LineShareButtons';
+import DispatchNeeds from './DispatchNeeds';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +55,8 @@ interface ReservationDetail {
   settle_note: string | null;
   is_card_payment: boolean;
   options: string | null;
+  needs_send_car: boolean;
+  needs_return_car: boolean;
 }
 
 // ローディングスケルトン（Suspense はつかわず直レンダリング）
@@ -152,6 +155,8 @@ export default async function ReservationDetailPage({ params }: PageProps) {
           r.reconciled_at,
           r.settle_note,
           r.is_card_payment,
+          r.needs_send_car,
+          r.needs_return_car,
           (select string_agg(o.name, '、' order by o.sort_order)
              from reservation_options ro
              join options o on o.id = ro.option_id
@@ -376,6 +381,15 @@ export default async function ReservationDetailPage({ params }: PageProps) {
             />
           </Row>
         </dl>
+      </SectionBox>
+
+      {/* 配車 */}
+      <SectionBox title="配車">
+        <DispatchNeeds
+          reservationId={row.id}
+          initialNeedsSendCar={row.needs_send_car}
+          initialNeedsReturnCar={row.needs_return_car}
+        />
       </SectionBox>
 
       {/* 清算（集金照合） */}
