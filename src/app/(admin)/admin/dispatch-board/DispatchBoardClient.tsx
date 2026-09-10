@@ -1,15 +1,18 @@
-﻿'use client';
+'use client';
 
 /**
- * 配車ボードクライアントコンポーネント（spec 7-1・7-3 / 改修: 1行=1配車の表）。
+ * 配車ボードクライアントコンポーネント（フェーズ4 再設計 / 設計 4.6・4.7・5.1）。
  *
- * レイアウト:
- *   - 上部: 遅延/退出未記録アラート集約
- *   - 日付ナビ（前日/翌日ボタン + date input）+ 手動更新
- *   - 表本体: 1行=1配車。列 = 女性／コース(分)／派遣先(エリア+ホテル)／部屋／出発／IN／ドライバー／OUT／メモ
- *   - ドライバー(dispatch_driver)・メモ(dispatch_memo) はインライン編集
- *   - ステータス前進ボタン（各行）で advanceReservationStatus を呼ぶ
- *   - 遅延行: adm-danger（#B4453C）背景。退出未記録行: adm-warning（#C98A2B）背景
+ * レイアウト（モック board-redesign-v6.html 準拠。退勤送りセクションはフェーズ6）:
+ *   - 上部: 遅延/退出未記録アラート集約（既存踏襲）
+ *   - 日付ナビ（前日/翌日/当日 + date input）+ 「終了分も表示」トグル + 手動更新
+ *   - 表本体: 1行=1予約。列 = 女性/コース(分)/派遣先/部屋/出発/IN/送り車/OUT/帰り車/メモ/状態・終了
+ *   - 送り車/帰り車セル: 割当ドライバー表示・セル全面を状態色で塗る・左に車色帯・
+ *     状態プルダウン（送り=6状態/帰り=4状態）→ setLegState。未割当は点線ドロップゾーン
+ *   - ドラッグ&ドロップ: 右レールのドライバーチップを脚セルへドロップ → assignLegDriver（上書き）
+ *   - LINE 2ボタン（🚕運転手/👩女性）はプレースホルダ（フェーズ9 で実装。今はトースト「準備中」）
+ *   - 終了ボタン: 送り/帰りの全脚が「完了」の時のみ活性 → finishReservation → 一覧から消える
+ *   - 右レール: 本日出勤ドライバー（listActiveDriversForDate / フェーズ3）
  *
  * 住所・電話番号の扱い:
  *   - 電話番号は表に出さない（住所ゲートは queries の可視制御が守る / spec 7-3）
@@ -18,9 +21,10 @@
  * props 互換:
  *   - initialItems / initialDate / todayISO / syncUrl は既存のまま維持
  *     （/admin/annai の ConsoleTabs 埋め込みが syncUrl=false で使っている）
+ *   - initialLegs / initialActiveDrivers は省略可（省略時はマウント時に取得）
  */
 
-import { useState, useTransition, useCallback, useRef } from 'react';
+import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import type { DispatchBoardItem, AdvanceTarget } from '@/lib/dispatch-board/queries';
 import {
@@ -34,6 +38,21 @@ import {
   getDispatchBoard,
   updateDispatchFields,
 } from '@/lib/dispatch-board/actions';
+import {
+  assignLegDriver,
+  setLegState,
+  clearLegDriver,
+  finishReservation,
+  getDispatchLegs,
+} from '@/lib/dispatch-board/leg-actions';
+import type { LegView, ReservationLegs } from '@/lib/dispatch-board/leg-actions';
+import { listActiveDriversForDate } from '@/lib/drivers/shift-actions';
+import type { ActiveDriver } from '@/lib/drivers/shift-actions';
+import {
+  SEND_STATES,
+  RETURN_STATES,
+  type LegSlot,
+} from '@/domain/dispatch/leg-states';
 
 /** nextStatus は DispatchStatus | null を返すが confirmed は進め先にならない */
 function nextAdvanceTarget(status: string): AdvanceTarget | null {
@@ -52,6 +71,10 @@ interface Props {
    * にして、埋め込み元 URL から離脱せずローカル state のみ更新する（判断 Q2）。
    */
   syncUrl?: boolean;
+  /** 当日の配車脚（includeFinished=true で取得したもの）。省略時はマウント時に取得 */
+  initialLegs?: ReservationLegs[];
+  /** 本日出勤ドライバー（右レール）。省略時はマウント時に取得 */
+  initialActiveDrivers?: ActiveDriver[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -65,6 +88,18 @@ const NEXT_LABEL: Record<string, string> = {
   confirmed: '移動開始',
   enroute: 'IN',
   in_service: 'OUT',
+};
+
+/** 脚状態 → セル配色（モック v6 の s-* クラス準拠） */
+const STATE_COLORS: Record<string, { bg: string; fg: string }> = {
+  予定: { bg: '#E2EAF2', fg: '#2f4a6b' },
+  送り中: { bg: '#BFE0D1', fg: '#184c3b' },
+  合流確認中: { bg: '#F3C9C1', fg: '#7d2a22' },
+  インコール待機中: { bg: '#E7EAE7', fg: '#454b48' },
+  バック中: { bg: '#DFD0EF', fg: '#4c356f' },
+  完了: { bg: '#D3DDD7', fg: '#3f5249' },
+  向かい中: { bg: '#BFE0D1', fg: '#184c3b' },
+  アウト待ち: { bg: '#F4DDB4', fg: '#6f4e12' },
 };
 
 /** Asia/Tokyo の "HH:mm" 文字列を返す */
@@ -102,8 +137,13 @@ function formatCourse(item: DispatchBoardItem): string {
   return `${item.courseName} ${item.courseDurationMin}分`;
 }
 
+/** ドライバーの車表示（車番 + 色名） */
+function formatVehicle(number: string | null, colorName: string | null): string {
+  return [number, colorName].filter(Boolean).join(' ');
+}
+
 // ---------------------------------------------------------------------------
-// インライン編集セル（driver / memo 共通）
+// インライン編集セル（memo）
 // ---------------------------------------------------------------------------
 
 interface InlineEditCellProps {
@@ -204,35 +244,221 @@ function InlineEditCell({ value, placeholder, onSave, disabled }: InlineEditCell
 }
 
 // ---------------------------------------------------------------------------
+// 送り車/帰り車 脚セル
+// ---------------------------------------------------------------------------
+
+interface LegCellProps {
+  slot: LegSlot;
+  leg: LegView | null;
+  disabled: boolean;
+  onDropDriver: (driverId: string) => void;
+  onChangeState: (legId: string, state: string) => void;
+  onClearDriver: (legId: string) => void;
+  onLinePlaceholder: () => void;
+}
+
+function LegCell({
+  slot, leg, disabled, onDropDriver, onChangeState, onClearDriver, onLinePlaceholder,
+}: LegCellProps) {
+  const [isOver, setIsOver] = useState(false);
+  const states = slot === 'send' ? SEND_STATES : RETURN_STATES;
+  const slotLabel = slot === 'send' ? '送り車' : '帰り車';
+  const lineLabel = slot === 'send' ? '送りLINE' : '帰りLINE';
+
+  const handleDragOver = (e: React.DragEvent<HTMLTableCellElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isOver) setIsOver(true);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLTableCellElement>) => {
+    e.preventDefault();
+    setIsOver(false);
+    const driverId = e.dataTransfer.getData('text/plain');
+    if (driverId && !disabled) onDropDriver(driverId);
+  };
+
+  const colors = leg ? (STATE_COLORS[leg.state] ?? { bg: '#fff', fg: '#1C2321' }) : null;
+
+  if (!leg || !leg.driverId) {
+    // 未割当（脚なし or 割当解除済み）: 点線ドロップゾーン
+    return (
+      <td
+        onDragOver={handleDragOver}
+        onDragLeave={() => setIsOver(false)}
+        onDrop={handleDrop}
+        style={{
+          padding: 4,
+          borderBottom: '1px solid #DFE3DE',
+          borderRight: '1px solid #DFE3DE',
+          verticalAlign: 'middle',
+          minWidth: 130,
+        }}
+      >
+        <div
+          style={{
+            border: `1px dashed ${isOver ? '#3F7A6B' : '#c3cac6'}`,
+            borderRadius: 6,
+            color: isOver ? '#3F7A6B' : '#aeb6b2',
+            textAlign: 'center',
+            padding: '10px 4px',
+            fontSize: 11,
+            background: isOver
+              ? '#EAF3EF'
+              : 'repeating-linear-gradient(45deg,#fafbfa,#fafbfa 6px,#f4f6f4 6px,#f4f6f4 12px)',
+          }}
+        >
+          {slotLabel}をドラッグ
+        </div>
+      </td>
+    );
+  }
+
+  return (
+    <td
+      onDragOver={handleDragOver}
+      onDragLeave={() => setIsOver(false)}
+      onDrop={handleDrop}
+      style={{
+        padding: '6px 8px',
+        borderBottom: '1px solid #DFE3DE',
+        borderRight: '1px solid #DFE3DE',
+        borderLeft: `5px solid ${leg.vehicleColorHex ?? '#ccc'}`,
+        verticalAlign: 'top',
+        minWidth: 130,
+        background: colors!.bg,
+        color: colors!.fg,
+        outline: isOver ? '2px dashed #3F7A6B' : 'none',
+        outlineOffset: -2,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontWeight: 700, fontSize: 12 }}>{leg.driverName ?? '—'}</span>
+        <span style={{ fontSize: 10, color: '#5f6b66' }}>
+          {formatVehicle(leg.vehicleNumber, leg.vehicleColorName)}
+        </span>
+        <button
+          type="button"
+          onClick={() => onClearDriver(leg.id)}
+          disabled={disabled}
+          title={`${slotLabel}の割当を解除`}
+          aria-label={`${slotLabel}の割当を解除`}
+          style={{
+            marginLeft: 'auto',
+            fontSize: 10,
+            lineHeight: 1,
+            padding: '2px 4px',
+            border: '1px solid rgba(0,0,0,.15)',
+            borderRadius: 3,
+            background: 'rgba(255,255,255,.7)',
+            color: '#5f6b66',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+          }}
+        >
+          ✕
+        </button>
+      </div>
+      <select
+        value={leg.state}
+        onChange={(e) => onChangeState(leg.id, e.target.value)}
+        disabled={disabled}
+        aria-label={`${slotLabel}の状態`}
+        style={{
+          marginTop: 5,
+          fontSize: 11,
+          fontWeight: 800,
+          padding: '3px 4px',
+          borderRadius: 5,
+          width: '100%',
+          border: '1px solid rgba(0,0,0,.15)',
+          background: 'rgba(255,255,255,.65)',
+          color: 'inherit',
+        }}
+      >
+        {states.map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </select>
+      <div style={{ marginTop: 5, display: 'flex', gap: 4, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, color: '#5f6b66', width: 38 }}>{lineLabel}</span>
+        <button
+          type="button"
+          onClick={onLinePlaceholder}
+          title="LINE送信はフェーズ9で実装予定"
+          style={{
+            fontSize: 10,
+            border: '1px solid rgba(0,0,0,.15)',
+            background: 'rgba(255,255,255,.85)',
+            borderRadius: 4,
+            padding: '1px 6px',
+            cursor: 'pointer',
+            color: '#333',
+          }}
+        >
+          🚕運転手
+        </button>
+        <button
+          type="button"
+          onClick={onLinePlaceholder}
+          title="LINE送信はフェーズ9で実装予定"
+          style={{
+            fontSize: 10,
+            border: '1px solid rgba(0,0,0,.15)',
+            background: 'rgba(255,255,255,.85)',
+            borderRadius: 4,
+            padding: '1px 6px',
+            cursor: 'pointer',
+            color: '#333',
+          }}
+        >
+          👩女性
+        </button>
+      </div>
+    </td>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 行コンポーネント
 // ---------------------------------------------------------------------------
 
 interface RowProps {
   item: DispatchBoardItem;
+  legs: ReservationLegs | null;
   now: Date;
   isPending: boolean;
   onAdvance: (reservationId: string, currentStatus: string) => void;
-  onFieldSaved: (reservationId: string, field: 'driver' | 'memo', value: string) => void;
+  onMemoSaved: (reservationId: string, value: string) => void;
+  onAssignDriver: (reservationId: string, slot: LegSlot, driverId: string) => void;
+  onChangeLegState: (legId: string, slot: LegSlot, state: string) => void;
+  onClearLegDriver: (legId: string) => void;
+  onFinish: (reservationId: string) => void;
+  onLinePlaceholder: () => void;
 }
 
-function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps) {
+function DispatchRow({
+  item, legs, now, isPending,
+  onAdvance, onMemoSaved, onAssignDriver, onChangeLegState, onClearLegDriver,
+  onFinish, onLinePlaceholder,
+}: RowProps) {
   const delayed = isDelayed({ status: item.status, startAt: new Date(item.startAtISO), now });
   const overdue = isExitOverdue({ status: item.status, endAt: new Date(item.endAtISO), now });
   const next = nextAdvanceTarget(item.status);
+
+  const sendLeg = legs?.send ?? null;
+  const returnLeg = legs?.return ?? null;
+  const legList = [sendLeg, returnLeg].filter((l): l is LegView => l !== null);
+  const allLegsDone = legList.length > 0 && legList.every((l) => l.state === '完了');
+  const finished = legs?.allFinished ?? false;
 
   // 行背景色
   let rowBg = 'transparent';
   if (overdue) rowBg = '#FEF0EE'; // 薄赤（退出未記録）
   else if (delayed) rowBg = '#FFF8EC'; // 薄橙（遅延）
 
-  const handleSaveDriver = async (val: string) => {
-    const result = await updateDispatchFields(item.reservationId, { driver: val });
-    if (result.ok) onFieldSaved(item.reservationId, 'driver', val);
-  };
-
   const handleSaveMemo = async (val: string) => {
     const result = await updateDispatchFields(item.reservationId, { memo: val });
-    if (result.ok) onFieldSaved(item.reservationId, 'memo', val);
+    if (result.ok) onMemoSaved(item.reservationId, val);
   };
 
   // 出発時刻: enroute_at（実出発）を優先、なければ depart_at（予定出発）
@@ -251,7 +477,7 @@ function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps
   };
 
   return (
-    <tr>
+    <tr style={finished ? { opacity: 0.5 } : undefined}>
       {/* 女性（セラピスト名）*/}
       <td style={{ ...TD_STYLE, fontWeight: 600, color: '#3F7A6B' }}>
         {item.therapistName}
@@ -303,15 +529,16 @@ function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps
         )}
       </td>
 
-      {/* ドライバー（インライン編集）*/}
-      <td style={{ ...TD_STYLE, minWidth: 90 }}>
-        <InlineEditCell
-          value={item.dispatchDriver}
-          placeholder="ドライバー"
-          onSave={handleSaveDriver}
-          disabled={isPending}
-        />
-      </td>
+      {/* 送り車（脚セル）*/}
+      <LegCell
+        slot="send"
+        leg={sendLeg}
+        disabled={isPending}
+        onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'send', driverId)}
+        onChangeState={(legId, state) => onChangeLegState(legId, 'send', state)}
+        onClearDriver={onClearLegDriver}
+        onLinePlaceholder={onLinePlaceholder}
+      />
 
       {/* OUT（done_at）*/}
       <td style={{ ...TD_STYLE, fontFamily: "'IBM Plex Mono', monospace", textAlign: 'center' }}>
@@ -321,6 +548,17 @@ function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps
           <span style={{ color: '#B9C2BD' }}>—</span>
         )}
       </td>
+
+      {/* 帰り車（脚セル）*/}
+      <LegCell
+        slot="return"
+        leg={returnLeg}
+        disabled={isPending}
+        onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'return', driverId)}
+        onChangeState={(legId, state) => onChangeLegState(legId, 'return', state)}
+        onClearDriver={onClearLegDriver}
+        onLinePlaceholder={onLinePlaceholder}
+      />
 
       {/* メモ（インライン編集）*/}
       <td style={{ ...TD_STYLE, minWidth: 100 }}>
@@ -332,7 +570,7 @@ function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps
         />
       </td>
 
-      {/* ステータス + 前進ボタン */}
+      {/* ステータス + 前進ボタン + 終了ボタン */}
       <td style={{ ...TD_STYLE, whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
           {/* ステータスバッジ */}
@@ -375,8 +613,127 @@ function DispatchRow({ item, now, isPending, onAdvance, onFieldSaved }: RowProps
             </button>
           )}
         </div>
+
+        {/* 終了ボタン（全脚「完了」で活性 → 一覧から消す）*/}
+        {finished ? (
+          <span
+            style={{
+              display: 'inline-block',
+              marginTop: 6,
+              fontSize: 11,
+              padding: '1px 7px',
+              borderRadius: 10,
+              fontWeight: 600,
+              background: '#E7F3EC',
+              color: '#1f7a54',
+            }}
+          >
+            終了済み
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onFinish(item.reservationId)}
+            disabled={isPending || !allLegsDone}
+            title={allLegsDone ? '終了して一覧から消す' : '送り車・帰り車がすべて「完了」になると押せます'}
+            style={{
+              marginTop: 6,
+              display: 'block',
+              width: '100%',
+              fontSize: 11,
+              fontWeight: 800,
+              padding: '3px 6px',
+              borderRadius: 6,
+              border: allLegsDone ? '1px solid #3F7A6B' : '1px solid #d7dbd7',
+              background: allLegsDone ? '#3F7A6B' : '#F3F4F3',
+              color: allLegsDone ? '#fff' : '#aab2ae',
+              cursor: isPending || !allLegsDone ? 'not-allowed' : 'pointer',
+            }}
+          >
+            終了
+          </button>
+        )}
       </td>
     </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 右レール: 本日出勤ドライバー
+// ---------------------------------------------------------------------------
+
+function DriverRail({ drivers }: { drivers: ActiveDriver[] }) {
+  return (
+    <div
+      style={{
+        width: 180,
+        flexShrink: 0,
+        background: '#fff',
+        border: '1px solid #DFE3DE',
+        borderRadius: 8,
+        padding: 10,
+      }}
+    >
+      <h2
+        style={{
+          fontSize: 12,
+          margin: '0 0 8px',
+          color: '#6B7776',
+          fontWeight: 700,
+        }}
+      >
+        本日出勤ドライバー
+      </h2>
+      {drivers.length === 0 ? (
+        <div style={{ fontSize: 11, color: '#9BA5AF', padding: '8px 0' }}>
+          出勤ドライバーがいません
+          <br />
+          <Link
+            href="/admin/drivers"
+            style={{ color: '#3F7A6B', textDecoration: 'underline' }}
+          >
+            シフト登録へ
+          </Link>
+        </div>
+      ) : (
+        drivers.map((d) => (
+          <div
+            key={d.id}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', d.id);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
+            title={`${d.name} をドラッグして送り車/帰り車セルへ`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '7px 8px',
+              border: '1px solid #DFE3DE',
+              borderLeft: `4px solid ${d.vehicleColorHex ?? '#ccc'}`,
+              borderRadius: 6,
+              marginBottom: 7,
+              background: '#fff',
+              cursor: 'grab',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 12, color: '#1C2321' }}>{d.name}</div>
+              <div style={{ fontSize: 11, color: '#6B7776' }}>
+                {formatVehicle(d.vehicleNumber, d.vehicleColorName) || '車両未設定'}
+              </div>
+              <div style={{ fontSize: 10, color: '#9BA5AF', fontFamily: "'IBM Plex Mono', monospace" }}>
+                {d.start}–{d.end}
+              </div>
+            </div>
+            <span style={{ marginLeft: 'auto', color: '#c3cac6', fontSize: 14 }} aria-hidden>
+              ⋮⋮
+            </span>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
@@ -389,9 +746,14 @@ export default function DispatchBoardClient({
   initialDate,
   todayISO,
   syncUrl = true,
+  initialLegs,
+  initialActiveDrivers,
 }: Props) {
   const [items, setItems] = useState<DispatchBoardItem[]>(initialItems);
+  const [legs, setLegs] = useState<ReservationLegs[]>(initialLegs ?? []);
+  const [drivers, setDrivers] = useState<ActiveDriver[]>(initialActiveDrivers ?? []);
   const [date, setDate] = useState<string>(initialDate);
+  const [showFinished, setShowFinished] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -404,22 +766,61 @@ export default function DispatchBoardClient({
     setTimeout(() => setToast(null), 3000);
   };
 
-  /** 日付変更 → URL更新 + 再取得 */
+  /** 脚のみ再取得（常に includeFinished=true で取り、表示はクライアントで絞る） */
+  const refreshLegs = useCallback(async (targetDate: string) => {
+    const result = await getDispatchLegs(targetDate, true);
+    if (result.ok && result.data) {
+      setLegs(result.data);
+      return true;
+    }
+    setErrorMsg(result.error ?? '配車脚の取得に失敗しました');
+    return false;
+  }, []);
+
+  /** ボード・脚・右レールをまとめて再取得 */
+  const refreshAll = useCallback(async (targetDate: string) => {
+    const [board, legsResult, driversResult] = await Promise.all([
+      getDispatchBoard(targetDate),
+      getDispatchLegs(targetDate, true),
+      listActiveDriversForDate(targetDate),
+    ]);
+    if (board.ok && board.data) {
+      setItems(board.data);
+    } else {
+      setErrorMsg(board.error ?? '取得に失敗しました');
+    }
+    if (legsResult.ok && legsResult.data) setLegs(legsResult.data);
+    if (driversResult.ok && driversResult.data) setDrivers(driversResult.data);
+    return board.ok;
+  }, []);
+
+  // 埋め込み利用（annai）で initialLegs / initialActiveDrivers が渡されないときはマウント時に取得
+  useEffect(() => {
+    if (initialLegs === undefined || initialActiveDrivers === undefined) {
+      startTransition(async () => {
+        const [legsResult, driversResult] = await Promise.all([
+          getDispatchLegs(initialDate, true),
+          listActiveDriversForDate(initialDate),
+        ]);
+        if (legsResult.ok && legsResult.data) setLegs(legsResult.data);
+        if (driversResult.ok && driversResult.data) setDrivers(driversResult.data);
+      });
+    }
+    // マウント時のみ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 日付変更 → URL更新 + 再取得（ボード + 脚 + 右レール） */
   const changeDate = useCallback(
     (newDate: string) => {
       setDate(newDate);
       setErrorMsg(null);
       if (syncUrl) router.push(`/admin/dispatch-board?date=${newDate}`);
       startTransition(async () => {
-        const result = await getDispatchBoard(newDate);
-        if (result.ok && result.data) {
-          setItems(result.data);
-        } else {
-          setErrorMsg(result.error ?? '取得に失敗しました');
-        }
+        await refreshAll(newDate);
       });
     },
-    [router, syncUrl],
+    [router, syncUrl, refreshAll],
   );
 
   /** ステータス前進 */
@@ -442,48 +843,110 @@ export default function DispatchBoardClient({
     });
   };
 
-  /** インライン編集後のローカル state 更新（サーバ再取得なしで即反映） */
-  const handleFieldSaved = (
-    reservationId: string,
-    field: 'driver' | 'memo',
-    value: string,
-  ) => {
+  /** メモ編集後のローカル state 更新（サーバ再取得なしで即反映） */
+  const handleMemoSaved = (reservationId: string, value: string) => {
     setItems((prev) =>
-      prev.map((item) => {
-        if (item.reservationId !== reservationId) return item;
-        return {
-          ...item,
-          dispatchDriver: field === 'driver' ? value : item.dispatchDriver,
-          dispatchMemo: field === 'memo' ? value : item.dispatchMemo,
-        };
-      }),
+      prev.map((item) =>
+        item.reservationId === reservationId ? { ...item, dispatchMemo: value } : item,
+      ),
     );
+  };
+
+  /** D&D: 脚へドライバー割当（上書き） */
+  const handleAssignDriver = (reservationId: string, slot: LegSlot, driverId: string) => {
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await assignLegDriver({ reservationId, slot, driverId });
+      if (result.ok) {
+        showToast(slot === 'send' ? '送り車を割り当てました' : '帰り車を割り当てました');
+      } else {
+        setErrorMsg(result.error ?? 'ドライバー割当に失敗しました');
+      }
+      await refreshLegs(date);
+    });
+  };
+
+  /** 脚の状態変更（プルダウン） */
+  const handleChangeLegState = (legId: string, slot: LegSlot, state: string) => {
+    setErrorMsg(null);
+    // 楽観更新（プルダウンの見た目を即時反映）
+    setLegs((prev) =>
+      prev.map((r) => ({
+        ...r,
+        send: r.send?.id === legId ? { ...r.send, state } : r.send,
+        return: r.return?.id === legId ? { ...r.return, state } : r.return,
+      })),
+    );
+    startTransition(async () => {
+      const result = await setLegState({ legId, slot, state });
+      if (!result.ok) {
+        setErrorMsg(result.error ?? '状態の更新に失敗しました');
+      }
+      await refreshLegs(date);
+    });
+  };
+
+  /** 脚の割当解除 */
+  const handleClearLegDriver = (legId: string) => {
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await clearLegDriver({ legId });
+      if (result.ok) {
+        showToast('割当を解除しました');
+      } else {
+        setErrorMsg(result.error ?? '割当解除に失敗しました');
+      }
+      await refreshLegs(date);
+    });
+  };
+
+  /** 終了（全脚完了時のみ）→ 一覧から消える */
+  const handleFinish = (reservationId: string) => {
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await finishReservation({ reservationId });
+      if (result.ok) {
+        showToast('終了しました（「終了分も表示」で確認できます）');
+      } else {
+        setErrorMsg(result.error ?? '終了処理に失敗しました');
+      }
+      await refreshLegs(date);
+    });
+  };
+
+  /** LINE 送信プレースホルダ（フェーズ9 で実装） */
+  const handleLinePlaceholder = () => {
+    showToast('LINE送信は準備中です（フェーズ9で実装予定）');
   };
 
   /** 手動更新 */
   const handleRefresh = () => {
     setErrorMsg(null);
     startTransition(async () => {
-      const result = await getDispatchBoard(date);
-      if (result.ok && result.data) {
-        setItems(result.data);
-        showToast('更新しました');
-      } else {
-        setErrorMsg(result.error ?? '更新に失敗しました');
-      }
+      const ok = await refreshAll(date);
+      if (ok) showToast('更新しました');
     });
   };
 
-  // 遅延・退出未記録の集計
-  const delayedItems = items.filter((i) =>
+  // reservationId → 脚 のマップ
+  const legsByRes = new Map<string, ReservationLegs>(legs.map((l) => [l.reservationId, l]));
+
+  // 終了分の表示制御: allFinished の予約はトグル OFF なら隠す
+  const visibleItems = items.filter((i) => {
+    if (showFinished) return true;
+    return !(legsByRes.get(i.reservationId)?.allFinished ?? false);
+  });
+
+  // 遅延・退出未記録の集計（表示中の行が対象）
+  const delayedItems = visibleItems.filter((i) =>
     isDelayed({ status: i.status, startAt: new Date(i.startAtISO), now }),
   );
-  const overdueItems = items.filter((i) =>
+  const overdueItems = visibleItems.filter((i) =>
     isExitOverdue({ status: i.status, endAt: new Date(i.endAtISO), now }),
   );
 
   // 開始時刻昇順ソート（queries は start_at asc で返るが念のため）
-  const sorted = [...items].sort(
+  const sorted = [...visibleItems].sort(
     (a, b) => new Date(a.startAtISO).getTime() - new Date(b.startAtISO).getTime(),
   );
 
@@ -606,8 +1069,8 @@ export default function DispatchBoardClient({
         </div>
       )}
 
-      {/* 日付ナビ + 更新ボタン */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      {/* 日付ナビ + 終了分トグル + 更新ボタン */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => changeDate(offsetDate(date, -1))}
@@ -683,6 +1146,25 @@ export default function DispatchBoardClient({
           当日
         </button>
 
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 12,
+            color: '#6B7776',
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showFinished}
+            onChange={(e) => setShowFinished(e.target.checked)}
+            disabled={isPending}
+          />
+          終了分も表示
+        </label>
+
         <div style={{ flex: 1 }} />
 
         <button
@@ -725,85 +1207,128 @@ export default function DispatchBoardClient({
         </div>
       )}
 
-      {/* ボード本体 */}
-      {!isPending && sorted.length === 0 ? (
-        /* 空状態 */
-        <div
-          style={{
-            textAlign: 'center',
-            padding: '48px 0',
-            fontSize: 13,
-            color: '#9BA5AF',
-            background: '#fff',
-            border: '1px solid #DFE3DE',
-            borderRadius: 4,
-          }}
-        >
-          この日の予約はありません
-          <br />
-          <span style={{ fontSize: 11, color: '#B9C2BD' }}>確定済み以降の予約が表示されます</span>
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              background: '#fff',
-              border: '1px solid #DFE3DE',
-              borderRadius: 4,
-              minWidth: 900,
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={TH_STYLE}>女性</th>
-                <th style={TH_STYLE}>コース（分）</th>
-                <th style={TH_STYLE}>派遣先</th>
-                <th style={TH_STYLE}>部屋</th>
-                <th style={{ ...TH_STYLE, textAlign: 'center' }}>出発</th>
-                <th style={{ ...TH_STYLE, textAlign: 'center' }}>IN</th>
-                <th style={TH_STYLE}>ドライバー</th>
-                <th style={{ ...TH_STYLE, textAlign: 'center' }}>OUT</th>
-                <th style={TH_STYLE}>メモ</th>
-                <th style={TH_STYLE}>ステータス</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((item) => (
-                <DispatchRow
-                  key={item.reservationId}
-                  item={item}
-                  now={now}
-                  isPending={isPending}
-                  onAdvance={handleAdvance}
-                  onFieldSaved={handleFieldSaved}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* ボード本体 + 右レール */}
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
+          {!isPending && sorted.length === 0 ? (
+            /* 空状態 */
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '48px 0',
+                fontSize: 13,
+                color: '#9BA5AF',
+                background: '#fff',
+                border: '1px solid #DFE3DE',
+                borderRadius: 4,
+              }}
+            >
+              この日の予約はありません
+              <br />
+              <span style={{ fontSize: 11, color: '#B9C2BD' }}>確定済み以降の予約が表示されます</span>
+            </div>
+          ) : (
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                background: '#fff',
+                border: '1px solid #DFE3DE',
+                borderRadius: 4,
+                minWidth: 1120,
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={TH_STYLE}>女性</th>
+                  <th style={TH_STYLE}>コース（分）</th>
+                  <th style={TH_STYLE}>派遣先</th>
+                  <th style={TH_STYLE}>部屋</th>
+                  <th style={{ ...TH_STYLE, textAlign: 'center' }}>出発</th>
+                  <th style={{ ...TH_STYLE, textAlign: 'center' }}>IN</th>
+                  <th style={TH_STYLE}>送り車</th>
+                  <th style={{ ...TH_STYLE, textAlign: 'center' }}>OUT</th>
+                  <th style={TH_STYLE}>帰り車</th>
+                  <th style={TH_STYLE}>メモ</th>
+                  <th style={TH_STYLE}>状態 / 終了</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((item) => (
+                  <DispatchRow
+                    key={item.reservationId}
+                    item={item}
+                    legs={legsByRes.get(item.reservationId) ?? null}
+                    now={now}
+                    isPending={isPending}
+                    onAdvance={handleAdvance}
+                    onMemoSaved={handleMemoSaved}
+                    onAssignDriver={handleAssignDriver}
+                    onChangeLegState={handleChangeLegState}
+                    onClearLegDriver={handleClearLegDriver}
+                    onFinish={handleFinish}
+                    onLinePlaceholder={handleLinePlaceholder}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
 
-      {/* 凡例 */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11, color: '#9BA5AF' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 2, background: '#FEF2F2', border: '1px solid #B4453C' }} />
-          退出未記録
+          {/* 凡例 */}
+          <div style={{ display: 'flex', gap: 10, marginTop: 10, fontSize: 11, color: '#9BA5AF', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span>送り:</span>
+            {SEND_STATES.map((s) => (
+              <span
+                key={`send-${s}`}
+                style={{
+                  fontWeight: 800,
+                  borderRadius: 5,
+                  padding: '2px 8px',
+                  background: STATE_COLORS[s]?.bg,
+                  color: STATE_COLORS[s]?.fg,
+                }}
+              >
+                {s}
+              </span>
+            ))}
+            <span style={{ marginLeft: 10 }}>帰り:</span>
+            {RETURN_STATES.map((s) => (
+              <span
+                key={`return-${s}`}
+                style={{
+                  fontWeight: 800,
+                  borderRadius: 5,
+                  padding: '2px 8px',
+                  background: STATE_COLORS[s]?.bg,
+                  color: STATE_COLORS[s]?.fg,
+                }}
+              >
+                {s}
+              </span>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 11, color: '#9BA5AF' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#FEF0EE', border: '1px solid #B4453C' }} />
+              退出未記録
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 2, background: '#FFF8EC', border: '1px solid #C98A2B' }} />
+              遅延中
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontWeight: 700, color: '#C98A2B' }}>初</span>
+              初回訪問
+            </div>
+            <div style={{ color: '#B9C2BD' }}>
+              出発の ( ) は予定時刻。実出発後は括弧なしの実測値に切り替わります。
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 2, background: '#FFF8EC', border: '1px solid #C98A2B' }} />
-          遅延中
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontWeight: 700, color: '#C98A2B' }}>初</span>
-          初回訪問
-        </div>
-        <div style={{ color: '#B9C2BD' }}>
-          出発の ( ) は予定時刻。実出発後は括弧なしの実測値に切り替わります。
-        </div>
+
+        {/* 右レール: 本日出勤ドライバー */}
+        <DriverRail drivers={drivers} />
       </div>
     </div>
   );
 }
-

@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { getDispatchBoard } from '@/lib/dispatch-board/actions';
+import { getDispatchLegs } from '@/lib/dispatch-board/leg-actions';
+import { listActiveDriversForDate } from '@/lib/drivers/shift-actions';
 import { toZonedTime, format } from 'date-fns-tz';
 import DispatchBoardClient from './DispatchBoardClient';
 
@@ -12,9 +14,11 @@ export const dynamic = 'force-dynamic';
 const APP_TZ = 'Asia/Tokyo';
 
 /**
- * 配車ボード（Server Component / spec 7-1・7-3）。
+ * 配車ボード（Server Component / spec 7-1・7-3 / フェーズ4 再設計）。
  * - URL クエリ ?date=YYYY-MM-DD で日付指定。省略時は Asia/Tokyo の今日。
- * - getDispatchBoard で当日の全セラピスト予約を取得し DispatchBoardClient へ渡す。
+ * - getDispatchBoard（予約行）・getDispatchLegs（送り/帰り脚）・
+ *   listActiveDriversForDate（右レール）を取得し DispatchBoardClient へ渡す。
+ *   脚は includeFinished=true で取り、終了分の表示切替はクライアントで行う。
  */
 export default async function DispatchBoardPage({
   searchParams,
@@ -28,8 +32,14 @@ export default async function DispatchBoardPage({
       ? params.date
       : todayISO;
 
-  const result = await getDispatchBoard(dateISO);
+  const [result, legsResult, driversResult] = await Promise.all([
+    getDispatchBoard(dateISO),
+    getDispatchLegs(dateISO, true),
+    listActiveDriversForDate(dateISO),
+  ]);
   const items = result.ok ? (result.data ?? []) : [];
+  const legs = legsResult.ok ? (legsResult.data ?? []) : [];
+  const activeDrivers = driversResult.ok ? (driversResult.data ?? []) : [];
   const error = result.ok ? undefined : result.error;
 
   return (
@@ -39,7 +49,7 @@ export default async function DispatchBoardPage({
       </div>
       <p className="text-sm text-adm-muted mb-6">
         当日のセラピストごとの移動・施術ブロックを確認し、ステータスを進めます。
-        退出未記録の予約はアラートで表示されます。
+        右のドライバーを送り車/帰り車セルへドラッグして割り当てます。
       </p>
 
       {error && (
@@ -52,6 +62,8 @@ export default async function DispatchBoardPage({
         initialItems={items}
         initialDate={dateISO}
         todayISO={todayISO}
+        initialLegs={legs}
+        initialActiveDrivers={activeDrivers}
       />
     </div>
   );
