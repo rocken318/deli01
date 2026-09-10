@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect, useCallback } from 'react';
 import {
   createDriver,
   updateDriver,
@@ -8,6 +8,49 @@ import {
   listDrivers,
 } from '@/lib/drivers/actions';
 import type { DriverRow } from '@/lib/drivers/actions';
+import {
+  getDriverWeek,
+  saveDriverWeek,
+  copyPreviousWeek,
+} from '@/lib/drivers/shift-actions';
+import type { ShiftDay } from '@/lib/drivers/shift-actions';
+import { mondayOf } from '@/domain/dispatch/driver-shifts';
+
+const DOW_LABELS = ['月 MON', '火 TUE', '水 WED', '木 THU', '金 FRI', '土 SAT', '日 SUN'];
+
+/** 当日を含む週の月曜 YYYY-MM-DD */
+function currentWeekStart(): string {
+  const today = new Date();
+  const iso = today.toISOString().slice(0, 10);
+  return mondayOf(iso);
+}
+
+/** YYYY-MM-DD を "M/D（曜）〜 M/D（曜）" 表示 */
+function fmtWeekRange(monday: string): string {
+  const WDAYS = ['月', '火', '水', '木', '金', '土', '日'];
+  const d = new Date(`${monday}T12:00:00Z`);
+  const sun = new Date(d);
+  sun.setUTCDate(d.getUTCDate() + 6);
+  const fmtD = (dt: Date, dow: number) =>
+    `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}（${WDAYS[dow]}）`;
+  return `${fmtD(d, 0)} 〜 ${fmtD(sun, 6)}`;
+}
+
+/** 月曜 YYYY-MM-DD を N 週ずらす */
+function offsetWeek(monday: string, delta: number): string {
+  const d = new Date(`${monday}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta * 7);
+  return d.toISOString().slice(0, 10);
+}
+
+interface DayState {
+  active: boolean;
+  start: string;
+  end: string;
+}
+
+const defaultDayState = (): DayState => ({ active: false, start: '11:00', end: '23:00' });
+const emptyWeekDays = (): DayState[] => Array.from({ length: 7 }, defaultDayState);
 
 const PALETTE: { hex: string; name: string }[] = [
   { hex: '#2B2B2B', name: '黒' },
@@ -61,6 +104,14 @@ export function DriversClient({ initialDrivers, loadError, canWrite }: Props) {
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // --- 週次シフト state ---
+  const [shiftWeek, setShiftWeek] = useState<string>(currentWeekStart);
+  const [shiftDays, setShiftDays] = useState<DayState[]>(emptyWeekDays());
+  const [shiftMemo, setShiftMemo] = useState('');
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftError, setShiftError] = useState<string | null>(null);
+  const [shiftSaved, setShiftSaved] = useState(false);
+
   const inputCls =
     'w-full border border-adm-border rounded px-3 py-2 text-sm bg-adm-surface focus:outline-none focus:ring-1 focus:ring-adm-primary';
   const btnPrimary =
@@ -70,11 +121,43 @@ export function DriversClient({ initialDrivers, loadError, canWrite }: Props) {
   const btnDanger =
     'px-2 py-1 text-xs border border-adm-danger text-adm-danger rounded hover:bg-adm-danger/10 disabled:opacity-50';
 
+  // シフトデータをサーバから取得してstateに反映する
+  const loadShiftWeek = useCallback(async (driverId: string, week: string) => {
+    setShiftLoading(true);
+    setShiftError(null);
+    const r = await getDriverWeek(driverId, week);
+    setShiftLoading(false);
+    if (!r.ok || !r.data) {
+      setShiftError(r.error ?? 'シフトの読み込みに失敗しました');
+      return;
+    }
+    setShiftMemo(r.data.memo);
+    const next = emptyWeekDays();
+    for (const d of r.data.days) {
+      if (d.dow >= 0 && d.dow <= 6) {
+        next[d.dow] = { active: true, start: d.start, end: d.end };
+      }
+    }
+    setShiftDays(next);
+  }, []);
+
+  // editingId または週が変わったらリロード
+  useEffect(() => {
+    if (!editingId) return;
+    void loadShiftWeek(editingId, shiftWeek);
+  }, [editingId, shiftWeek, loadShiftWeek]);
+
   function openCreate() {
     setEditingId(null);
     setForm(emptyForm);
     setFormError(null);
     setShowForm(true);
+    // シフト節はリセット（新規はドライバー保存後に表示）
+    setShiftWeek(currentWeekStart());
+    setShiftDays(emptyWeekDays());
+    setShiftMemo('');
+    setShiftError(null);
+    setShiftSaved(false);
   }
 
   function openEdit(row: DriverRow) {
@@ -93,6 +176,10 @@ export function DriversClient({ initialDrivers, loadError, canWrite }: Props) {
     });
     setFormError(null);
     setShowForm(true);
+    // 週は今週から開始（useEffect がロードを担う）
+    setShiftWeek(currentWeekStart());
+    setShiftError(null);
+    setShiftSaved(false);
   }
 
   async function refreshList() {
@@ -165,6 +252,57 @@ export function DriversClient({ initialDrivers, loadError, canWrite }: Props) {
       setDrivers((prev) => prev.filter((d) => d.id !== id));
       if (editingId === id) setShowForm(false);
     });
+  }
+
+  function handleShiftSave() {
+    if (!editingId) return;
+    setShiftError(null);
+    setShiftSaved(false);
+    startTransition(async () => {
+      const days: ShiftDay[] = shiftDays
+        .map((d, dow) => ({ dow, start: d.start, end: d.end, active: d.active }))
+        .filter((d) => d.active)
+        .map(({ dow, start, end }) => ({ dow, start, end }));
+      const r = await saveDriverWeek({
+        driverId: editingId,
+        weekStart: shiftWeek,
+        memo: shiftMemo,
+        days,
+      });
+      if (!r.ok) {
+        setShiftError(r.error ?? 'シフトの保存に失敗しました');
+        return;
+      }
+      setShiftSaved(true);
+    });
+  }
+
+  function handleCopyPreviousWeek() {
+    if (!editingId) return;
+    setShiftError(null);
+    setShiftSaved(false);
+    startTransition(async () => {
+      const r = await copyPreviousWeek(editingId, shiftWeek);
+      if (!r.ok) {
+        setShiftError(r.error ?? '前週コピーに失敗しました');
+        return;
+      }
+      await loadShiftWeek(editingId, shiftWeek);
+    });
+  }
+
+  function updateDayField(dow: number, field: 'start' | 'end', value: string) {
+    setShiftDays((prev) =>
+      prev.map((d, i) => (i === dow ? { ...d, [field]: value } : d)),
+    );
+    setShiftSaved(false);
+  }
+
+  function toggleDayActive(dow: number, active: boolean) {
+    setShiftDays((prev) =>
+      prev.map((d, i) => (i === dow ? { ...d, active } : d)),
+    );
+    setShiftSaved(false);
   }
 
   function selectPaletteColor(hex: string, name: string) {
@@ -445,6 +583,153 @@ export function DriversClient({ initialDrivers, loadError, canWrite }: Props) {
               </>
             )}
           </div>
+
+          {/* 週次シフト節（保存済みドライバーのみ） */}
+          {editingId ? (
+            <div className="border-t border-adm-border pt-4 mt-2 space-y-3">
+              {/* ヘッダ：週ナビ + 前週コピー */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-adm-text">週次シフト</span>
+                <div className="flex items-center gap-1 bg-adm-bg border border-adm-border rounded-lg px-2 py-1">
+                  <button
+                    type="button"
+                    aria-label="前週"
+                    className="text-adm-primary font-bold text-sm px-1 disabled:opacity-40"
+                    onClick={() => setShiftWeek((w) => offsetWeek(w, -1))}
+                    disabled={isPending || shiftLoading}
+                  >
+                    ◀
+                  </button>
+                  <span className="text-xs font-bold text-adm-text min-w-[11rem] text-center">
+                    {fmtWeekRange(shiftWeek)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="翌週"
+                    className="text-adm-primary font-bold text-sm px-1 disabled:opacity-40"
+                    onClick={() => setShiftWeek((w) => offsetWeek(w, 1))}
+                    disabled={isPending || shiftLoading}
+                  >
+                    ▶
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="ml-auto inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 border border-adm-primary rounded-lg bg-adm-surface text-adm-primary hover:bg-adm-primary/5 disabled:opacity-50"
+                  onClick={handleCopyPreviousWeek}
+                  disabled={isPending || shiftLoading}
+                >
+                  ⧉ 前週をコピー（メモも一緒に）
+                </button>
+              </div>
+
+              <p className="text-xs text-adm-muted">
+                稼働にチェック → 時間入力 / 外す → 「休み」。27:00 等の25時超えOK。
+              </p>
+
+              {shiftLoading && (
+                <p className="text-xs text-adm-muted animate-pulse">読み込み中…</p>
+              )}
+              {shiftError && (
+                <p className="text-xs text-adm-danger border border-adm-danger/30 rounded px-3 py-2">
+                  {shiftError}
+                </p>
+              )}
+              {shiftSaved && (
+                <p className="text-xs text-adm-primary border border-adm-primary/30 rounded px-3 py-2">
+                  シフトを保存しました
+                </p>
+              )}
+
+              {!shiftLoading && (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-adm-bg">
+                      <th className="border border-adm-border px-2 py-1 text-xs text-adm-muted font-bold text-left w-20">曜日</th>
+                      <th className="border border-adm-border px-2 py-1 text-xs text-adm-muted font-bold w-14">稼働</th>
+                      <th className="border border-adm-border px-2 py-1 text-xs text-adm-muted font-bold text-left">稼働時間</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shiftDays.map((day, dow) => (
+                      <tr key={dow}>
+                        <td className="border border-adm-border px-2 py-1.5 text-xs font-bold bg-adm-bg/50">
+                          {DOW_LABELS[dow]}
+                        </td>
+                        <td className="border border-adm-border px-2 py-1.5 text-center">
+                          <input
+                            type="checkbox"
+                            checked={day.active}
+                            onChange={(e) => toggleDayActive(dow, e.target.checked)}
+                            className="w-4 h-4 accent-adm-primary cursor-pointer"
+                          />
+                        </td>
+                        <td className="border border-adm-border px-2 py-1.5">
+                          {day.active ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={day.start}
+                                onChange={(e) => updateDayField(dow, 'start', e.target.value)}
+                                className="w-16 border border-adm-border rounded px-1.5 py-1 text-xs text-center bg-adm-surface focus:outline-none focus:ring-1 focus:ring-adm-primary"
+                                placeholder="11:00"
+                              />
+                              <span className="text-adm-muted text-xs px-1">〜</span>
+                              <input
+                                type="text"
+                                value={day.end}
+                                onChange={(e) => updateDayField(dow, 'end', e.target.value)}
+                                className="w-16 border border-adm-border rounded px-1.5 py-1 text-xs text-center bg-adm-surface focus:outline-none focus:ring-1 focus:ring-adm-primary"
+                                placeholder="23:00"
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-adm-muted/60">休み</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* シフトメモ */}
+              <div className="bg-[#FCFBF5] border border-[#E7DFBF] rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-adm-text">シフトメモ</span>
+                  <span className="text-[10px] font-bold text-[#7a6a12] bg-[#F3EAC3] rounded-full px-2 py-0.5">翌週へ自動引き継ぎ</span>
+                </div>
+                <textarea
+                  className="w-full border border-[#E0D7B0] rounded px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#C9B18A] resize-y min-h-[40px]"
+                  rows={2}
+                  value={shiftMemo}
+                  onChange={(e) => { setShiftMemo(e.target.value); setShiftSaved(false); }}
+                  placeholder="例: 車検 9/23（水）・9月から火も休み"
+                />
+                <p className="text-[11px] text-[#8a7a34]">
+                  消すまで毎週このメモが残ります（週を進めても引き継ぎ）。前週コピー時も一緒に複製。
+                </p>
+              </div>
+
+              {/* シフト保存ボタン */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  onClick={handleShiftSave}
+                  disabled={isPending || shiftLoading}
+                >
+                  {isPending ? '保存中…' : 'シフトを保存'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="border-t border-adm-border pt-4 mt-2">
+              <p className="text-xs text-adm-muted">
+                週次シフトを登録するには、先にドライバーを保存してください。
+              </p>
+            </div>
+          )}
         </div>
       )}
 
