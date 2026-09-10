@@ -338,6 +338,9 @@ export interface DispatchBoardItem {
   dispatchDriver: string | null;
   /** 配車メモ（配車メモ欄 / 0024）。staff がインライン編集する */
   dispatchMemo: string | null;
+  /** 車要否（0034）。false の車はボードで送り/帰りセルを出さない */
+  needsSendCar: boolean;
+  needsReturnCar: boolean;
 }
 
 export type BoardOutcome =
@@ -355,6 +358,8 @@ interface BoardRow extends Omit<TimelineRow, "customer_name" | "customer_note"> 
   room_number: string | null;
   dispatch_driver: string | null;
   dispatch_memo: string | null;
+  needs_send_car: boolean;
+  needs_return_car: boolean;
 }
 
 /**
@@ -397,7 +402,8 @@ export async function getDispatchBoardCore(
             and p.status in ('confirmed', 'enroute', 'in_service', 'done')
         )) as first_visit,
         r.enroute_at, r.arrived_at, r.service_started_at, r.done_at,
-        r.dispatch_driver, r.dispatch_memo
+        r.dispatch_driver, r.dispatch_memo,
+        r.needs_send_car, r.needs_return_car
       from reservations r
       join therapists t on t.id = r.therapist_id
       left join entity_records er
@@ -444,6 +450,8 @@ export async function getDispatchBoardCore(
       exitOverdue: isExitOverdue({ status: r.status, endAt: r.end_at, now }),
       dispatchDriver: r.dispatch_driver,
       dispatchMemo: r.dispatch_memo,
+      needsSendCar: r.needs_send_car,
+      needsReturnCar: r.needs_return_car,
     })),
   };
 }
