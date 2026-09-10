@@ -1,16 +1,14 @@
-﻿/**
- * 管理画面レイアウト（spec 12-2）。
- * - 背景 #F6F7F5 / 面 #FFFFFF / 文字 #1C2321 / 主色 #3F7A6B / 罫線 #DFE3DE
- * - 角丸4pxまで。影なし罫線区切り
- * - prefers-reduced-motion 尊重（アニメーションは最小限）
- * - 1280px 想定
+/**
+ * 管理画面レイアウト（spec 12-2 / 設計 2章）。
+ * 上部ハンバーガー → 左サイドバー shell へ。ブランド名は brands から取得。
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
 import { getDevSession } from "@/lib/cms/dev-session";
+import { getClient } from "@/lib/db-client";
+import { listBrandsCore } from "@/lib/brands/queries";
 import { signOut } from "@/app/login/actions";
-import { AdminNav } from "./_components/admin-nav";
+import { AdminSidebar } from "./_components/admin-sidebar";
 
 export const metadata: Metadata = {
   title: {
@@ -19,90 +17,32 @@ export const metadata: Metadata = {
   },
 };
 
-const navItems = [
-  { href: "/admin/annai", label: "案内表" },
-  { href: "/admin/orders", label: "電話受付" },
-  { href: "/admin/cti", label: "着信" },
-  { href: "/admin/phone-confirm", label: "電話確認" },
-  { href: "/admin/points", label: "ポイント" },
-  { href: "/admin/accounting", label: "会計" },
-  { href: "/admin/daily-books", label: "日次会計" },
-  { href: "/admin/payouts", label: "報酬" },
-  { href: "/admin/analytics", label: "集計" },
-  { href: "/admin/dispatch-board", label: "配車ボード" },
-  { href: "/admin/dispatch-roster", label: "配車名簿" },
-  { href: "/admin/reservations", label: "予約管理" },
-  { href: "/admin/history", label: "接客履歴" },
-  { href: "/admin/waitlists", label: "キャンセル待ち" },
-  { href: "/admin/dispatch", label: "配車テキスト" },
-  { href: "/admin/message-templates", label: "送信テンプレート" },
-  { href: "/admin/notifications", label: "通知" },
-  { href: "/admin/fields", label: "入力項目" },
-  { href: "/admin/records", label: "コンテンツ" },
-  { href: "/admin/settings", label: "サイト設定" },
-  { href: "/admin/pages", label: "固定ページ" },
-  { href: "/admin/therapists", label: "セラピスト" },
-  { href: "/admin/lineup", label: "表ページ並び順" },
-  { href: "/admin/photo-submissions", label: "写真承認" },
-  { href: "/admin/areas", label: "派遣エリア" },
-  { href: "/admin/hotels", label: "派遣ホテル" },
-  { href: "/admin/shifts", label: "出勤登録" },
-  { href: "/admin/media", label: "メディア" },
-  { href: "/admin/preview/home", label: "プレビュー" },
-  { href: "/admin/ai", label: "AI" },
-] as const;
-
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const session = await getDevSession();
-  return (
-    <div className="min-h-screen bg-adm-bg text-adm-text [color-scheme:light]">
-      {/* ナビゲーションバー */}
-      <header className="bg-adm-surface border-b border-adm-border">
-        <div className="max-w-[1280px] mx-auto px-6 h-14 flex items-center gap-4">
-          <Link
-            href="/admin/orders"
-            className="font-semibold text-adm-primary text-sm tracking-wide shrink-0"
-          >
-            管理画面
-          </Link>
-          <AdminNav items={[...navItems]} />
-          <div className="ml-auto flex items-center gap-3 text-sm">
-            <a
-              href="/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 border border-adm-border hover:border-adm-primary hover:text-adm-primary shrink-0"
-              style={{ borderRadius: "4px" }}
-              title="公開中の表ページを別タブで開く"
-            >
-              表ページを見る ↗
-            </a>
-            <span className="text-adm-text/70">
-              {session ? session.role : "未ログイン"}
-            </span>
-            {session ? (
-              <form action={signOut}>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 border border-adm-border hover:bg-adm-bg"
-                  style={{ borderRadius: "4px" }}
-                >
-                  ログアウト
-                </button>
-              </form>
-            ) : null}
-          </div>
-        </div>
-      </header>
 
-      {/* メインコンテンツ */}
-      <main className="max-w-[1280px] mx-auto px-6 py-8">
-        {children}
-      </main>
+  // ブランド名（既定=王様の休日）。取得失敗時は静的フォールバック。
+  let brandName = "王様の休日";
+  if (session) {
+    try {
+      const brands = await listBrandsCore(getClient(), session);
+      if (brands[0]) brandName = brands[0].name;
+    } catch {
+      // フォールバックのまま
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-adm-bg text-adm-text [color-scheme:light] md:flex">
+      <AdminSidebar
+        brandName={brandName}
+        roleLabel={session ? session.role : "未ログイン"}
+        signOutAction={signOut}
+      />
+      <main className="flex-1 min-w-0 px-6 py-8">{children}</main>
     </div>
   );
 }
