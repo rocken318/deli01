@@ -38,6 +38,7 @@ import {
   getDispatchBoard,
   updateDispatchFields,
 } from '@/lib/dispatch-board/actions';
+import { setReservationDispatchNeeds } from '@/lib/dispatch-board/needs-actions';
 import {
   assignLegDriver,
   setLegState,
@@ -434,12 +435,13 @@ interface RowProps {
   onClearLegDriver: (legId: string) => void;
   onFinish: (reservationId: string) => void;
   onLinePlaceholder: () => void;
+  onToggleDispatch: (reservationId: string, needsSendCar: boolean, needsReturnCar: boolean) => void;
 }
 
 function DispatchRow({
   item, legs, now, isPending,
   onAdvance, onMemoSaved, onAssignDriver, onChangeLegState, onClearLegDriver,
-  onFinish, onLinePlaceholder,
+  onFinish, onLinePlaceholder, onToggleDispatch,
 }: RowProps) {
   const delayed = isDelayed({ status: item.status, startAt: new Date(item.startAtISO), now });
   const overdue = isExitOverdue({ status: item.status, endAt: new Date(item.endAtISO), now });
@@ -529,16 +531,20 @@ function DispatchRow({
         )}
       </td>
 
-      {/* 送り車（脚セル）*/}
-      <LegCell
-        slot="send"
-        leg={sendLeg}
-        disabled={isPending}
-        onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'send', driverId)}
-        onChangeState={(legId, state) => onChangeLegState(legId, 'send', state)}
-        onClearDriver={onClearLegDriver}
-        onLinePlaceholder={onLinePlaceholder}
-      />
+      {/* 送り車（脚セル）: needsSendCar=false のとき「—」 */}
+      {item.needsSendCar ? (
+        <LegCell
+          slot="send"
+          leg={sendLeg}
+          disabled={isPending}
+          onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'send', driverId)}
+          onChangeState={(legId, state) => onChangeLegState(legId, 'send', state)}
+          onClearDriver={onClearLegDriver}
+          onLinePlaceholder={onLinePlaceholder}
+        />
+      ) : (
+        <td style={{ ...TD_STYLE, minWidth: 130, color: '#B9C2BD', textAlign: 'center' }}>—</td>
+      )}
 
       {/* OUT（done_at）*/}
       <td style={{ ...TD_STYLE, fontFamily: "'IBM Plex Mono', monospace", textAlign: 'center' }}>
@@ -549,16 +555,20 @@ function DispatchRow({
         )}
       </td>
 
-      {/* 帰り車（脚セル）*/}
-      <LegCell
-        slot="return"
-        leg={returnLeg}
-        disabled={isPending}
-        onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'return', driverId)}
-        onChangeState={(legId, state) => onChangeLegState(legId, 'return', state)}
-        onClearDriver={onClearLegDriver}
-        onLinePlaceholder={onLinePlaceholder}
-      />
+      {/* 帰り車（脚セル）: needsReturnCar=false のとき「—」 */}
+      {item.needsReturnCar ? (
+        <LegCell
+          slot="return"
+          leg={returnLeg}
+          disabled={isPending}
+          onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'return', driverId)}
+          onChangeState={(legId, state) => onChangeLegState(legId, 'return', state)}
+          onClearDriver={onClearLegDriver}
+          onLinePlaceholder={onLinePlaceholder}
+        />
+      ) : (
+        <td style={{ ...TD_STYLE, minWidth: 130, color: '#B9C2BD', textAlign: 'center' }}>—</td>
+      )}
 
       {/* メモ（インライン編集）*/}
       <td style={{ ...TD_STYLE, minWidth: 100 }}>
@@ -568,6 +578,38 @@ function DispatchRow({
           onSave={handleSaveMemo}
           disabled={isPending}
         />
+      </td>
+
+      {/* 配車トグル（送り/帰り。送りON→帰りも自動ON） */}
+      <td style={{ ...TD_STYLE, whiteSpace: 'nowrap', minWidth: 100 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: isPending ? 'not-allowed' : 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={item.needsSendCar}
+              disabled={isPending}
+              onChange={(e) => {
+                const send = e.target.checked;
+                // 送りON → 帰りも自動ON
+                const ret = send ? true : item.needsReturnCar;
+                onToggleDispatch(item.reservationId, send, ret);
+              }}
+            />
+            送り
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: isPending ? 'not-allowed' : 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={item.needsReturnCar}
+              disabled={isPending}
+              onChange={(e) => {
+                const ret = e.target.checked;
+                onToggleDispatch(item.reservationId, item.needsSendCar, ret);
+              }}
+            />
+            帰り
+          </label>
+        </div>
       </td>
 
       {/* ステータス + 前進ボタン + 終了ボタン */}
@@ -754,6 +796,7 @@ export default function DispatchBoardClient({
   const [drivers, setDrivers] = useState<ActiveDriver[]>(initialActiveDrivers ?? []);
   const [date, setDate] = useState<string>(initialDate);
   const [showFinished, setShowFinished] = useState(false);
+  const [showNoDispatch, setShowNoDispatch] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -919,6 +962,28 @@ export default function DispatchBoardClient({
     showToast('LINE送信は準備中です（フェーズ9で実装予定）');
   };
 
+  /** 配車トグル（送り/帰りフラグ更新）→ ローカル state を楽観更新後にサーバ反映 */
+  const handleToggleDispatch = (reservationId: string, needsSendCar: boolean, needsReturnCar: boolean) => {
+    // 楽観更新
+    setItems((prev) =>
+      prev.map((item) =>
+        item.reservationId === reservationId
+          ? { ...item, needsSendCar, needsReturnCar }
+          : item,
+      ),
+    );
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await setReservationDispatchNeeds({ reservationId, needsSendCar, needsReturnCar });
+      if (!result.ok) {
+        setErrorMsg(result.error ?? '配車フラグの更新に失敗しました');
+        // ロールバック: 再取得
+        const refreshed = await getDispatchBoard(date);
+        if (refreshed.ok && refreshed.data) setItems(refreshed.data);
+      }
+    });
+  };
+
   /** 手動更新 */
   const handleRefresh = () => {
     setErrorMsg(null);
@@ -932,9 +997,11 @@ export default function DispatchBoardClient({
   const legsByRes = new Map<string, ReservationLegs>(legs.map((l) => [l.reservationId, l]));
 
   // 終了分の表示制御: allFinished の予約はトグル OFF なら隠す
+  // 配車不要フィルタ: showNoDispatch=false の場合、配車不要（両方false）の行は隠す
   const visibleItems = items.filter((i) => {
-    if (showFinished) return true;
-    return !(legsByRes.get(i.reservationId)?.allFinished ?? false);
+    if (!showFinished && (legsByRes.get(i.reservationId)?.allFinished ?? false)) return false;
+    if (!showNoDispatch && !i.needsSendCar && !i.needsReturnCar) return false;
+    return true;
   });
 
   // 遅延・退出未記録の集計（表示中の行が対象）
@@ -1165,6 +1232,25 @@ export default function DispatchBoardClient({
           終了分も表示
         </label>
 
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            fontSize: 12,
+            color: '#6B7776',
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showNoDispatch}
+            onChange={(e) => setShowNoDispatch(e.target.checked)}
+            disabled={isPending}
+          />
+          配車不要も表示
+        </label>
+
         <div style={{ flex: 1 }} />
 
         <button
@@ -1250,6 +1336,7 @@ export default function DispatchBoardClient({
                   <th style={{ ...TH_STYLE, textAlign: 'center' }}>OUT</th>
                   <th style={TH_STYLE}>帰り車</th>
                   <th style={TH_STYLE}>メモ</th>
+                  <th style={TH_STYLE}>配車</th>
                   <th style={TH_STYLE}>状態 / 終了</th>
                 </tr>
               </thead>
@@ -1268,6 +1355,7 @@ export default function DispatchBoardClient({
                     onClearLegDriver={handleClearLegDriver}
                     onFinish={handleFinish}
                     onLinePlaceholder={handleLinePlaceholder}
+                    onToggleDispatch={handleToggleDispatch}
                   />
                 ))}
               </tbody>
