@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { getDispatchBoard } from '@/lib/dispatch-board/actions';
-import { getDispatchLegs } from '@/lib/dispatch-board/leg-actions';
+import { getDispatchLegs, getSendHomeLegs } from '@/lib/dispatch-board/leg-actions';
 import { listActiveDriversForDate } from '@/lib/drivers/shift-actions';
 import { toZonedTime, format } from 'date-fns-tz';
 import DispatchBoardClient from './DispatchBoardClient';
@@ -13,13 +13,6 @@ export const dynamic = 'force-dynamic';
 
 const APP_TZ = 'Asia/Tokyo';
 
-/**
- * 配車ボード（Server Component / spec 7-1・7-3 / フェーズ4 再設計）。
- * - URL クエリ ?date=YYYY-MM-DD で日付指定。省略時は Asia/Tokyo の今日。
- * - getDispatchBoard（予約行）・getDispatchLegs（送り/帰り脚）・
- *   listActiveDriversForDate（右レール）を取得し DispatchBoardClient へ渡す。
- *   脚は includeFinished=true で取り、終了分の表示切替はクライアントで行う。
- */
 export default async function DispatchBoardPage({
   searchParams,
 }: {
@@ -32,14 +25,16 @@ export default async function DispatchBoardPage({
       ? params.date
       : todayISO;
 
-  const [result, legsResult, driversResult] = await Promise.all([
+  const [result, legsResult, driversResult, sendHomeResult] = await Promise.all([
     getDispatchBoard(dateISO),
     getDispatchLegs(dateISO, true),
     listActiveDriversForDate(dateISO),
+    getSendHomeLegs(dateISO, true),
   ]);
   const items = result.ok ? (result.data ?? []) : [];
   const legs = legsResult.ok ? (legsResult.data ?? []) : [];
   const activeDrivers = driversResult.ok ? (driversResult.data ?? []) : [];
+  const sendHomeLegs = sendHomeResult.ok ? (sendHomeResult.data ?? []) : [];
   const error = result.ok ? undefined : result.error;
 
   return (
@@ -64,6 +59,7 @@ export default async function DispatchBoardPage({
         todayISO={todayISO}
         initialLegs={legs}
         initialActiveDrivers={activeDrivers}
+        initialSendHomeLegs={sendHomeLegs}
       />
     </div>
   );
