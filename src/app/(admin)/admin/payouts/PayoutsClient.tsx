@@ -14,12 +14,12 @@ import { useState, useTransition } from 'react';
 import { formatInTimeZone } from 'date-fns-tz';
 import {
   getDailyPayouts,
-  postReservationPayout,
   getPayoutRatesGrid,
   upsertPayoutRate,
   closePayoutPeriod,
   markPayoutPaid,
 } from '@/lib/payout/actions';
+import { postReservationAccounting } from '@/lib/accounting/actions';
 import type { DailyPayoutsResult, PayoutRatesGrid } from '@/lib/payout/actions';
 
 // ---- ラベル定義 ----
@@ -172,10 +172,10 @@ export function PayoutsClient({
     setPostingId(reservationId);
     setPostMsg(null);
     startPostTransition(async () => {
-      const res = await postReservationPayout({ reservationId });
+      const res = await postReservationAccounting(reservationId);
       if (res.ok) {
         setUnposted((prev) => prev.filter((r) => r.id !== reservationId));
-        setPostMsg({ ok: true, text: '報酬を計上しました' });
+        setPostMsg({ ok: true, text: '売上＋報酬を計上しました' });
       } else {
         setPostMsg({ ok: false, text: res.error ?? '計上に失敗しました' });
       }
@@ -409,7 +409,7 @@ export function PayoutsClient({
             {/* 未計上注意書き */}
             {dailyResult.rows.some((r) => r.unpostedCount > 0) && (
               <p className="text-sm" style={{ color: '#C98A2B' }}>
-                未計上の予約があります。「未計上の完了予約」セクションで「報酬を計上」すると当日確定バックに反映されます。
+                未計上の予約があります。「未計上の完了予約」セクションで「売上＋報酬を計上」すると当日確定バックに反映されます。
               </p>
             )}
             <table className="w-full text-sm border-collapse">
@@ -512,7 +512,7 @@ export function PayoutsClient({
                         className="bg-adm-primary text-white px-3 py-1 rounded text-xs disabled:opacity-50 whitespace-nowrap"
                         style={{ borderRadius: '4px' }}
                       >
-                        {postPending && postingId === r.id ? '計上中…' : '報酬を計上'}
+                        {postPending && postingId === r.id ? '計上中…' : '売上＋報酬を計上'}
                       </button>
                     </td>
                   </tr>

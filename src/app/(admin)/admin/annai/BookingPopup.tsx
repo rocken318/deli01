@@ -18,6 +18,7 @@ import { getAnnaiBookingSlots, type AnnaiSlot } from "./booking-actions";
 import { listBookableHotels } from "@/lib/hotels/hotel-admin-actions";
 import type { BookableHotel } from "@/lib/hotels/hotel-admin-actions";
 import { getBookingShareTexts } from "@/lib/booking/share-texts";
+import { setReservationDispatchNeeds } from "@/lib/dispatch-board/needs-actions";
 
 export interface CourseOpt {
   id: string;
@@ -90,6 +91,10 @@ export default function BookingPopup({
   const [msg, setMsg] = useState("");
   const [allHotels, setAllHotels] = useState<BookableHotel[]>([]);
   const [createdReservationId, setCreatedReservationId] = useState<string | null>(null);
+
+  // 配車の車要否（既定ON。送り→帰り連動。帰りだけ外せる）
+  const [needsSendCar, setNeedsSendCar] = useState(true);
+  const [needsReturnCar, setNeedsReturnCar] = useState(true);
 
   const selectedTotal = slots.find((s) => s.startAtISO === selectedISO)?.totalAmount ?? null;
 
@@ -221,11 +226,16 @@ export default function BookingPopup({
         preferences: preferences || undefined,
       });
       if (r.ok) {
+        const resId = r.data?.reservationId ?? null;
+        if (resId) {
+          setCreatedReservationId(resId);
+          // 既定（送り＋帰りとも ON）と異なる場合のみ DB を更新
+          if (!needsSendCar || !needsReturnCar) {
+            await setReservationDispatchNeeds({ reservationId: resId, needsSendCar, needsReturnCar });
+          }
+        }
         setState("done");
         setMsg("予約を作成しました");
-        if (r.data?.reservationId) {
-          setCreatedReservationId(r.data.reservationId);
-        }
         onCreated();
       } else {
         setState("error");
@@ -363,6 +373,50 @@ export default function BookingPopup({
         {/* 備考 */}
         <textarea rows={2} value={preferences} onChange={(e) => setPreferences(e.target.value)} placeholder="★備考: 服装・注意など"
           style={{ width: "100%", boxSizing: "border-box", border: `2px solid #C98A2B`, borderRadius: 6, padding: 6, fontSize: 12, marginTop: 8, resize: "vertical" }} />
+
+        {/* 配車（送り＋帰り 既定ON） */}
+        <div style={{ marginTop: 8, border: `1.5px solid ${T.primary}`, borderRadius: 6, padding: "8px 10px", background: "#F6FBF9" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#245043", marginBottom: 6 }}>🚗 配車</div>
+          {/* マスタースイッチ */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, cursor: "pointer", fontSize: 12 }}>
+            <input
+              type="checkbox"
+              checked={needsSendCar || needsReturnCar}
+              onChange={(e) => {
+                setNeedsSendCar(e.target.checked);
+                setNeedsReturnCar(e.target.checked);
+              }}
+              style={{ width: 15, height: 15, accentColor: T.primary }}
+            />
+            <span style={{ fontWeight: 700 }}>配車する（送り＋帰り）</span>
+          </label>
+          {/* サブチェック */}
+          <div style={{ paddingLeft: 8, opacity: (needsSendCar || needsReturnCar) ? 1 : 0.45 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, cursor: "pointer", fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={needsSendCar}
+                onChange={(e) => {
+                  const send = e.target.checked;
+                  setNeedsSendCar(send);
+                  if (send) setNeedsReturnCar(true); // 送りON→帰りも自動ON
+                }}
+                style={{ width: 13, height: 13, accentColor: T.primary }}
+              />
+              <span>送り車</span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={needsReturnCar}
+                onChange={(e) => setNeedsReturnCar(e.target.checked)}
+                style={{ width: 13, height: 13, accentColor: T.primary }}
+              />
+              <span>帰り車</span>
+              <span style={{ fontSize: 10, color: T.muted, marginLeft: 4 }}>（送りのみにもできます）</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* 総額（選んだ枠の実額） */}
