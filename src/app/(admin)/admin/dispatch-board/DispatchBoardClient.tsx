@@ -534,6 +534,24 @@ function DispatchRow({
             初
           </span>
         )}
+        {/* キャストNG条件（0040）。配車前に気づけるよう女性セルに出す */}
+        {item.therapistNgNote && (
+          <div
+            title={item.therapistNgNote}
+            style={{
+              marginTop: 2,
+              fontSize: 10,
+              fontWeight: 700,
+              color: '#B4453C',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: 130,
+            }}
+          >
+            ⚠NG {item.therapistNgNote}
+          </div>
+        )}
         {item.therapistNgNote && (
           <span
             title={item.therapistNgNote}
