@@ -71,6 +71,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/admin/settings", label: "サイト設定" },
       { href: "/admin/areas", label: "派遣エリア" },
       { href: "/admin/hotels", label: "派遣ホテル" },
+      { href: "/admin/options", label: "オプション" },
       { href: "/admin/message-templates", label: "送信テンプレート" },
       { href: "/admin/notifications", label: "通知" },
       { href: "/admin/preview/home", label: "プレビュー" },

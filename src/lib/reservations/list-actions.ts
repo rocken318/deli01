@@ -36,6 +36,11 @@ export interface ReservationListItem {
   customerName: string | null;
   courseName: string;
   courseDurationMin: number;
+  coursePrice: number;
+  nominationFee: number;
+  transportFee: number;
+  totalAmount: number;
+  options: { name: string; price: number }[];
   areaName: string | null;
   hotelName: string | null;
   startAtISO: string;
@@ -53,6 +58,10 @@ interface ListRow {
   customer_name: string | null;
   course_name: string;
   course_duration_min: number;
+  course_price: number;
+  nomination_fee: number;
+  transport_fee: number;
+  total_amount: number;
   area_name: string | null;
   hotel_name: string | null;
   start_at: Date;
@@ -61,6 +70,12 @@ interface ListRow {
   manual_sort_order: number | null;
   needs_send_car: boolean;
   needs_return_car: boolean;
+}
+
+interface OptionRow {
+  reservation_id: string;
+  name: string;
+  price_snapshot: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,8 +98,8 @@ export async function getReservationList(
   const { dayStart, dayEnd } = dayBounds(dateISO);
   const sql = getClient();
 
-  const rows = await withUser(sql, session, async (tx) => {
-    return tx<ListRow[]>`
+  const [rows, optionRows] = await withUser(sql, session, async (tx) => {
+    const reservations = await tx<ListRow[]>`
       select
         r.id,
         er.published->>'name'    as therapist_name,
@@ -92,6 +107,10 @@ export async function getReservationList(
         c.name                   as customer_name,
         co.name                  as course_name,
         co.duration_min          as course_duration_min,
+        co.price                 as course_price,
+        r.nomination_fee,
+        r.transport_fee,
+        r.total_amount,
         ar.name                  as area_name,
         h.name                   as hotel_name,
         r.start_at,
@@ -112,7 +131,29 @@ export async function getReservationList(
         and r.status in ('held', 'confirmed', 'enroute', 'in_service', 'done')
       order by r.manual_sort_order asc nulls last, r.start_at asc
     `;
+
+    if (reservations.length === 0) {
+      return [reservations, [] as OptionRow[]] as const;
+    }
+
+    const ids = reservations.map((r) => r.id);
+    const options = await tx<OptionRow[]>`
+      select ro.reservation_id, o.name, ro.price_snapshot
+      from reservation_options ro
+      join options o on o.id = ro.option_id
+      where ro.reservation_id = any(${ids}::uuid[])
+    `;
+
+    return [reservations, options] as const;
   });
+
+  // Bundle options by reservation id
+  const optionsByResId = new Map<string, { name: string; price: number }[]>();
+  for (const o of optionRows) {
+    const arr = optionsByResId.get(o.reservation_id) ?? [];
+    arr.push({ name: o.name, price: o.price_snapshot });
+    optionsByResId.set(o.reservation_id, arr);
+  }
 
   return rows.map((r) => ({
     id: r.id,
@@ -120,6 +161,11 @@ export async function getReservationList(
     customerName: r.customer_name,
     courseName: r.course_name,
     courseDurationMin: r.course_duration_min,
+    coursePrice: r.course_price,
+    nominationFee: r.nomination_fee,
+    transportFee: r.transport_fee,
+    totalAmount: r.total_amount,
+    options: optionsByResId.get(r.id) ?? [],
     areaName: r.area_name,
     hotelName: r.hotel_name,
     startAtISO: r.start_at.toISOString(),
