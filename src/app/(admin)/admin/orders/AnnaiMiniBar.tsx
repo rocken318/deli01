@@ -53,6 +53,7 @@ export default function AnnaiMiniBar({ items, onPick }: Props) {
           <button
             key={item.therapistId}
             onClick={() => onPick({ id: item.therapistId, slug: item.slug, name: item.name })}
+            title={item.ngNote ?? undefined}
             style={{
               flexShrink: 0, border: `1px solid ${c.border}`, background: c.bg,
               color: c.color, borderRadius: 4, padding: '4px 10px', cursor: 'pointer',
@@ -60,6 +61,9 @@ export default function AnnaiMiniBar({ items, onPick }: Props) {
             }}
           >
             <span style={{ fontWeight: 600 }}>{item.name}</span>
+            {item.ngNote && (
+              <span style={{ marginLeft: 4, fontSize: 10, fontWeight: 700, color: '#B4453C' }}>⚠</span>
+            )}
             <span style={{ marginLeft: 6, fontSize: 11 }}>{chipLabel(item)}</span>
             {item.gapMin !== null && item.gapMin > 0 && (
               <span style={{ marginLeft: 4, fontSize: 10, color: '#9BA5AF' }}>空き{item.gapMin}分</span>

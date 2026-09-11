@@ -146,6 +146,14 @@ function Row({ r, booking, rowOptions, postedIds, opDay }: { r: BoardRow; bookin
         <Link href={`/admin/therapists/${r.slug}`} style={{ color: "#3F7A6B", fontWeight: 700, fontSize: 13 }}>
           {r.name}
         </Link>{" "}
+        {r.ngNote && (
+          <span
+            title={r.ngNote}
+            style={{ background: "#FDECEA", color: "#B4453C", padding: "1px 5px", borderRadius: 3, fontSize: 10, fontWeight: 700, marginRight: 4 }}
+          >
+            ⚠NG {r.ngNote.length > 20 ? `${r.ngNote.slice(0, 20)}…` : r.ngNote}
+          </span>
+        )}
         <span style={{ background: chip.bg, color: chip.fg, padding: "1px 7px", borderRadius: 4, fontSize: 11 }}>{chip.label}</span>
         {r.lateManual && (
           <span style={{ background: "#C98A2B", color: "#fff", padding: "1px 7px", borderRadius: 4, fontSize: 11, marginLeft: 4 }}>遅刻</span>

@@ -450,7 +450,7 @@ function TherapistChangePanel({
           key={t.id}
           disabled={busy || t.busy}
           onClick={() => void doChange(t.id)}
-          title={t.busy ? "この時間に別の予約があります" : undefined}
+          title={t.busy ? "この時間に別の予約があります" : (t.ngNote ?? undefined)}
           style={{
             fontSize: 12,
             border: "1px solid #DFE3DE",
@@ -461,9 +461,26 @@ function TherapistChangePanel({
             cursor: t.busy ? "not-allowed" : "pointer",
             textDecoration: t.busy ? "line-through" : "none",
             opacity: busy ? 0.6 : 1,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
           }}
         >
           {t.name}
+          {t.ngNote && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "0 3px",
+                background: "#FDECEA",
+                color: "#B4453C",
+                borderRadius: 2,
+              }}
+            >
+              ⚠NG
+            </span>
+          )}
         </button>
       ))}
       <button
@@ -845,8 +862,24 @@ export default function ReservationListClient({
                     </div>
                     {/* Therapist / Customer */}
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1C2321" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1C2321", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
                         {item.therapistName}
+                        {item.therapistNgNote && (
+                          <span
+                            title={item.therapistNgNote}
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "0 4px",
+                              background: "#FDECEA",
+                              color: "#B4453C",
+                              borderRadius: 2,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            ⚠NG
+                          </span>
+                        )}
                       </div>
                       {item.customerName && (
                         <div style={{ fontSize: 11, color: "#9BA5AF" }}>{item.customerName}</div>
