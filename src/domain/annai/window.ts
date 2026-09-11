@@ -27,6 +27,8 @@ export interface AvailWindow {
   untilMs: number | null; // null = 上限なし
   gapMin: number | null;
   busyNow: boolean; // 現在 占有区間の中（接客中/移動中）
+  /** 空きが minBookableMin 未満（＝最短コースが入りにくい短い枠）。案内はできるが要注意の警告フラグ。 */
+  tooShort: boolean;
 }
 export interface BoardRow extends BoardInput {
   window: AvailWindow;
@@ -50,7 +52,7 @@ export function computeAvailableWindow(
   minBookableMin = 0,
 ): AvailWindow {
   if (row.attendanceState === "done") {
-    return { kind: "done", fromMs: null, untilMs: null, gapMin: null, busyNow: false };
+    return { kind: "done", fromMs: null, untilMs: null, gapMin: null, busyNow: false, tooShort: false };
   }
 
   const extraMs = (buffers.afterBufferMin + buffers.travelMin) * MIN;
@@ -58,7 +60,7 @@ export function computeAvailableWindow(
   // 開始点
   let startPoint: number;
   if (row.attendanceState === "off") {
-    if (!row.shiftStart) return { kind: "off", fromMs: null, untilMs: null, gapMin: null, busyNow: false };
+    if (!row.shiftStart) return { kind: "off", fromMs: null, untilMs: null, gapMin: null, busyNow: false, tooShort: false };
     startPoint = row.shiftStart.getTime() + buffers.travelMin * MIN;
   } else {
     startPoint = nowMs;
@@ -74,20 +76,17 @@ export function computeAvailableWindow(
 
   const busyNow = intervals.some(([s, e]) => s <= nowMs && nowMs < e);
 
-  // 開始点から最初に空くギャップを探す
+  // 開始点から最初に空くギャップを探す。
+  // ★短い隙間もスキップしない（今すぐ行けるのに次予約後へ飛ばさない / 発注者 2026-09-11）。
+  //   短い場合は tooShort フラグで警告表示に回し、案内自体は正直に「今から」を出す。
   let cursor = startPoint;
   let untilMs: number | null = null;
   for (const [s, e] of intervals) {
     if (s <= cursor) {
-      if (e > cursor) cursor = e; // この予約の後ろへ開始をずらす
+      if (e > cursor) cursor = e; // 現在占有中/直近の予約の後ろへ開始をずらす
       continue;
     }
-    // Gap found: cursor..s is free. Check if it is long enough to be bookable.
-    if (minBookableMin > 0 && (s - cursor) < minBookableMin * MIN) {
-      // Too short — skip this gap, push cursor past this occupation and keep looking.
-      cursor = e;
-      continue;
-    }
+    // Gap found: cursor..s is free. 最早の空きとして採用（短くてもスキップしない）。
     untilMs = s; // 次の占有が始まる＝ここまで空き
     break;
   }
@@ -96,9 +95,10 @@ export function computeAvailableWindow(
   const availableFrom = cursor;
   const isNow = availableFrom <= nowMs;
   const gapMin = untilMs !== null ? Math.round((untilMs - availableFrom) / MIN) : null;
+  const tooShort = minBookableMin > 0 && gapMin !== null && gapMin < minBookableMin;
   const kind = row.attendanceState === "working" && isNow && !busyNow ? "now" : "from";
 
-  return { kind, fromMs: kind === "now" ? null : availableFrom, untilMs, gapMin, busyNow };
+  return { kind, fromMs: kind === "now" ? null : availableFrom, untilMs, gapMin, busyNow, tooShort };
 }
 
 /** ウィンドウ計算＋「次案内可能が早い順」ソート。done は retired に分離。 */
