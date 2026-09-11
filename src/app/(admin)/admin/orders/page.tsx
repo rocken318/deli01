@@ -10,6 +10,8 @@ export const metadata: Metadata = {
 // DATABASE_URL が無くても壊れず、実行時に描画する）
 export const dynamic = 'force-dynamic';
 
+const PHONE_RE = /^0[0-9]{9,10}$/;
+
 interface TherapistRow {
   id: string;
   slug: string;
@@ -36,7 +38,15 @@ interface AreaRow {
   name: string;
 }
 
-export default async function OrderEntryPage() {
+export default async function OrderEntryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ phone?: string }>;
+}) {
+  const params = await searchParams;
+  const initialPhone =
+    params.phone && PHONE_RE.test(params.phone) ? params.phone : undefined;
+
   const sql = getClient();
 
   const [therapists, courses, options, areas] = await Promise.all([
@@ -76,6 +86,7 @@ export default async function OrderEntryPage() {
         courses={courses}
         options={options}
         areas={areas}
+        initialPhone={initialPhone}
       />
     </div>
   );
