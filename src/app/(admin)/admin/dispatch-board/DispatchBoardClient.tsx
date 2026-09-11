@@ -27,6 +27,8 @@
 import { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import type { DispatchBoardItem, AdvanceTarget } from '@/lib/dispatch-board/queries';
+import type { HotelLookupRow } from '@/lib/hotels/hotel-lookup-actions';
+import HotelInfoPanel from '@/app/(admin)/admin/_components/HotelInfoPanel';
 import {
   nextStatus,
   isDelayed,
@@ -86,6 +88,8 @@ interface Props {
   initialActiveDrivers?: ActiveDriver[];
   /** 退勤送り脚（includeFinished=true で取得したもの）。省略時はマウント時に取得 */
   initialSendHomeLegs?: SendHomeLegView[];
+  /** ホテル一覧（ホテル情報パネル用）*/
+  hotels?: HotelLookupRow[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -447,12 +451,19 @@ interface RowProps {
   onFinish: (reservationId: string) => void;
   onCopyLine: (text: string) => void;
   onToggleDispatch: (reservationId: string, needsSendCar: boolean, needsReturnCar: boolean) => void;
+  hotelPanelExpanded: boolean;
+  onToggleHotelPanel: (reservationId: string) => void;
+  hotels: HotelLookupRow[];
+  onHotelChanged: () => void;
+  onToast: (msg: string, kind: 'ok' | 'error') => void;
+  colSpan: number;
 }
 
 function DispatchRow({
   item, legs, now, isPending,
   onAdvance, onMemoSaved, onAssignDriver, onChangeLegState, onClearLegDriver,
   onFinish, onCopyLine, onToggleDispatch,
+  hotelPanelExpanded, onToggleHotelPanel, hotels, onHotelChanged, onToast, colSpan,
 }: RowProps) {
   const delayed = isDelayed({ status: item.status, startAt: new Date(item.startAtISO), now });
   const overdue = isExitOverdue({ status: item.status, endAt: new Date(item.endAtISO), now });
@@ -502,6 +513,7 @@ function DispatchRow({
   };
 
   return (
+    <>
     <tr style={finished ? { opacity: 0.5 } : undefined}>
       {/* 女性（セラピスト名）*/}
       <td style={{ ...TD_STYLE, fontWeight: 600, color: '#3F7A6B' }}>
@@ -530,9 +542,27 @@ function DispatchRow({
         <div style={{ fontSize: 11, color: '#6B7776' }}>{item.customerName ?? '顧客未設定'}</div>
       </td>
 
-      {/* 派遣先（エリア・ホテル名 or ラベル）*/}
+      {/* 派遣先（エリア・ホテル名 or ラベル / クリックでホテル情報パネル展開）*/}
       <td style={{ ...TD_STYLE, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {formatDestination(item)}
+        <button
+          type="button"
+          onClick={() => onToggleHotelPanel(item.reservationId)}
+          title="クリックしてホテル情報を展開"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            color: item.hotelId ? '#3F7A6B' : '#1C2321',
+            textDecoration: item.hotelId ? 'underline' : 'none',
+            textDecorationStyle: 'dotted',
+            fontSize: 12,
+            textAlign: 'left',
+            fontWeight: item.hotelId ? 600 : 'normal',
+          }}
+        >
+          {formatDestination(item)}
+        </button>
       </td>
 
       {/* 部屋（room_number 優先、旧データは addressLabel フォールバック）*/}
@@ -722,6 +752,22 @@ function DispatchRow({
         )}
       </td>
     </tr>
+    {/* ホテル情報パネル（クリックで展開）*/}
+    {hotelPanelExpanded && (
+      <tr>
+        <td colSpan={colSpan} style={{ padding: '0 8px 8px', background: '#FAFBFA', borderBottom: '1px solid #DFE3DE' }}>
+          <HotelInfoPanel
+            reservationId={item.reservationId}
+            currentHotelId={item.hotelId ?? null}
+            currentHotelName={item.hotelName}
+            hotels={hotels}
+            onChanged={onHotelChanged}
+            onToast={onToast}
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -816,6 +862,7 @@ export default function DispatchBoardClient({
   initialLegs,
   initialActiveDrivers,
   initialSendHomeLegs,
+  hotels = [],
 }: Props) {
   const [items, setItems] = useState<DispatchBoardItem[]>(initialItems);
   const [legs, setLegs] = useState<ReservationLegs[]>(initialLegs ?? []);
@@ -838,6 +885,8 @@ export default function DispatchBoardClient({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  /** 展開中のホテルパネルの reservationId（同時に1行のみ）*/
+  const [expandedHotelRow, setExpandedHotelRow] = useState<string | null>(null);
 
   const now = new Date();
 
@@ -1136,6 +1185,27 @@ export default function DispatchBoardClient({
         if (refreshed.ok && refreshed.data) setItems(refreshed.data);
       }
     });
+  };
+
+  /** ホテルパネルのトグル（同時に1行のみ開く） */
+  const handleToggleHotelPanel = (reservationId: string) => {
+    setExpandedHotelRow((prev) => (prev === reservationId ? null : reservationId));
+  };
+
+  /** ホテル変更成功後に全データ再取得 */
+  const handleHotelChanged = () => {
+    startTransition(async () => {
+      await refreshAll(date);
+    });
+  };
+
+  /** ホテルパネルからのトースト */
+  const handleHotelToast = (msg: string, kind: 'ok' | 'error') => {
+    if (kind === 'ok') {
+      showToast(msg);
+    } else {
+      setErrorMsg(msg);
+    }
   };
 
   /** 手動更新 */
@@ -1510,6 +1580,12 @@ export default function DispatchBoardClient({
                     onFinish={handleFinish}
                     onCopyLine={handleCopyLine}
                     onToggleDispatch={handleToggleDispatch}
+                    hotelPanelExpanded={expandedHotelRow === item.reservationId}
+                    onToggleHotelPanel={handleToggleHotelPanel}
+                    hotels={hotels}
+                    onHotelChanged={handleHotelChanged}
+                    onToast={handleHotelToast}
+                    colSpan={12}
                   />
                 ))}
               </tbody>
