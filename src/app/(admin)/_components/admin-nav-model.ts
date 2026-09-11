@@ -35,6 +35,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/admin/dispatch-roster", label: "配車名簿" },
       { href: "/admin/drivers", label: "ドライバー登録" },
       { href: "/admin/transport-ledger", label: "送り台帳" },
+      { href: "/admin/hotel-lookup", label: "ホテルリスト" },
     ],
   },
   {
