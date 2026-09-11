@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { getClient } from '@/lib/db-client';
-import OrderEntryForm from './OrderEntryForm';
+import OrdersConsole from './OrdersConsole';
+import { getAnnaiMini } from '@/lib/annai/mini-actions';
 
 export const metadata: Metadata = {
   title: '電話受付オーダーエントリー',
@@ -49,7 +50,7 @@ export default async function OrderEntryPage({
 
   const sql = getClient();
 
-  const [therapists, courses, options, areas] = await Promise.all([
+  const [therapists, courses, options, areas, annaiResult] = await Promise.all([
     sql<TherapistRow[]>`
       select t.id, t.slug,
              r.published->>'name' as display_name
@@ -72,12 +73,13 @@ export default async function OrderEntryPage({
       select id, name from areas where is_active = true
       order by sort_order asc
     `,
+    getAnnaiMini(),
   ]);
 
   return (
     <div>
       <h1 className="text-xl font-semibold text-adm-text mb-6">電話受付オーダーエントリー</h1>
-      <OrderEntryForm
+      <OrdersConsole
         therapists={therapists.map((t) => ({
           id: t.id,
           slug: t.slug,
@@ -87,6 +89,7 @@ export default async function OrderEntryPage({
         options={options}
         areas={areas}
         initialPhone={initialPhone}
+        initialAnnaiItems={annaiResult.ok && annaiResult.data ? annaiResult.data : []}
       />
     </div>
   );

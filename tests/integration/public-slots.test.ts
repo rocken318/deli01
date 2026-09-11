@@ -94,12 +94,18 @@ describe("getTherapistSlots（フェーズ10 完了条件）", () => {
   });
 
   it("★オプション（延長30分）を足すと候補枠が変わる（枠数が減るか末尾が前倒し）", async () => {
-    const base = await getTherapistSlots({ slug: "aoi", areaId: shibuyaId, courseId: shortCourseId });
+    // ★now を固定する（実行時刻依存で落ちないように）。
+    // now を渡さないと「実行した時刻」起点になり、夕方に走らせると当日枠が数個しか残らず、
+    // オプション有り（施術が長い）の方が翌日へ回って枠数が増える＝逆転して落ちていた。
+    // シードは実行日基準で shift を張るので「今日の朝9時」を起点にする。
+    const now = new Date(`${new Date().toISOString().slice(0, 10)}T09:00:00+09:00`);
+    const base = await getTherapistSlots({ slug: "aoi", areaId: shibuyaId, courseId: shortCourseId, now });
     const withOpt = await getTherapistSlots({
       slug: "aoi",
       areaId: shibuyaId,
       courseId: shortCourseId,
       optionIds: [ext30Id],
+      now,
     });
     expect(base).not.toBeNull();
     expect(withOpt).not.toBeNull();

@@ -43,6 +43,36 @@ export interface ExtensionResult {
 /** 延長を追加できる予約の状態（施術前後・施術中。完了/キャンセル済みは不可） */
 const EXTENDABLE_STATUS = ['confirmed', 'enroute', 'in_service'] as const;
 
+/** オプションが追加できない理由を診断して日本語メッセージを返す */
+async function diagnoseOptionUnavailable(
+  sql: ReturnType<typeof getClient>,
+  optionId: string,
+  therapistId: string,
+): Promise<string> {
+  const rows = await sql<{ id: string; name: string; is_active: boolean; is_public: boolean }[]>`
+    select id, name, is_active, is_public from options where id = ${optionId}::uuid limit 1
+  `;
+  const opt = rows[0];
+  if (!opt) return 'オプションが見つかりません';
+  if (!opt.is_active || !opt.is_public) {
+    return `『${opt.name}』は現在利用できません（オプション管理で有効化してください）`;
+  }
+  // Check if option has restricted therapist availability
+  const avail = await sql<{ therapist_id: string }[]>`
+    select therapist_id from option_availability
+    where option_id = ${optionId}::uuid and therapist_id = ${therapistId}::uuid
+    limit 1
+  `;
+  // If option_availability has rows for this option but not for this therapist
+  const anyAvail = await sql<{ n: number }[]>`
+    select count(*)::int as n from option_availability where option_id = ${optionId}::uuid limit 1
+  `;
+  if ((anyAvail[0]?.n ?? 0) > 0 && avail.length === 0) {
+    return `このセラピストは『${opt.name}』に対応していません（オプション管理で対応セラピストを設定してください）`;
+  }
+  return 'このオプションは追加できません（対象外）';
+}
+
 export async function addSameDayExtension(
   reservationId: string,
   optionId: string,
@@ -103,7 +133,7 @@ export async function addSameDayExtension(
     });
     const option = optionRows[0];
     if (!option) {
-      return { ok: false, error: 'このオプションは追加できません（対象外）' };
+      return { ok: false, error: await diagnoseOptionUnavailable(sql, ids.data.optionId, r.therapist_id) };
     }
     const addedMinutes = option.duration_min;
 
