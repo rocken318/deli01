@@ -10,6 +10,7 @@ import {
   registerProvisionalHotel,
 } from './actions';
 import type { OrderFormData, AvailableTherapistOption } from './actions';
+import { setReservationDispatchNeeds } from '@/lib/dispatch-board/needs-actions';
 import type { PublicSlotView } from '@/lib/availability/public-slots';
 import { getPointBalance, usePoints as spendPoints } from '@/lib/points/actions';
 import { listBookableHotels } from '@/lib/hotels/hotel-admin-actions';
@@ -100,6 +101,10 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
   const [showOverride, setShowOverride] = useState(false);
   const [provisionalHotelLoading, setProvisionalHotelLoading] = useState(false);
   const [allHotels, setAllHotels] = useState<BookableHotel[]>([]);
+
+  // 配車の車要否（デフォルト両方 true = DB default と同じなので未変更時は送信しない）
+  const [needsSendCar, setNeedsSendCar] = useState(true);
+  const [needsReturnCar, setNeedsReturnCar] = useState(true);
 
   // ポイント関連 state
   const [customerPointBalance, setCustomerPointBalance] = useState<number | null>(null);
@@ -281,6 +286,8 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     setCandidateTherapists([]);
     setTherapistSelectMode('specific');
     setHotelNotFound(false);
+    setNeedsSendCar(true);
+    setNeedsReturnCar(true);
     // ポイント state は確定後フローで使うため、confirmedReservationId/Phone は
     // handleUsePoints 完了後か次の注文開始時（successMsg クリア）にリセットする。
     // フォーム項目だけリセット。
@@ -334,16 +341,27 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
     };
 
     const result = await createPhoneOrder(formData);
-    setLoading(false);
 
     if (result.ok) {
       const resId = result.data?.reservationId ?? null;
       const phoneForPoints = phone; // ポイント利用のために保持（resetForm で上書きされる前に取得）
+
+      // 車要否が両方 true（デフォルト）でなければ DB を更新する
+      if (resId && (!needsSendCar || !needsReturnCar)) {
+        await setReservationDispatchNeeds({
+          reservationId: resId,
+          needsSendCar,
+          needsReturnCar,
+        });
+      }
+
+      setLoading(false);
       setSuccessMsg(`予約が完了しました（ID: ${resId ?? ''}）`);
       setConfirmedReservationId(resId);
       setConfirmedCustomerPhone(phoneForPoints);
       resetForm();
     } else {
+      setLoading(false);
       setErrorMsg(result.error ?? '予約の作成に失敗しました');
     }
   };
@@ -906,6 +924,44 @@ export default function OrderEntryForm({ therapists, courses, options, areas }: 
                 tabIndex={12 + options.length}
               />
             </div>
+          )}
+        </div>
+
+        {/* 配車 車要否 */}
+        <div>
+          <label className="block text-sm font-medium text-adm-text mb-2">
+            配車（車要否）
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={needsSendCar}
+                onChange={(e) => {
+                  const send = e.target.checked;
+                  // 送り ON → 帰りも ON。送り OFF → 帰りは変えない
+                  setNeedsSendCar(send);
+                  if (send) setNeedsReturnCar(true);
+                }}
+              />
+              <span className="text-sm">送り車あり</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={needsReturnCar}
+                onChange={(e) => {
+                  const ret = e.target.checked;
+                  // 帰り ON → 送りも ON。帰り OFF → 送りは変えない
+                  setNeedsReturnCar(ret);
+                  if (ret) setNeedsSendCar(true);
+                }}
+              />
+              <span className="text-sm">帰り車あり</span>
+            </label>
+          </div>
+          {!needsSendCar && !needsReturnCar && (
+            <p className="text-xs text-adm-muted mt-1">配車不要</p>
           )}
         </div>
 
