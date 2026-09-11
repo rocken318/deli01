@@ -61,6 +61,7 @@ import {
   RETURN_STATES,
   type LegSlot,
 } from '@/domain/dispatch/leg-states';
+import { buildDispatchLineTexts } from '@/domain/dispatch/line-texts';
 
 /** nextStatus は DispatchStatus | null を返すが confirmed は進め先にならない */
 function nextAdvanceTarget(status: string): AdvanceTarget | null {
@@ -264,11 +265,12 @@ interface LegCellProps {
   onDropDriver: (driverId: string) => void;
   onChangeState: (legId: string, state: string) => void;
   onClearDriver: (legId: string) => void;
-  onLinePlaceholder: () => void;
+  onLineDriver: () => void;
+  onLineWoman: () => void;
 }
 
 function LegCell({
-  slot, leg, disabled, onDropDriver, onChangeState, onClearDriver, onLinePlaceholder,
+  slot, leg, disabled, onDropDriver, onChangeState, onClearDriver, onLineDriver, onLineWoman,
 }: LegCellProps) {
   const [isOver, setIsOver] = useState(false);
   const states = slot === 'send' ? SEND_STATES : RETURN_STATES;
@@ -393,8 +395,8 @@ function LegCell({
         <span style={{ fontSize: 9, color: '#5f6b66', width: 38 }}>{lineLabel}</span>
         <button
           type="button"
-          onClick={onLinePlaceholder}
-          title="LINE送信はフェーズ9で実装予定"
+          onClick={onLineDriver}
+          title="運転手向けLINEをクリップボードにコピー"
           style={{
             fontSize: 10,
             border: '1px solid rgba(0,0,0,.15)',
@@ -409,8 +411,8 @@ function LegCell({
         </button>
         <button
           type="button"
-          onClick={onLinePlaceholder}
-          title="LINE送信はフェーズ9で実装予定"
+          onClick={onLineWoman}
+          title="女性向けLINEをクリップボードにコピー（電話番号なし）"
           style={{
             fontSize: 10,
             border: '1px solid rgba(0,0,0,.15)',
@@ -443,14 +445,14 @@ interface RowProps {
   onChangeLegState: (legId: string, slot: LegSlot, state: string) => void;
   onClearLegDriver: (legId: string) => void;
   onFinish: (reservationId: string) => void;
-  onLinePlaceholder: () => void;
+  onCopyLine: (text: string) => void;
   onToggleDispatch: (reservationId: string, needsSendCar: boolean, needsReturnCar: boolean) => void;
 }
 
 function DispatchRow({
   item, legs, now, isPending,
   onAdvance, onMemoSaved, onAssignDriver, onChangeLegState, onClearLegDriver,
-  onFinish, onLinePlaceholder, onToggleDispatch,
+  onFinish, onCopyLine, onToggleDispatch,
 }: RowProps) {
   const delayed = isDelayed({ status: item.status, startAt: new Date(item.startAtISO), now });
   const overdue = isExitOverdue({ status: item.status, endAt: new Date(item.endAtISO), now });
@@ -461,6 +463,18 @@ function DispatchRow({
   const legList = [sendLeg, returnLeg].filter((l): l is LegView => l !== null);
   const allLegsDone = legList.length > 0 && legList.every((l) => l.state === '完了');
   const finished = legs?.allFinished ?? false;
+
+  // LINE テキスト生成（送り/キャッチ × 運転手/女性 の4種）
+  const lineInput = {
+    therapistName: item.therapistName,
+    destination: item.hotelName ?? item.areaName ?? '—',
+    direction: item.areaName ?? null,
+    departText: item.enrouteAtISO ? toHHMM(item.enrouteAtISO) : toHHMM(item.departAtISO),
+    outText: item.doneAtISO ? toHHMM(item.doneAtISO) : null,
+    roomNumber: item.roomNumber ?? null,
+    customerPhone: item.customerPhone ?? null,
+  };
+  const lineTexts = buildDispatchLineTexts(lineInput);
 
   // 行背景色
   let rowBg = 'transparent';
@@ -549,7 +563,8 @@ function DispatchRow({
           onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'send', driverId)}
           onChangeState={(legId, state) => onChangeLegState(legId, 'send', state)}
           onClearDriver={onClearLegDriver}
-          onLinePlaceholder={onLinePlaceholder}
+          onLineDriver={() => onCopyLine(lineTexts.sendDriver)}
+          onLineWoman={() => onCopyLine(lineTexts.sendWoman)}
         />
       ) : (
         <td style={{ ...TD_STYLE, minWidth: 130, color: '#B9C2BD', textAlign: 'center' }}>—</td>
@@ -573,7 +588,8 @@ function DispatchRow({
           onDropDriver={(driverId) => onAssignDriver(item.reservationId, 'return', driverId)}
           onChangeState={(legId, state) => onChangeLegState(legId, 'return', state)}
           onClearDriver={onClearLegDriver}
-          onLinePlaceholder={onLinePlaceholder}
+          onLineDriver={() => onCopyLine(lineTexts.catchDriver)}
+          onLineWoman={() => onCopyLine(lineTexts.catchWoman)}
         />
       ) : (
         <td style={{ ...TD_STYLE, minWidth: 130, color: '#B9C2BD', textAlign: 'center' }}>—</td>
@@ -995,9 +1011,12 @@ export default function DispatchBoardClient({
     });
   };
 
-  /** LINE 送信プレースホルダ（フェーズ9 で実装） */
-  const handleLinePlaceholder = () => {
-    showToast('LINE送信は準備中です（フェーズ9で実装予定）');
+  /** LINE テキストをクリップボードへコピー */
+  const handleCopyLine = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => showToast('コピーしました'),
+      () => showToast('コピーに失敗しました'),
+    );
   };
 
   /** 退勤送り: 女性選択時に送り台帳からautofill */
@@ -1489,7 +1508,7 @@ export default function DispatchBoardClient({
                     onChangeLegState={handleChangeLegState}
                     onClearLegDriver={handleClearLegDriver}
                     onFinish={handleFinish}
-                    onLinePlaceholder={handleLinePlaceholder}
+                    onCopyLine={handleCopyLine}
                     onToggleDispatch={handleToggleDispatch}
                   />
                 ))}
@@ -1754,6 +1773,41 @@ export default function DispatchBoardClient({
                             {leg.memo ?? '—'}
                           </td>
                           <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {/* 退勤送り LINE ボタン（送りのみ）*/}
+                            {(() => {
+                              const sendHomeLineTexts = buildDispatchLineTexts({
+                                therapistName: leg.therapistName,
+                                destination: leg.destinationText,
+                              });
+                              return (
+                                <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginBottom: 4 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyLine(sendHomeLineTexts.sendDriver)}
+                                    title="運転手向け送りLINEをコピー"
+                                    style={{
+                                      fontSize: 10, border: '1px solid rgba(0,0,0,.15)',
+                                      background: 'rgba(255,255,255,.85)', borderRadius: 4,
+                                      padding: '1px 6px', cursor: 'pointer', color: '#333',
+                                    }}
+                                  >
+                                    🚕運転手
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyLine(sendHomeLineTexts.sendWoman)}
+                                    title="女性向け送りLINEをコピー（電話番号なし）"
+                                    style={{
+                                      fontSize: 10, border: '1px solid rgba(0,0,0,.15)',
+                                      background: 'rgba(255,255,255,.85)', borderRadius: 4,
+                                      padding: '1px 6px', cursor: 'pointer', color: '#333',
+                                    }}
+                                  >
+                                    👩女性
+                                  </button>
+                                </div>
+                              );
+                            })()}
                             {leg.isFinished ? (
                               <span style={{ fontSize: 10, color: '#3F7A6B', fontWeight: 700 }}>終了済み</span>
                             ) : (
