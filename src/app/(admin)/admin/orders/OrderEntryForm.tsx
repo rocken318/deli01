@@ -49,6 +49,8 @@ interface Props {
   areas: Area[];
   /** CTI 遷移時のプリフィル電話番号（`/admin/orders?phone=090...` 経由）。省略時は動作不変 */
   initialPhone?: string;
+  /** 案内表ミニバーからセラピストを選んだ場合に渡される */
+  externalTherapist?: { id: string; slug: string; name: string } | null;
 }
 
 type LostReason = 'time' | 'area' | 'nomination' | 'price' | 'other';
@@ -61,7 +63,7 @@ const LOST_REASON_LABELS: Record<LostReason, string> = {
   other: 'その他',
 };
 
-export default function OrderEntryForm({ therapists, courses, options, areas, initialPhone }: Props) {
+export default function OrderEntryForm({ therapists, courses, options, areas, initialPhone, externalTherapist }: Props) {
   // Form state
   const [phone, setPhone] = useState(initialPhone ?? '');
   const [customerName, setCustomerName] = useState('');
@@ -171,6 +173,14 @@ export default function OrderEntryForm({ therapists, courses, options, areas, in
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [phone]);
+
+  // 外部からセラピストが渡された場合に選択状態を更新
+  useEffect(() => {
+    if (!externalTherapist) return;
+    setSelectedTherapistId(externalTherapist.id);
+    setSelectedTherapistSlug(externalTherapist.slug);
+    setTherapistSelectMode('specific');
+  }, [externalTherapist]);
 
   // 候補セラピスト取得（エリア/コース/オプション/日付が確定したら自動呼び出し）
   const fetchCandidates = useCallback(async () => {
@@ -739,6 +749,22 @@ export default function OrderEntryForm({ therapists, courses, options, areas, in
             tabIndex={8 + options.length}
             required
           />
+        </div>
+
+        {/* 現在選択中のセラピスト表示 */}
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#1C2321' }}>
+            セラピスト: {selectedTherapistId ? therapists.find(t => t.id === selectedTherapistId)?.name ?? '—' : '未選択（おまかせ）'}
+          </span>
+          {selectedTherapistId && (
+            <button
+              type="button"
+              onClick={() => { setSelectedTherapistId(''); setSelectedTherapistSlug(''); }}
+              style={{ fontSize: 11, border: '1px solid #DFE3DE', background: '#fff', color: '#9BA5AF', borderRadius: 3, padding: '1px 6px', cursor: 'pointer' }}
+            >
+              × クリア
+            </button>
+          )}
         </div>
 
         {/* セラピスト候補セレクタ */}
