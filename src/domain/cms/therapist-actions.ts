@@ -453,6 +453,7 @@ export interface TherapistListItem {
   status: "active" | "inactive" | "retired";
   displayOrder: number;
   appUserId: string | null;
+  ngNote: string | null;
   retiredAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -474,11 +475,12 @@ export async function listTherapists(): Promise<TherapistListItem[]> {
       status: string;
       display_order: number;
       app_user_id: string | null;
+      ng_note: string | null;
       retired_at: Date | null;
       created_at: Date;
       updated_at: Date;
     }[]>`
-      select id, slug, status, display_order, app_user_id, retired_at, created_at, updated_at
+      select id, slug, status, display_order, app_user_id, ng_note, retired_at, created_at, updated_at
       from therapists
       order by display_order asc, created_at asc
     `;
@@ -489,6 +491,7 @@ export async function listTherapists(): Promise<TherapistListItem[]> {
       status: r.status as "active" | "inactive" | "retired",
       displayOrder: r.display_order,
       appUserId: r.app_user_id,
+      ngNote: r.ng_note,
       retiredAt: r.retired_at,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -512,11 +515,12 @@ export async function getTherapistBySlug(slug: string): Promise<TherapistListIte
       status: string;
       display_order: number;
       app_user_id: string | null;
+      ng_note: string | null;
       retired_at: Date | null;
       created_at: Date;
       updated_at: Date;
     }[]>`
-      select id, slug, status, display_order, app_user_id, retired_at, created_at, updated_at
+      select id, slug, status, display_order, app_user_id, ng_note, retired_at, created_at, updated_at
       from therapists
       where slug = ${slug}
       limit 1
@@ -531,6 +535,7 @@ export async function getTherapistBySlug(slug: string): Promise<TherapistListIte
       status: r.status as "active" | "inactive" | "retired",
       displayOrder: r.display_order,
       appUserId: r.app_user_id,
+      ngNote: r.ng_note,
       retiredAt: r.retired_at,
       createdAt: r.created_at,
       updatedAt: r.updated_at,

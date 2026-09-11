@@ -14,6 +14,7 @@ export interface BoardInput {
   therapistId: string;
   slug: string;
   name: string;
+  ngNote: string | null;
   attendanceState: AttendanceState;
   shiftStart: Date | null;
   shiftEnd: Date | null;

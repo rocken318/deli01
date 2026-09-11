@@ -22,6 +22,7 @@ import type { TherapistListItem } from "@/domain/cms/therapist-actions";
 import { TherapistInternalForm } from "./therapist-internal-form";
 import { TherapistPublishButton } from "./therapist-publish-button";
 import { TherapistRetireButton } from "./therapist-retire-button";
+import { TherapistNgNoteForm } from "./therapist-ng-note-form";
 import { DynamicForm } from "../../records/[entity]/[slug]/dynamic-form";
 
 interface PageProps {
@@ -114,6 +115,21 @@ async function TherapistDetailContent({ slug }: { slug: string }) {
           内部情報
         </h2>
         <TherapistInternalForm therapist={therapist} />
+      </div>
+
+      {/* セクション: NGメモ（受付・案内表・配車ボードに常時表示）*/}
+      <div className="bg-adm-surface border border-adm-border rounded p-6" style={{ borderRadius: "4px" }}>
+        <h2 className="text-sm font-semibold text-adm-text/60 uppercase tracking-wider mb-1 pb-3 border-b border-adm-border">
+          NGメモ
+        </h2>
+        <p className="text-xs text-adm-text/50 mb-4">
+          受付・案内表・配車ボード・予約一覧に常時表示されます。予約ロジックには影響しません。
+        </p>
+        <TherapistNgNoteForm
+          therapistId={therapist.id}
+          initialNgNote={therapist.ngNote}
+          canEdit={can(toActor(session), "manage_cms")}
+        />
       </div>
 
       {/* セクション: プロフィール（動的フォーム） */}

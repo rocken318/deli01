@@ -13,6 +13,7 @@ export interface AnnaiMiniItem {
   therapistId: string;
   slug: string;
   name: string;
+  ngNote: string | null;
   kind: 'now' | 'from' | 'off' | 'done';
   fromISO: string | null;
   untilISO: string | null;
@@ -40,6 +41,7 @@ export async function getAnnaiMini(): Promise<ActionResult<AnnaiMiniItem[]>> {
         therapistId: r.therapistId,
         slug: r.slug,
         name: r.name,
+        ngNote: r.ngNote,
         kind: w.kind,
         fromISO: w.fromMs !== null ? new Date(w.fromMs).toISOString() : null,
         untilISO: w.untilMs !== null ? new Date(w.untilMs).toISOString() : null,

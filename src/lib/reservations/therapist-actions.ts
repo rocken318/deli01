@@ -14,6 +14,7 @@ export interface AssignableTherapist {
   id: string;
   slug: string;
   name: string;
+  ngNote: string | null;
   busy: boolean;
 }
 
@@ -42,9 +43,10 @@ export async function listAssignableTherapists(
       if (!res) throw new Error('not_found');
 
       // Get all active therapists
-      const therapists = await tx<{ id: string; slug: string; name: string | null }[]>`
+      const therapists = await tx<{ id: string; slug: string; name: string | null; ng_note: string | null }[]>`
         select t.id, t.slug,
-               coalesce(er.published->>'name', er.draft->>'name', t.slug) as name
+               coalesce(er.published->>'name', er.draft->>'name', t.slug) as name,
+               t.ng_note
         from therapists t
         left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
         where t.status = 'active'
@@ -63,7 +65,7 @@ export async function listAssignableTherapists(
             and free_at > ${res.depart_at}
         `;
         const busy = (overlapRows[0]?.n ?? 0) > 0;
-        result.push({ id: t.id, slug: t.slug, name: t.name ?? t.slug, busy });
+        result.push({ id: t.id, slug: t.slug, name: t.name ?? t.slug, ngNote: t.ng_note, busy });
       }
       return result;
     });

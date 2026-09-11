@@ -534,6 +534,23 @@ function DispatchRow({
             初
           </span>
         )}
+        {item.therapistNgNote && (
+          <span
+            title={item.therapistNgNote}
+            style={{
+              display: 'inline-block',
+              marginLeft: 4,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '0 4px',
+              background: '#FDECEA',
+              color: '#B4453C',
+              borderRadius: 2,
+            }}
+          >
+            ⚠NG
+          </span>
+        )}
       </td>
 
       {/* コース（分・延長込み）*/}

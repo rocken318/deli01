@@ -33,6 +33,7 @@ function dayBounds(dateISO: string): { dayStart: Date; dayEnd: Date } {
 export interface ReservationListItem {
   id: string;
   therapistName: string;
+  therapistNgNote: string | null;
   customerName: string | null;
   courseName: string;
   courseDurationMin: number;
@@ -57,6 +58,7 @@ interface ListRow {
   id: string;
   therapist_name: string | null;
   therapist_slug: string;
+  therapist_ng_note: string | null;
   customer_name: string | null;
   course_name: string;
   course_duration_min: number;
@@ -108,6 +110,7 @@ export async function getReservationList(
         r.id,
         er.published->>'name'    as therapist_name,
         t.slug                   as therapist_slug,
+        t.ng_note                as therapist_ng_note,
         c.name                   as customer_name,
         co.name                  as course_name,
         co.duration_min          as course_duration_min,
@@ -164,6 +167,7 @@ export async function getReservationList(
   return rows.map((r) => ({
     id: r.id,
     therapistName: r.therapist_name ?? r.therapist_slug,
+    therapistNgNote: r.therapist_ng_note,
     customerName: r.customer_name,
     courseName: r.course_name,
     courseDurationMin: r.course_duration_min,
