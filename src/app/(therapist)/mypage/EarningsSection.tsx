@@ -52,6 +52,11 @@ function yen(n: number): string {
   return `¥${n.toLocaleString()}`;
 }
 
+/** ISO → Asia/Tokyo の "HH:mm"（当日明細の開始時刻表示用） */
+function hhmm(iso: string): string {
+  return format(toZonedTime(new Date(iso), 'Asia/Tokyo'), 'HH:mm');
+}
+
 function formatPeriod(start: string, end: string): string {
   // start: YYYY-MM-DD, end: YYYY-MM-DD
   const s = start.replace(/-/g, '/');
@@ -83,7 +88,7 @@ function EarningsContent({
   dayLabel: string;
   monthLabel: string;
 }) {
-  const { todayTotal, scheduledTotal, monthToDateTotal, confirmedNetTotal, range, payouts } = data;
+  const { todayTotal, scheduledTotal, monthToDateTotal, confirmedNetTotal, range, payouts, todayJobs } = data;
   const allZero =
     todayTotal === 0 && scheduledTotal === 0 && monthToDateTotal === 0 && confirmedNetTotal === 0;
 
@@ -142,6 +147,55 @@ function EarningsContent({
           </p>
         )}
       </div>
+
+      {/* この日の明細（本数・コース・内訳＝なぜこの金額か / 発注者 2026-09-11） */}
+      {todayJobs.length > 0 && (
+        <>
+          <SectionDivider />
+          <div style={{ padding: '12px' }}>
+            <p style={{ fontSize: '12px', color: T.muted, marginBottom: '8px' }}>
+              この日の明細（{todayJobs.filter((j) => j.reservationId !== null).length}本）
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {todayJobs.map((job, i) => (
+                <div
+                  key={job.reservationId ?? `adj-${i}`}
+                  style={{
+                    border: `1px solid ${T.border}`,
+                    borderRadius: '6px',
+                    padding: '8px 10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: T.text }}>
+                      {job.startAtISO ? `${hhmm(job.startAtISO)} ` : ''}
+                      {job.courseName ?? '調整'}
+                      {job.courseDurationMin !== null ? ` ${job.courseDurationMin}分` : ''}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        color: T.text,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      {yen(job.total)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                    {job.lines.map((l, li) => (
+                      <span key={`${l.category}-${li}`} style={{ fontSize: '11px', color: T.muted }}>
+                        {CATEGORY_LABELS[l.category] ?? l.category} {yen(l.amount)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <SectionDivider />
 
