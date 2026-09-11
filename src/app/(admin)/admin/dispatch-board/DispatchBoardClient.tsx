@@ -45,8 +45,15 @@ import {
   clearLegDriver,
   finishReservation,
   getDispatchLegs,
+  addSendHomeLeg,
+  assignSendHomeDriver,
+  getSendHomeLegs,
+  finishSendHomeLeg,
+  deleteSendHomeLeg,
 } from '@/lib/dispatch-board/leg-actions';
-import type { LegView, ReservationLegs } from '@/lib/dispatch-board/leg-actions';
+import type { LegView, ReservationLegs, SendHomeLegView } from '@/lib/dispatch-board/leg-actions';
+import { listTherapistsForLedger, getTransportForTherapist } from '@/lib/transport/actions';
+import type { TherapistForLedger } from '@/lib/transport/actions';
 import { listActiveDriversForDate } from '@/lib/drivers/shift-actions';
 import type { ActiveDriver } from '@/lib/drivers/shift-actions';
 import {
@@ -76,6 +83,8 @@ interface Props {
   initialLegs?: ReservationLegs[];
   /** 本日出勤ドライバー（右レール）。省略時はマウント時に取得 */
   initialActiveDrivers?: ActiveDriver[];
+  /** 退勤送り脚（includeFinished=true で取得したもの）。省略時はマウント時に取得 */
+  initialSendHomeLegs?: SendHomeLegView[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -790,10 +799,22 @@ export default function DispatchBoardClient({
   syncUrl = true,
   initialLegs,
   initialActiveDrivers,
+  initialSendHomeLegs,
 }: Props) {
   const [items, setItems] = useState<DispatchBoardItem[]>(initialItems);
   const [legs, setLegs] = useState<ReservationLegs[]>(initialLegs ?? []);
   const [drivers, setDrivers] = useState<ActiveDriver[]>(initialActiveDrivers ?? []);
+  const [sendHomeLegs, setSendHomeLegs] = useState<SendHomeLegView[]>(initialSendHomeLegs ?? []);
+  const [therapistsForLedger, setTherapistsForLedger] = useState<TherapistForLedger[]>([]);
+  const [sendHomeForm, setSendHomeForm] = useState<{
+    therapistId: string;
+    destinationText: string;
+    roundTripMin: string;
+    departAtISO: string;
+    memo: string;
+  }>({ therapistId: '', destinationText: '', roundTripMin: '', departAtISO: '', memo: '' });
+  const [sendHomeFormOpen, setSendHomeFormOpen] = useState(false);
+  const [selectedSendHomeRoutes, setSelectedSendHomeRoutes] = useState<Array<{ kind: string; destination: string; roundTripMin: number | null }>>([]);
   const [date, setDate] = useState<string>(initialDate);
   const [showFinished, setShowFinished] = useState(false);
   const [showNoDispatch, setShowNoDispatch] = useState(false);
@@ -820,12 +841,19 @@ export default function DispatchBoardClient({
     return false;
   }, []);
 
+  /** 退勤送り脚を再取得 */
+  const refreshSendHomeLegs = useCallback(async (targetDate: string) => {
+    const result = await getSendHomeLegs(targetDate, true);
+    if (result.ok && result.data) setSendHomeLegs(result.data);
+  }, []);
+
   /** ボード・脚・右レールをまとめて再取得 */
   const refreshAll = useCallback(async (targetDate: string) => {
-    const [board, legsResult, driversResult] = await Promise.all([
+    const [board, legsResult, driversResult, sendHomeResult] = await Promise.all([
       getDispatchBoard(targetDate),
       getDispatchLegs(targetDate, true),
       listActiveDriversForDate(targetDate),
+      getSendHomeLegs(targetDate, true),
     ]);
     if (board.ok && board.data) {
       setItems(board.data);
@@ -834,6 +862,7 @@ export default function DispatchBoardClient({
     }
     if (legsResult.ok && legsResult.data) setLegs(legsResult.data);
     if (driversResult.ok && driversResult.data) setDrivers(driversResult.data);
+    if (sendHomeResult.ok && sendHomeResult.data) setSendHomeLegs(sendHomeResult.data);
     return board.ok;
   }, []);
 
@@ -849,6 +878,15 @@ export default function DispatchBoardClient({
         if (driversResult.ok && driversResult.data) setDrivers(driversResult.data);
       });
     }
+    // マウント時のみ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 送り台帳のセラピスト一覧をマウント時に取得
+  useEffect(() => {
+    listTherapistsForLedger().then((r) => {
+      if (r.ok && r.data) setTherapistsForLedger(r.data);
+    }).catch(() => {});
     // マウント時のみ
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -960,6 +998,103 @@ export default function DispatchBoardClient({
   /** LINE 送信プレースホルダ（フェーズ9 で実装） */
   const handleLinePlaceholder = () => {
     showToast('LINE送信は準備中です（フェーズ9で実装予定）');
+  };
+
+  /** 退勤送り: 女性選択時に送り台帳からautofill */
+  const handleSendHomeTherapistChange = (therapistId: string) => {
+    setSendHomeForm((prev) => ({ ...prev, therapistId, destinationText: '' }));
+    setSelectedSendHomeRoutes([]);
+    if (therapistId) {
+      startTransition(async () => {
+        const r = await getTransportForTherapist(therapistId);
+        if (r.ok && r.data && r.data.routes.length > 0) {
+          setSelectedSendHomeRoutes(r.data.routes.map((rt) => ({
+            kind: rt.kind,
+            destination: rt.destination,
+            roundTripMin: rt.roundTripMin,
+          })));
+          // autofill first route
+          const first = r.data.routes[0]!;
+          setSendHomeForm((prev) => ({
+            ...prev,
+            therapistId,
+            destinationText: first.destination,
+            roundTripMin: first.roundTripMin !== null ? String(first.roundTripMin) : '',
+          }));
+        }
+      });
+    }
+  };
+
+  /** 退勤送り: 追加 */
+  const handleAddSendHome = () => {
+    if (!sendHomeForm.therapistId || !sendHomeForm.destinationText.trim()) {
+      setErrorMsg('女性と送り先は必須です');
+      return;
+    }
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await addSendHomeLeg({
+        therapistId: sendHomeForm.therapistId,
+        dateISO: date,
+        destinationText: sendHomeForm.destinationText.trim(),
+        roundTripMin: sendHomeForm.roundTripMin ? parseInt(sendHomeForm.roundTripMin, 10) : null,
+        departAtISO: sendHomeForm.departAtISO || undefined,
+        memo: sendHomeForm.memo || undefined,
+      });
+      if (result.ok) {
+        showToast('退勤送りを追加しました');
+        setSendHomeForm({ therapistId: '', destinationText: '', roundTripMin: '', departAtISO: '', memo: '' });
+        setSendHomeFormOpen(false);
+        setSelectedSendHomeRoutes([]);
+        await refreshSendHomeLegs(date);
+      } else {
+        setErrorMsg(result.error ?? '追加に失敗しました');
+      }
+    });
+  };
+
+  /** 退勤送り: ドライバー割当 */
+  const handleAssignSendHomeDriver = (legId: string, driverId: string) => {
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await assignSendHomeDriver({ legId, driverId });
+      if (result.ok) {
+        showToast('退勤送りにドライバーを割り当てました');
+      } else {
+        setErrorMsg(result.error ?? 'ドライバー割当に失敗しました');
+      }
+      await refreshSendHomeLegs(date);
+    });
+  };
+
+  /** 退勤送り: 終了 */
+  const handleFinishSendHome = (legId: string) => {
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await finishSendHomeLeg({ legId });
+      if (result.ok) {
+        showToast('退勤送りを終了しました');
+      } else {
+        setErrorMsg(result.error ?? '終了処理に失敗しました');
+      }
+      await refreshSendHomeLegs(date);
+    });
+  };
+
+  /** 退勤送り: 削除 */
+  const handleDeleteSendHome = (legId: string) => {
+    if (!confirm('この退勤送りを削除しますか？')) return;
+    setErrorMsg(null);
+    startTransition(async () => {
+      const result = await deleteSendHomeLeg({ legId });
+      if (result.ok) {
+        showToast('退勤送りを削除しました');
+      } else {
+        setErrorMsg(result.error ?? '削除に失敗しました');
+      }
+      await refreshSendHomeLegs(date);
+    });
   };
 
   /** 配車トグル（送り/帰りフラグ更新）→ ローカル state を楽観更新後にサーバ反映 */
@@ -1411,6 +1546,256 @@ export default function DispatchBoardClient({
             <div style={{ color: '#B9C2BD' }}>
               出発の ( ) は予定時刻。実出発後は括弧なしの実測値に切り替わります。
             </div>
+          </div>
+
+          {/* 退勤送りセクション */}
+          <div style={{ marginTop: 24, background: '#fff', border: '1px solid #DFE3DE', borderRadius: 6, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1C2321' }}>退勤送り（自宅・寮）</h2>
+              <button
+                type="button"
+                onClick={() => setSendHomeFormOpen((v) => !v)}
+                disabled={isPending}
+                style={{
+                  padding: '4px 12px',
+                  background: '#3F7A6B',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                ＋ 退勤送りを追加
+              </button>
+            </div>
+
+            {/* 追加フォーム */}
+            {sendHomeFormOpen && (
+              <div style={{
+                background: '#F6F7F5', border: '1px solid #DFE3DE', borderRadius: 6,
+                padding: 12, marginBottom: 12,
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px 120px 1fr', gap: 8, alignItems: 'end' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7776', marginBottom: 4 }}>女性</label>
+                    <select
+                      value={sendHomeForm.therapistId}
+                      onChange={(e) => handleSendHomeTherapistChange(e.target.value)}
+                      disabled={isPending}
+                      style={{ padding: '6px 8px', border: '1px solid #DFE3DE', borderRadius: 4, fontSize: 12, width: '100%', background: '#fff', color: '#1C2321' }}
+                      aria-label="退勤送り: 女性選択"
+                    >
+                      <option value="">選択してください</option>
+                      {therapistsForLedger.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                    {selectedSendHomeRoutes.length > 0 && (
+                      <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {selectedSendHomeRoutes.map((rt, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setSendHomeForm((prev) => ({
+                              ...prev,
+                              destinationText: rt.destination,
+                              roundTripMin: rt.roundTripMin !== null ? String(rt.roundTripMin) : '',
+                            }))}
+                            style={{
+                              fontSize: 10, padding: '2px 6px',
+                              background: '#EAF3EF', color: '#3F7A6B',
+                              border: '1px solid #3F7A6B', borderRadius: 4, cursor: 'pointer',
+                            }}
+                          >
+                            {rt.kind === 'home' ? '自宅' : rt.kind === 'dorm' ? '寮' : '宿泊'}: {rt.destination.slice(0, 10)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7776', marginBottom: 4 }}>送り先</label>
+                    <input
+                      type="text"
+                      value={sendHomeForm.destinationText}
+                      onChange={(e) => setSendHomeForm((prev) => ({ ...prev, destinationText: e.target.value }))}
+                      placeholder="送り先住所・施設名"
+                      disabled={isPending}
+                      style={{ padding: '6px 8px', border: '1px solid #DFE3DE', borderRadius: 4, fontSize: 12, width: '100%', background: '#fff', color: '#1C2321' }}
+                      aria-label="退勤送り: 送り先"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7776', marginBottom: 4 }}>往復(分)</label>
+                    <input
+                      type="number"
+                      value={sendHomeForm.roundTripMin}
+                      onChange={(e) => setSendHomeForm((prev) => ({ ...prev, roundTripMin: e.target.value }))}
+                      placeholder="分"
+                      min={0}
+                      disabled={isPending}
+                      style={{ padding: '6px 8px', border: '1px solid #DFE3DE', borderRadius: 4, fontSize: 12, width: '100%', background: '#fff', color: '#1C2321' }}
+                      aria-label="退勤送り: 往復分"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7776', marginBottom: 4 }}>出発</label>
+                    <input
+                      type="time"
+                      value={sendHomeForm.departAtISO}
+                      onChange={(e) => setSendHomeForm((prev) => ({ ...prev, departAtISO: e.target.value }))}
+                      disabled={isPending}
+                      style={{ padding: '6px 8px', border: '1px solid #DFE3DE', borderRadius: 4, fontSize: 12, width: '100%', background: '#fff', color: '#1C2321' }}
+                      aria-label="退勤送り: 出発時刻"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7776', marginBottom: 4 }}>メモ</label>
+                    <input
+                      type="text"
+                      value={sendHomeForm.memo}
+                      onChange={(e) => setSendHomeForm((prev) => ({ ...prev, memo: e.target.value }))}
+                      placeholder="メモ"
+                      disabled={isPending}
+                      style={{ padding: '6px 8px', border: '1px solid #DFE3DE', borderRadius: 4, fontSize: 12, width: '100%', background: '#fff', color: '#1C2321' }}
+                      aria-label="退勤送り: メモ"
+                    />
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handleAddSendHome}
+                    disabled={isPending}
+                    style={{ padding: '6px 16px', background: '#3F7A6B', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    追加
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setSendHomeFormOpen(false); setSelectedSendHomeRoutes([]); }}
+                    disabled={isPending}
+                    style={{ padding: '6px 12px', background: '#fff', color: '#3F7A6B', border: '1px solid #3F7A6B', borderRadius: 4, fontSize: 12, cursor: 'pointer' }}
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 退勤送り一覧テーブル */}
+            {(() => {
+              const visibleSendHome = sendHomeLegs.filter((l) => showFinished || !l.isFinished);
+              if (visibleSendHome.length === 0) {
+                return (
+                  <div style={{ fontSize: 12, color: '#9BA5AF', padding: '12px 0', textAlign: 'center' }}>
+                    退勤送りがありません
+                  </div>
+                );
+              }
+              return (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#F6F7F5' }}>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#6B7776', whiteSpace: 'nowrap' }}>女性</th>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#6B7776' }}>送り先</th>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#6B7776', whiteSpace: 'nowrap' }}>往復(分)</th>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#6B7776', whiteSpace: 'nowrap' }}>出発</th>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#6B7776', whiteSpace: 'nowrap' }}>送り車（D&amp;D）</th>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#6B7776' }}>メモ</th>
+                      <th style={{ padding: '5px 8px', borderBottom: '2px solid #DFE3DE', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#6B7776' }}>終了</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleSendHome.map((leg) => {
+                      const colors = STATE_COLORS[leg.state] ?? { bg: '#fff', fg: '#1C2321' };
+                      return (
+                        <tr key={leg.id} style={{ opacity: leg.isFinished ? 0.5 : 1 }}>
+                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', fontWeight: 600, color: '#3F7A6B', whiteSpace: 'nowrap' }}>
+                            {leg.therapistName}
+                          </td>
+                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {leg.destinationText}
+                          </td>
+                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', textAlign: 'center', fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {leg.roundTripMin !== null ? `${leg.roundTripMin}分` : '—'}
+                          </td>
+                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', textAlign: 'center', fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {leg.departAtISO ? toHHMM(leg.departAtISO) : '—'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '5px 8px',
+                              borderBottom: '1px solid #DFE3DE',
+                              background: leg.driverId ? colors.bg : undefined,
+                              borderLeft: leg.driverId ? `4px solid ${leg.vehicleColorHex ?? '#ccc'}` : undefined,
+                              minWidth: 120,
+                            }}
+                            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const driverId = e.dataTransfer.getData('text/plain');
+                              if (driverId && !isPending) handleAssignSendHomeDriver(leg.id, driverId);
+                            }}
+                          >
+                            {leg.driverId ? (
+                              <span style={{ fontWeight: 700, color: colors.fg }}>
+                                {leg.driverName ?? '—'} {leg.vehicleNumber ?? ''}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#9BA5AF', fontSize: 10, borderBottom: '1px dashed #ccc' }}>
+                                ドライバーをD&amp;D
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', color: '#6B7776' }}>
+                            {leg.memo ?? '—'}
+                          </td>
+                          <td style={{ padding: '5px 8px', borderBottom: '1px solid #DFE3DE', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {leg.isFinished ? (
+                              <span style={{ fontSize: 10, color: '#3F7A6B', fontWeight: 700 }}>終了済み</span>
+                            ) : (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFinishSendHome(leg.id)}
+                                  disabled={isPending || leg.state !== '完了'}
+                                  title={leg.state === '完了' ? '終了として記録' : '状態が「完了」になると押せます'}
+                                  style={{
+                                    fontSize: 10, padding: '2px 8px',
+                                    background: leg.state === '完了' ? '#3F7A6B' : '#F3F4F3',
+                                    color: leg.state === '完了' ? '#fff' : '#aab2ae',
+                                    border: `1px solid ${leg.state === '完了' ? '#3F7A6B' : '#d7dbd7'}`,
+                                    borderRadius: 4, cursor: isPending || leg.state !== '完了' ? 'not-allowed' : 'pointer',
+                                  }}
+                                >
+                                  終了
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSendHome(leg.id)}
+                                  disabled={isPending}
+                                  aria-label="退勤送りを削除"
+                                  style={{
+                                    fontSize: 10, padding: '2px 6px',
+                                    background: '#B4453C', color: '#fff',
+                                    border: 'none', borderRadius: 4, cursor: 'pointer',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
         </div>
 
