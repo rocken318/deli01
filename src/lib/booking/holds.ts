@@ -278,13 +278,23 @@ async function attemptCreateHold(params: HoldParams, now: Date): Promise<HoldRes
   const course = courseRows[0];
   if (!course) return { ok: false, error: "invalid" };
 
-  // エリア別交通費（車のとき使う。徒歩圏は 0 / spec 3-8・発注者決定 2026-09-04）
-  const areaFeeRows = result.areaId
-    ? await sql<{ transport_fee: number }[]>`
-        select transport_fee from areas where id = ${result.areaId}::uuid limit 1
-      `
-    : [];
-  const areaTransportFee = areaFeeRows[0]?.transport_fee ?? null;
+  // 交通費（車のとき使う。徒歩圏は 0 / spec 3-8）。
+  // ★優先順位: ホテル個別（hotels.transport_fee / 0039・受付表の実データ）
+  //   > エリア既定（areas.transport_fee / 0028）。ホテル未指定や未設定は従来どおりエリア別。
+  const [hotelFeeRows, areaFeeRows] = await Promise.all([
+    params.hotelId
+      ? sql<{ transport_fee: number | null }[]>`
+          select transport_fee from hotels where id = ${params.hotelId}::uuid limit 1
+        `
+      : Promise.resolve([] as { transport_fee: number | null }[]),
+    result.areaId
+      ? sql<{ transport_fee: number }[]>`
+          select transport_fee from areas where id = ${result.areaId}::uuid limit 1
+        `
+      : Promise.resolve([] as { transport_fee: number }[]),
+  ]);
+  const hotelTransportFee = hotelFeeRows[0]?.transport_fee ?? null;
+  const areaTransportFee = hotelTransportFee ?? areaFeeRows[0]?.transport_fee ?? null;
 
   // 指名料: 指名（特定セラピストを選ぶ）は既定額、フリー（おまかせ）は 0
   //  （発注者決定 2026-09-05: フリーは指名料なし / spec 18-3）
