@@ -1,9 +1,21 @@
 import "server-only";
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import { withUser } from "@/lib/auth/with-user";
 import type { Session } from "@/lib/auth/session";
 import { settlement } from "@/domain/accounting";
 import type { BusinessDayRange } from "@/domain/accounting";
+
+/** 雑費率を site_settings.payout_policy.misc_deduction_rate から読む（既定10）。 */
+async function loadMiscRate(tx: TransactionSql): Promise<number> {
+  const rows = await tx<{ value: unknown }[]>`
+    select value from site_settings where key = 'payout_policy' limit 1
+  `;
+  const raw = rows[0]?.value;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 10;
+  const o = raw as Record<string, unknown>;
+  const rate = o['misc_deduction_rate'];
+  return typeof rate === 'number' && Number.isInteger(rate) && rate >= 0 ? rate : 10;
+}
 
 /**
  * G 日次会計（受付表の確認用 / SGS 形）のコア集計。
@@ -33,6 +45,10 @@ export interface TherapistBooksRow {
   payout: number;
   /** 店取分 = 売上 − バック（経費は店舗側で別集計） */
   storeShare: number;
+  /** 雑費 = floor(バック × 率/100)（行単位 floor・情報表示） */
+  misc: number;
+  /** 清算金額 = バック − 雑費（セラピストへの実支払・情報表示） */
+  settlement: number;
 }
 
 export interface DailyBooksResult {
@@ -43,6 +59,10 @@ export interface DailyBooksResult {
     /** 売上 − バック − 経費 */
     grossProfit: number;
     reservationCount: number;
+    /** 雑費合計 = 個人別 misc の合計（情報表示） */
+    misc: number;
+    /** 清算金額合計 = バック − 雑費合計（セラピストへの実支払合計・情報表示） */
+    settlement: number;
   };
   byTherapist: TherapistBooksRow[];
   /** cash/card/emoney/ticket/point の合計 */
@@ -79,6 +99,7 @@ export async function getDailyBooksCore(
 ): Promise<DailyBooksResult> {
   return withUser(sql, session, async (tx) => {
     const { from, to, fromDate, toDate } = range;
+    const miscRate = await loadMiscRate(tx);
 
     // 1. 店舗合計の売上（全 revenue_lines・逆仕訳込み）。★交通費は売上に含めない。
     const storeRev = await tx<{ revenue: number; res_count: number }[]>`
@@ -165,6 +186,7 @@ export async function getDailyBooksCore(
     const byTherapist: TherapistBooksRow[] = [...ids].map((id) => {
       const rev = revMap.get(id) ?? { revenue: 0, resCount: 0 };
       const payout = payMap.get(id) ?? 0;
+      const misc = Math.floor(payout * miscRate / 100);
       return {
         therapistId: id,
         therapistName: nameMap.get(id) ?? id,
@@ -172,6 +194,8 @@ export async function getDailyBooksCore(
         revenue: rev.revenue,
         payout,
         storeShare: rev.revenue - payout,
+        misc,
+        settlement: payout - misc,
       };
     });
     byTherapist.sort((a, b) => b.revenue - a.revenue || b.storeShare - a.storeShare);
@@ -180,6 +204,8 @@ export async function getDailyBooksCore(
     const payout = [...payMap.values()].reduce((s, v) => s + v, 0);
     const expenses = expRows[0]?.expenses ?? 0;
     const s = settlement({ revenue, payout, expenses });
+    // 雑費合計 = 個人別 misc の合計（行単位 floor 積み上げ）
+    const totalMisc = byTherapist.reduce((acc, t) => acc + t.misc, 0);
 
     const paymentsByMethod: Record<string, number> = { cash: 0, card: 0, emoney: 0, ticket: 0, point: 0 };
     for (const m of methodRows) {
@@ -193,6 +219,8 @@ export async function getDailyBooksCore(
         expenses,
         grossProfit: s.grossProfit,
         reservationCount: storeRev[0]?.res_count ?? 0,
+        misc: totalMisc,
+        settlement: payout - totalMisc,
       },
       byTherapist,
       paymentsByMethod,

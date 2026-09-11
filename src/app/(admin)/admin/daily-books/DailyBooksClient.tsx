@@ -171,9 +171,9 @@ export default function DailyBooksClient({
       ) : (
         <>
           {/* 店舗合計 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div className={card}>
-              <p className="text-xs font-semibold text-adm-muted">売上</p>
+              <p className="text-xs font-semibold text-adm-muted">売上金額</p>
               <p className="text-2xl font-bold text-adm-text tabular-nums">{yen(books.storeTotal.revenue)}</p>
               <p className="text-xs text-adm-muted">{books.storeTotal.reservationCount}件</p>
             </div>
@@ -181,6 +181,13 @@ export default function DailyBooksClient({
               <p className="text-xs font-semibold text-adm-muted">バック（報酬）</p>
               <p className="text-2xl font-bold text-adm-text tabular-nums">{yen(books.storeTotal.payout)}</p>
             </div>
+            <div className={`${card} bg-adm-primary/5 border-adm-primary/40`}>
+              <p className="text-xs font-semibold text-adm-primary">清算金額（セラピスト支払＝バック−雑費）</p>
+              <p className="text-2xl font-bold text-adm-primary tabular-nums">{yen(books.storeTotal.settlement)}</p>
+              <p className="text-xs text-adm-muted">雑費（雑費率×バック）合計: {yen(books.storeTotal.misc)}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
             <div className={card}>
               <p className="text-xs font-semibold text-adm-muted">経費</p>
               <p className="text-2xl font-bold text-adm-text tabular-nums">{yen(books.storeTotal.expenses)}</p>
@@ -203,9 +210,10 @@ export default function DailyBooksClient({
           {/* 個人別 */}
           <div className={card}>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-adm-text">個人別（売上・バック・店取分）</p>
+              <p className="text-sm font-semibold text-adm-text">個人別（売上・バック・雑費・清算・店取分）</p>
               <a href={csvHref("summary")} className="text-xs text-adm-primary underline">集計CSV</a>
             </div>
+            <p className="text-xs text-adm-muted mb-2">清算金額＝実際にセラピストへ手渡す額（バック − 雑費）</p>
             {books.byTherapist.length === 0 ? (
               <p className="text-sm text-adm-muted">この期間の売上・バックはありません。</p>
             ) : (
@@ -216,6 +224,8 @@ export default function DailyBooksClient({
                     <th className="text-right font-medium py-1">件数</th>
                     <th className="text-right font-medium py-1">売上</th>
                     <th className="text-right font-medium py-1">バック</th>
+                    <th className="text-right font-medium py-1 text-adm-caution">雑費</th>
+                    <th className="text-right font-medium py-1 text-adm-primary">清算</th>
                     <th className="text-right font-medium py-1">店取分</th>
                   </tr>
                 </thead>
@@ -226,6 +236,8 @@ export default function DailyBooksClient({
                       <td className="py-1 text-right tabular-nums text-adm-muted">{t.reservationCount}</td>
                       <td className="py-1 text-right tabular-nums text-adm-text">{yen(t.revenue)}</td>
                       <td className="py-1 text-right tabular-nums text-adm-text">{yen(t.payout)}</td>
+                      <td className="py-1 text-right tabular-nums text-adm-caution">−{yen(t.misc)}</td>
+                      <td className="py-1 text-right tabular-nums text-adm-primary font-semibold">{yen(t.settlement)}</td>
                       <td className="py-1 text-right tabular-nums text-adm-text">{yen(t.storeShare)}</td>
                     </tr>
                   ))}

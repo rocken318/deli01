@@ -47,6 +47,7 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
   const selected = rows.find((r) => r.therapistId === selectedId) ?? null;
 
   const totalPay = rows.reduce((s, r) => s + r.pay, 0);
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
   const unsettledPay = rows.filter((r) => !r.settled).reduce((s, r) => s + r.pay, 0);
   const unsettledCount = rows.filter((r) => !r.settled).length;
 
@@ -176,8 +177,13 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
                 <span className="font-bold text-sm text-adm-text truncate flex-1">
                   {row.therapistName}
                 </span>
-                <span className="font-mono text-sm font-bold text-adm-text whitespace-nowrap">
-                  {fmt(row.pay)}
+                <span className="flex flex-col items-end min-w-0">
+                  <span className="text-[10px] text-adm-muted whitespace-nowrap">
+                    売上 {fmt(row.revenue)}
+                  </span>
+                  <span className="font-mono text-sm font-bold text-adm-text whitespace-nowrap">
+                    清算 {fmt(row.pay)}
+                  </span>
                 </span>
                 <span
                   className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
@@ -198,7 +204,11 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
               className="mt-2 pt-2 border-t border-dashed border-adm-border text-xs text-adm-muted px-1"
             >
               <div className="flex justify-between mb-0.5">
-                <span>本日支払合計</span>
+                <span>本日売上合計</span>
+                <span className="font-mono font-bold text-adm-text">{fmt(totalRevenue)}</span>
+              </div>
+              <div className="flex justify-between mb-0.5">
+                <span>本日清算合計</span>
                 <span className="font-mono font-bold text-adm-text">{fmt(totalPay)}</span>
               </div>
               {unsettledCount > 0 && (
@@ -220,9 +230,23 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
             <h2 className="text-base font-bold text-adm-text mb-1">
               {selected.therapistName} の当日精算
             </h2>
-            <p className="text-xs text-adm-muted mb-4">
+            <p className="text-xs text-adm-muted mb-3">
               成約（完了）分を自動集計したバックから雑費（合計の10%）を引いた支払額です。
             </p>
+
+            {/* 売上金額・清算金額サマリカード */}
+            <div className="flex gap-3 mb-4">
+              <div className="flex-1 border border-adm-border bg-adm-bg px-3 py-2" style={{ borderRadius: '6px' }}>
+                <p className="text-[10px] text-adm-muted font-semibold">売上金額</p>
+                <p className="font-mono text-lg font-bold text-adm-text">{fmt(selected.revenue)}</p>
+                <p className="text-[9px] text-adm-muted">当日 JST の revenue（transport 除外）</p>
+              </div>
+              <div className="flex-1 border border-adm-primary/40 bg-[#EAF3EF] px-3 py-2" style={{ borderRadius: '6px' }}>
+                <p className="text-[10px] text-adm-primary font-semibold">清算金額（セラピストへの支払）</p>
+                <p className="font-mono text-lg font-bold text-[#173a30]">{fmt(selected.pay)}</p>
+                <p className="text-[9px] text-adm-muted">バック − 雑費10%</p>
+              </div>
+            </div>
 
             {/* カテゴリ内訳テーブル */}
             <table className="w-full border-collapse mb-4 text-sm">
@@ -252,18 +276,18 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
               </tbody>
             </table>
 
-            {/* 合計・雑費・支払額 */}
+            {/* バック内訳・雑費・清算金額 */}
             <div className="border border-adm-border mb-4" style={{ borderRadius: '8px', overflow: 'hidden' }}>
               <div className="flex justify-between items-center px-3 py-2 border-b border-adm-border">
-                <span className="text-sm text-adm-muted">合計（バック小計の総和）</span>
+                <span className="text-sm text-adm-muted">バック合計</span>
                 <span className="font-mono font-bold text-adm-text">{fmt(selected.gross)}</span>
               </div>
               <div className="flex justify-between items-center px-3 py-2 border-b border-adm-border text-[#8a5d16]">
-                <span className="text-sm">雑費（合計の10%）</span>
+                <span className="text-sm">雑費（バックの10%・店の追加取り分）</span>
                 <span className="font-mono font-bold">− {fmt(selected.misc)}</span>
               </div>
               <div className="flex justify-between items-center px-3 py-2.5 bg-[#EAF3EF]">
-                <span className="text-sm font-extrabold text-[#173a30]">支払額（当日給料）</span>
+                <span className="text-sm font-extrabold text-[#173a30]">清算金額（セラピストへの支払）</span>
                 <span className="font-mono text-xl font-extrabold text-[#173a30]">{fmt(selected.pay)}</span>
               </div>
             </div>
@@ -296,7 +320,7 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
               >
                 <div className="flex-1">
                   <span className="text-sm text-[#245043]">
-                    手渡し現金{' '}
+                    清算金額（手渡し現金）{' '}
                     <span className="text-[22px] font-mono font-bold">{fmt(selected.pay)}</span>
                   </span>
                 </div>

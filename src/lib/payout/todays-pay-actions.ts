@@ -15,6 +15,8 @@ import { withUser } from '@/lib/auth/with-user';
 import { can } from '@/domain/auth';
 import { toActor } from '@/lib/auth/session';
 import { computeDayPay } from '@/domain/payout/day-pay';
+import { fromZonedTime } from 'date-fns-tz';
+import { addDays } from 'date-fns';
 
 export interface ActionResult<T = void> {
   ok: boolean;
@@ -25,7 +27,10 @@ export interface ActionResult<T = void> {
 export interface DayPayLine { category: string; amount: number; }
 export interface TodaysPayRow {
   therapistId: string; therapistName: string; lines: DayPayLine[];
-  gross: number; misc: number; pay: number; settled: boolean; paidAt: string | null;
+  gross: number; misc: number; pay: number;
+  /** 当日 JST の revenue_lines 合計（transport 除外・逆仕訳込み純額） */
+  revenue: number;
+  settled: boolean; paidAt: string | null;
 }
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付は YYYY-MM-DD');
@@ -63,7 +68,12 @@ export async function getTodaysPay(
 
   try {
     const sql = getClient();
-    const [miscRate, rows, settled] = await withUser(sql, session, async (tx) => {
+
+    // 当日 JST の時刻範囲 [dayStart, dayEnd)
+    const dayStart = fromZonedTime(`${parsedDate.data}T00:00:00`, 'Asia/Tokyo');
+    const dayEnd = addDays(dayStart, 1);
+
+    const [miscRate, rows, settled, revRows] = await withUser(sql, session, async (tx) => {
       const rate = await loadMiscRate();
 
       // payout_lines 集計: business_date の therapist × category 別合計
@@ -97,7 +107,22 @@ export async function getTodaysPay(
         where business_date = ${parsedDate.data}::date
       `;
 
-      return [rate, lines, dps] as const;
+      // revenue_lines 集計: 当日 JST 範囲・transport 除外・therapist 別純額
+      const rev = await tx<{
+        therapist_id: string;
+        revenue: number;
+      }[]>`
+        select
+          therapist_id,
+          coalesce(sum(amount) filter (where line_type <> 'transport'), 0)::integer as revenue
+        from revenue_lines
+        where occurred_at >= ${dayStart}
+          and occurred_at < ${dayEnd}
+          and therapist_id is not null
+        group by therapist_id
+      `;
+
+      return [rate, lines, dps, rev] as const;
     });
 
     // therapist ごとにグループ化
@@ -110,6 +135,7 @@ export async function getTodaysPay(
     }
 
     const settledMap = new Map<string, string>(settled.map((d) => [d.therapist_id, d.paid_at]));
+    const revenueMap = new Map<string, number>(revRows.map((r) => [r.therapist_id, r.revenue]));
 
     const data: TodaysPayRow[] = Array.from(byTherapist.entries()).map(([therapistId, info]) => {
       const gross = info.lines.reduce((s, l) => s + l.amount, 0);
@@ -122,6 +148,7 @@ export async function getTodaysPay(
         gross,
         misc,
         pay,
+        revenue: revenueMap.get(therapistId) ?? 0,
         settled: paidAt !== null,
         paidAt,
       };

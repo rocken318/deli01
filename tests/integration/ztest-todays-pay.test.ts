@@ -8,6 +8,8 @@ const sql = postgres(url, { max: 3, onnotice: () => {} });
 
 let aoiId: string;
 const DAY = "2099-09-09"; // 衝突回避の未来日
+// DAY の Asia/Tokyo 当日（00:00〜23:59 JST）= UTC 2099-09-08T15:00:00Z〜2099-09-09T14:59:59Z
+const DAY_JST_MID = new Date("2099-09-09T02:00:00Z"); // 2099-09-09 11:00 JST → DAY 当日に入る
 
 beforeAll(async () => {
   aoiId = (await sql<{ id: string }[]>`select id from therapists where slug='aoi' limit 1`)[0]!.id;
@@ -20,11 +22,23 @@ beforeAll(async () => {
             values (${aoiId}::uuid, ${DAY}::date, 'adjustment', 3000, ${sql.json({ t: "test-nomination" })})`;
   await sql`insert into payout_lines (therapist_id, business_date, category, amount, calc_note)
             values (${aoiId}::uuid, ${DAY}::date, 'adjustment', 5000, ${sql.json({ t: "test-option" })})`;
+  // 売上テスト用: DAY 当日 JST に revenue_lines を2行挿入（discount は reservation_id 不要）
+  // discount は sign_check により負値のみ。合計 -15000 で transport 除外ロジックを確認する
+  const [area] = await sql<{ id: string }[]>`select id from areas where is_active = true limit 1`;
+  await sql`
+    insert into revenue_lines (line_type, amount, area_id, therapist_id, occurred_at, created_by)
+    values ('discount'::revenue_line_type, -8000, ${area!.id}::uuid, ${aoiId}::uuid, ${DAY_JST_MID}, 'aaaaaaaa-0000-4000-8000-000000000001'::uuid)
+  `;
+  await sql`
+    insert into revenue_lines (line_type, amount, area_id, therapist_id, occurred_at, created_by)
+    values ('discount'::revenue_line_type, -7000, ${area!.id}::uuid, ${aoiId}::uuid, ${DAY_JST_MID}, 'aaaaaaaa-0000-4000-8000-000000000001'::uuid)
+  `;
 });
 
 afterAll(async () => {
   await sql`delete from daily_payouts where therapist_id = ${aoiId}::uuid and business_date = ${DAY}::date`;
   await sql`delete from payout_lines where therapist_id = ${aoiId}::uuid and business_date = ${DAY}::date`;
+  await sql`delete from revenue_lines where therapist_id = ${aoiId}::uuid and occurred_at = ${DAY_JST_MID} and line_type = 'discount'`;
   await sql.end({ timeout: 5 });
 });
 
@@ -37,6 +51,14 @@ describe("getTodaysPay", () => {
     expect(me.misc).toBe(2800);
     expect(me.pay).toBe(25200);
     expect(me.settled).toBe(false);
+  });
+
+  it("当日 JST 範囲の revenue_lines（transport 除外）を therapist 別に集計し revenue に載せる", async () => {
+    const r = await getTodaysPay(DAY);
+    expect(r.ok).toBe(true);
+    const me = r.data?.find((x) => x.therapistId === aoiId)!;
+    // discount 2行（-8000, -7000）合計 -15000 が revenue に反映される（transport は除外される）
+    expect(me.revenue).toBe(-15000);
   });
 });
 
