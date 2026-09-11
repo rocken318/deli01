@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useTransition, useCallback } from "react";
+import { useState, useRef, useTransition, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import OrderEntryForm from "@/app/(admin)/admin/orders/OrderEntryForm";
@@ -11,6 +11,12 @@ import {
 import { setReservationRoomNumber } from "@/lib/reservations/room-actions";
 import { addSameDayExtension } from "@/lib/booking/extension-actions";
 import { buildTherapistNotice } from "@/domain/reservation/therapist-notice";
+import {
+  listAssignableTherapists,
+  changeReservationTherapist,
+  type AssignableTherapist,
+} from "@/lib/reservations/therapist-actions";
+import { getReservationDetailLite, type ReservationDetail } from "@/lib/reservations/detail-actions";
 import type { TherapistAvailWindow } from "./page";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +61,9 @@ type SortMode = "manual" | "in" | "out";
 
 // Statuses where card operations (OP add, room edit) are enabled
 const OPERABLE_STATUSES = new Set(["confirmed", "enroute", "in_service"]);
+
+// Statuses where therapist assignment can be changed
+const CHANGEABLE_STATUSES = new Set(["held", "confirmed", "enroute", "in_service"]);
 
 // ---------------------------------------------------------------------------
 // Status label helper
@@ -222,6 +231,95 @@ function OpAddPanel({ reservationId, options, onDone, onToast }: OpAddPanelProps
 }
 
 // ---------------------------------------------------------------------------
+// 予約詳細モーダル
+// ---------------------------------------------------------------------------
+
+interface ReservationDetailModalProps {
+  detail: ReservationDetail | null;
+  loading: boolean;
+  onClose: () => void;
+}
+
+function ReservationDetailModal({ detail, loading, onClose }: ReservationDetailModalProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+        zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 4, padding: 24,
+          maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto',
+          position: 'relative',
+        }}
+      >
+        <button
+          onClick={onClose}
+          style={{ position: 'absolute', top: 12, right: 12, border: 'none', background: 'none', fontSize: 18, cursor: 'pointer', color: '#9BA5AF' }}
+        >✕</button>
+        {loading && <p style={{ color: '#9BA5AF', fontSize: 14 }}>読み込み中…</p>}
+        {!loading && !detail && <p style={{ color: '#B4453C', fontSize: 14 }}>データを取得できませんでした</p>}
+        {!loading && detail && (
+          <div style={{ fontSize: 13, color: '#1C2321' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>予約詳細</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px 12px', lineHeight: 1.6 }}>
+              <span style={{ color: '#9BA5AF' }}>状態</span>
+              <span style={{ fontWeight: 600 }}>{detail.status}</span>
+              <span style={{ color: '#9BA5AF' }}>担当</span>
+              <span>{detail.therapistName}</span>
+              <span style={{ color: '#9BA5AF' }}>顧客</span>
+              <span>{detail.customerName ?? '—'}{detail.customerPhone ? `（${detail.customerPhone}）` : ''}</span>
+              <span style={{ color: '#9BA5AF' }}>コース</span>
+              <span>{detail.courseName} {detail.courseDurationMin}分</span>
+              <span style={{ color: '#9BA5AF' }}>IN/OUT</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+                {fmtISO(detail.startAtISO)} 〜 {fmtISO(detail.endAtISO)}
+              </span>
+              <span style={{ color: '#9BA5AF' }}>出発</span>
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{fmtISO(detail.departAtISO)}</span>
+              <span style={{ color: '#9BA5AF' }}>エリア/ホテル</span>
+              <span>{detail.hotelName ?? detail.areaName ?? '—'}</span>
+              {detail.roomNumber && (<><span style={{ color: '#9BA5AF' }}>部屋</span><span>{detail.roomNumber}</span></>)}
+              {detail.options.length > 0 && (
+                <><span style={{ color: '#9BA5AF' }}>OP</span>
+                <span>{detail.options.map((o) => `${o.name} ¥${o.price.toLocaleString()}`).join(' / ')}</span></>
+              )}
+              <span style={{ color: '#9BA5AF' }}>コース料金</span>
+              <span>¥{detail.coursePrice.toLocaleString()}</span>
+              {detail.nominationFee > 0 && (<><span style={{ color: '#9BA5AF' }}>指名料</span><span>¥{detail.nominationFee.toLocaleString()}</span></>)}
+              {detail.transportFee > 0 && (<><span style={{ color: '#9BA5AF' }}>交通費</span><span>¥{detail.transportFee.toLocaleString()}</span></>)}
+              <span style={{ color: '#9BA5AF', fontWeight: 600 }}>合計</span>
+              <span style={{ fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace" }}>¥{detail.totalAmount.toLocaleString()}</span>
+              {detail.memo && (<><span style={{ color: '#9BA5AF' }}>メモ</span><span>{detail.memo}</span></>)}
+            </div>
+            <div style={{ marginTop: 16, borderTop: '1px solid #DFE3DE', paddingTop: 12 }}>
+              <a
+                href={`/admin/reservations/${detail.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 13, color: '#3F7A6B', textDecoration: 'none' }}
+              >
+                予約詳細ページを開く ↗
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 部屋番号インライン入力
 // ---------------------------------------------------------------------------
 
@@ -295,6 +393,94 @@ function RoomNumberInput({ reservationId, initial, onToast }: RoomNumberInputPro
 }
 
 // ---------------------------------------------------------------------------
+// 担当変更パネル
+// ---------------------------------------------------------------------------
+
+interface TherapistChangePanelProps {
+  reservationId: string;
+  therapists: AssignableTherapist[];
+  onDone: (updatedId: string) => void;
+  onClose: () => void;
+  onToast: (text: string, kind: ToastMsg["kind"]) => void;
+}
+
+function TherapistChangePanel({
+  reservationId,
+  therapists,
+  onDone,
+  onClose,
+  onToast,
+}: TherapistChangePanelProps) {
+  const [busy, setBusy] = useState(false);
+
+  const doChange = useCallback(
+    async (therapistId: string) => {
+      setBusy(true);
+      const result = await changeReservationTherapist({ reservationId, therapistId });
+      setBusy(false);
+      if (result.ok) {
+        onToast("担当セラピストを変更しました", "ok");
+        onClose();
+        onDone(reservationId);
+      } else {
+        onToast(result.error ?? "担当変更に失敗しました", "error");
+      }
+    },
+    [reservationId, onDone, onClose, onToast],
+  );
+
+  return (
+    <div
+      style={{
+        padding: "8px 10px 10px 34px",
+        borderBottom: "1px solid #DFE3DE",
+        background: "#F6F7F5",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        alignItems: "center",
+      }}
+    >
+      <span style={{ fontSize: 11, color: "#9BA5AF", marginRight: 4 }}>担当変更:</span>
+      {therapists.map((t) => (
+        <button
+          key={t.id}
+          disabled={busy || t.busy}
+          onClick={() => void doChange(t.id)}
+          title={t.busy ? "この時間に別の予約があります" : undefined}
+          style={{
+            fontSize: 12,
+            border: "1px solid #DFE3DE",
+            background: t.busy ? "#F6F7F5" : "#fff",
+            color: t.busy ? "#9BA5AF" : "#1C2321",
+            borderRadius: 3,
+            padding: "4px 12px",
+            cursor: t.busy ? "not-allowed" : "pointer",
+            textDecoration: t.busy ? "line-through" : "none",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {t.name}
+        </button>
+      ))}
+      <button
+        onClick={onClose}
+        style={{
+          fontSize: 11,
+          border: "none",
+          background: "transparent",
+          color: "#9BA5AF",
+          cursor: "pointer",
+          padding: "4px 8px",
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -321,6 +507,16 @@ export default function ReservationListClient({
 
   // Track which cards have the OP panel open
   const [opOpenIds, setOpOpenIds] = useState<Set<string>>(new Set());
+
+  // Therapist assignment change
+  const [assignChangeOpenId, setAssignChangeOpenId] = useState<string | null>(null);
+  const [assignableList, setAssignableList] = useState<AssignableTherapist[]>([]);
+  const [assignLoading, setAssignLoading] = useState(false);
+
+  // Reservation detail popup
+  const [detailOpenId, setDetailOpenId] = useState<string | null>(null);
+  const [detailData, setDetailData] = useState<ReservationDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const showToast = useCallback((text: string, kind: ToastMsg["kind"]) => {
     const id = ++_toastCounter;
@@ -418,6 +614,32 @@ export default function ReservationListClient({
     setDragOver(null);
   };
 
+  const openAssignChange = useCallback(
+    async (reservationId: string) => {
+      setAssignLoading(true);
+      setAssignChangeOpenId(reservationId);
+      const result = await listAssignableTherapists(reservationId);
+      setAssignLoading(false);
+      if (result.ok) {
+        setAssignableList(result.data ?? []);
+      } else {
+        showToast(result.error ?? "セラピスト一覧の取得に失敗しました", "error");
+        setAssignChangeOpenId(null);
+      }
+    },
+    [showToast],
+  );
+
+  const openDetail = useCallback(async (id: string) => {
+    setDetailOpenId(id);
+    setDetailLoading(true);
+    setDetailData(null);
+    const res = await getReservationDetailLite(id);
+    setDetailLoading(false);
+    if (res.ok && res.data) setDetailData(res.data);
+    else showToast(res.error ?? '取得失敗', 'error');
+  }, [showToast]);
+
   const handleCopyNotice = useCallback(
     (item: ReservationListItem) => {
       if (!item.roomNumber) {
@@ -445,6 +667,15 @@ export default function ReservationListClient({
 
   return (
     <div style={{ display: "flex", gap: 16, padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
+      {/* ─── Detail modal ─── */}
+      {detailOpenId && (
+        <ReservationDetailModal
+          detail={detailData}
+          loading={detailLoading}
+          onClose={() => { setDetailOpenId(null); setDetailData(null); }}
+        />
+      )}
+
       {/* ─── Toast overlay ─── */}
       {toasts.length > 0 && (
         <div
@@ -577,7 +808,9 @@ export default function ReservationListClient({
                 item.nominationFee > 0 ||
                 item.options.length > 0;
               const canOperate = OPERABLE_STATUSES.has(item.status);
+              const canChange = CHANGEABLE_STATUSES.has(item.status);
               const opOpen = opOpenIds.has(item.id);
+              const showOpsRow = canOperate || canChange;
 
               return (
                 <div key={item.id}>
@@ -646,7 +879,7 @@ export default function ReservationListClient({
                       {fmtISO(item.endAtISO)}
                     </div>
                     {/* Status + Detail link */}
-                    <div style={{ textAlign: "center" }}>
+                    <div style={{ textAlign: "center", display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
                       <Link
                         href={`/admin/reservations/${item.id}`}
                         style={{
@@ -662,6 +895,15 @@ export default function ReservationListClient({
                       >
                         {s.label}
                       </Link>
+                      <button
+                        onClick={() => openDetail(item.id)}
+                        style={{
+                          fontSize: 10, border: '1px solid #DFE3DE', background: '#fff',
+                          color: '#9BA5AF', borderRadius: 3, padding: '1px 6px', cursor: 'pointer',
+                        }}
+                      >
+                        詳細
+                      </button>
                     </div>
                   </div>
 
@@ -670,7 +912,7 @@ export default function ReservationListClient({
                     <div
                       style={{
                         padding: "4px 10px 8px 34px",
-                        borderBottom: canOperate ? "none" : "1px solid #DFE3DE",
+                        borderBottom: showOpsRow ? "none" : "1px solid #DFE3DE",
                         background: isDragOver ? "#EAF3EF" : "#FAFAFA",
                         display: "flex",
                         flexWrap: "wrap",
@@ -719,8 +961,8 @@ export default function ReservationListClient({
                     </div>
                   )}
 
-                  {/* カード操作行（confirmed/enroute/in_service のみ） */}
-                  {canOperate && (
+                  {/* カード操作行 */}
+                  {showOpsRow && (
                     <div
                       style={{
                         padding: "6px 10px 8px 34px",
@@ -732,66 +974,110 @@ export default function ReservationListClient({
                         alignItems: "flex-start",
                       }}
                     >
-                      {/* OP追加ボタン */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                      {/* 担当変更ボタン（held含む全 CHANGEABLE ステータス） */}
+                      {canChange && (
                         <button
-                          onClick={() =>
-                            setOpOpenIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) {
-                                next.delete(item.id);
-                              } else {
-                                next.add(item.id);
-                              }
-                              return next;
-                            })
-                          }
+                          onClick={() => {
+                            if (assignChangeOpenId === item.id) {
+                              setAssignChangeOpenId(null);
+                            } else {
+                              void openAssignChange(item.id);
+                            }
+                          }}
                           style={{
-                            fontSize: 11,
+                            fontSize: 13,
                             border: "1px solid #DFE3DE",
-                            background: opOpen ? "#EAF3EF" : "#fff",
-                            color: opOpen ? "#3F7A6B" : "#5b625f",
+                            background: assignChangeOpenId === item.id ? "#EAF3EF" : "#fff",
+                            color: assignChangeOpenId === item.id ? "#3F7A6B" : "#5b625f",
                             borderRadius: 3,
-                            padding: "2px 8px",
+                            padding: "6px 14px",
                             cursor: "pointer",
-                            fontWeight: 600,
+                            minHeight: 32,
                           }}
                         >
-                          ＋OP
+                          {assignLoading && assignChangeOpenId === item.id ? '読込中…' : '担当変更'}
                         </button>
-                        {opOpen && (
-                          <OpAddPanel
-                            reservationId={item.id}
-                            options={options}
-                            onDone={refreshList}
-                            onToast={showToast}
-                          />
-                        )}
-                      </div>
+                      )}
+
+                      {/* OP追加ボタン */}
+                      {canOperate && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() =>
+                              setOpOpenIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) {
+                                  next.delete(item.id);
+                                } else {
+                                  next.add(item.id);
+                                }
+                                return next;
+                              })
+                            }
+                            style={{
+                              fontSize: 13,
+                              border: "1px solid #DFE3DE",
+                              background: opOpen ? "#EAF3EF" : "#fff",
+                              color: opOpen ? "#3F7A6B" : "#5b625f",
+                              borderRadius: 3,
+                              padding: "6px 14px",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              minHeight: 32,
+                            }}
+                          >
+                            ＋OP
+                          </button>
+                          {opOpen && (
+                            <OpAddPanel
+                              reservationId={item.id}
+                              options={options}
+                              onDone={refreshList}
+                              onToast={showToast}
+                            />
+                          )}
+                        </div>
+                      )}
 
                       {/* 部屋番号入力 */}
-                      <RoomNumberInput
-                        reservationId={item.id}
-                        initial={item.roomNumber}
-                        onToast={showToast}
-                      />
+                      {canOperate && (
+                        <RoomNumberInput
+                          reservationId={item.id}
+                          initial={item.roomNumber}
+                          onToast={showToast}
+                        />
+                      )}
 
                       {/* セラピストへ送る */}
-                      <button
-                        onClick={() => handleCopyNotice(item)}
-                        style={{
-                          fontSize: 11,
-                          border: "1px solid #DFE3DE",
-                          background: "#fff",
-                          color: "#5b625f",
-                          borderRadius: 3,
-                          padding: "2px 8px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        📋 セラピストへ送る
-                      </button>
+                      {canOperate && (
+                        <button
+                          onClick={() => handleCopyNotice(item)}
+                          style={{
+                            fontSize: 13,
+                            border: "1px solid #DFE3DE",
+                            background: "#fff",
+                            color: "#5b625f",
+                            borderRadius: 3,
+                            padding: "6px 14px",
+                            cursor: "pointer",
+                            minHeight: 32,
+                          }}
+                        >
+                          📋 セラピストへ送る
+                        </button>
+                      )}
                     </div>
+                  )}
+
+                  {/* 担当変更パネル */}
+                  {assignChangeOpenId === item.id && assignableList.length > 0 && (
+                    <TherapistChangePanel
+                      reservationId={item.id}
+                      therapists={assignableList}
+                      onDone={refreshList}
+                      onClose={() => setAssignChangeOpenId(null)}
+                      onToast={showToast}
+                    />
                   )}
                 </div>
               );
