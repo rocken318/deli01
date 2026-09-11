@@ -43,6 +43,7 @@ export interface ReservationListItem {
   options: { name: string; price: number }[];
   areaName: string | null;
   hotelName: string | null;
+  hotelId: string | null;
   roomNumber: string | null;
   startAtISO: string;
   endAtISO: string;
@@ -65,6 +66,7 @@ interface ListRow {
   total_amount: number;
   area_name: string | null;
   hotel_name: string | null;
+  hotel_id: string | null;
   room_number: string | null;
   start_at: Date;
   end_at: Date;
@@ -115,6 +117,7 @@ export async function getReservationList(
         r.total_amount,
         ar.name                  as area_name,
         h.name                   as hotel_name,
+        r.hotel_id,
         r.room_number,
         r.start_at,
         r.end_at,
@@ -171,6 +174,7 @@ export async function getReservationList(
     options: optionsByResId.get(r.id) ?? [],
     areaName: r.area_name,
     hotelName: r.hotel_name,
+    hotelId: r.hotel_id,
     roomNumber: r.room_number,
     startAtISO: r.start_at.toISOString(),
     endAtISO: r.end_at.toISOString(),

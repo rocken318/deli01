@@ -17,6 +17,8 @@ import {
   type AssignableTherapist,
 } from "@/lib/reservations/therapist-actions";
 import { getReservationDetailLite, type ReservationDetail } from "@/lib/reservations/detail-actions";
+import type { HotelLookupRow } from "@/lib/hotels/hotel-lookup-actions";
+import HotelInfoPanel from "@/app/(admin)/admin/_components/HotelInfoPanel";
 import type { TherapistAvailWindow } from "./page";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,7 @@ interface Props {
   options: Option[];
   areas: Area[];
   availWindows: TherapistAvailWindow[];
+  hotels?: HotelLookupRow[];
 }
 
 type SortMode = "manual" | "in" | "out";
@@ -493,6 +496,7 @@ export default function ReservationListClient({
   options,
   areas,
   availWindows,
+  hotels = [],
 }: Props) {
   const router = useRouter();
   const [items, setItems] = useState<ReservationListItem[]>(reservations);
@@ -500,6 +504,8 @@ export default function ReservationListClient({
   const [showForm, setShowForm] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
+  /** 展開中のホテルパネルの予約ID（同時に1行のみ）*/
+  const [expandedHotelRowId, setExpandedHotelRowId] = useState<string | null>(null);
 
   // D&D state
   const dragIndexRef = useRef<number | null>(null);
@@ -851,9 +857,27 @@ export default function ReservationListClient({
                       {item.courseName}
                       <span style={{ color: "#9BA5AF", fontSize: 11 }}> {item.courseDurationMin}分</span>
                     </div>
-                    {/* Location */}
+                    {/* Location（クリックでホテル情報パネル展開）*/}
                     <div style={{ fontSize: 12, color: "#1C2321" }}>
-                      {item.hotelName ?? item.areaName ?? "—"}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedHotelRowId((prev) => prev === item.id ? null : item.id)}
+                        title="クリックしてホテル情報を展開"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          cursor: "pointer",
+                          color: item.hotelId ? "#3F7A6B" : "#1C2321",
+                          textDecoration: item.hotelId ? "underline" : "none",
+                          textDecorationStyle: "dotted",
+                          fontSize: 12,
+                          textAlign: "left",
+                          fontWeight: item.hotelId ? 600 : "normal",
+                        }}
+                      >
+                        {item.hotelName ?? item.areaName ?? "—"}
+                      </button>
                     </div>
                     {/* IN */}
                     <div
@@ -1078,6 +1102,23 @@ export default function ReservationListClient({
                       onClose={() => setAssignChangeOpenId(null)}
                       onToast={showToast}
                     />
+                  )}
+
+                  {/* ホテル情報パネル */}
+                  {expandedHotelRowId === item.id && (
+                    <div style={{ padding: "0 10px 10px 34px", background: "#FAFBFA", borderBottom: "1px solid #DFE3DE" }}>
+                      <HotelInfoPanel
+                        reservationId={item.id}
+                        currentHotelId={item.hotelId ?? null}
+                        currentHotelName={item.hotelName}
+                        hotels={hotels}
+                        onChanged={() => router.refresh()}
+                        onToast={(msg, kind) => {
+                          if (kind === "ok") showToast(msg, "ok");
+                          else showToast(msg, "error");
+                        }}
+                      />
+                    </div>
                   )}
                 </div>
               );
