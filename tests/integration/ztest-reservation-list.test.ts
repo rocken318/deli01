@@ -9,6 +9,7 @@ import {
   getReservationList,
   reorderReservations,
 } from "@/lib/reservations/list-actions";
+import { setReservationRoomNumber } from "@/lib/reservations/room-actions";
 
 const url =
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5433/deli01";
@@ -184,6 +185,28 @@ describe("getReservationList", () => {
     } finally {
       await sql`update reservations set status = 'confirmed'::reservation_status where id = ${resId2}::uuid`;
     }
+  });
+});
+
+describe("setReservationRoomNumber / roomNumber in list", () => {
+  it("部屋番号を設定すると getReservationList の roomNumber に反映される", async () => {
+    const result = await setReservationRoomNumber({ reservationId: resId1, roomNumber: "302" });
+    expect(result.ok).toBe(true);
+
+    const list = await getReservationList(resDate);
+    const r = list.find((x) => x.id === resId1);
+    expect(r).toBeDefined();
+    expect(r!.roomNumber).toBe("302");
+  });
+
+  it("空文字列を渡すと null になる", async () => {
+    const result = await setReservationRoomNumber({ reservationId: resId1, roomNumber: "" });
+    expect(result.ok).toBe(true);
+
+    const list = await getReservationList(resDate);
+    const r = list.find((x) => x.id === resId1);
+    expect(r).toBeDefined();
+    expect(r!.roomNumber).toBeNull();
   });
 });
 
