@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { getDispatchBoard } from '@/lib/dispatch-board/actions';
 import { getDispatchLegs, getSendHomeLegs } from '@/lib/dispatch-board/leg-actions';
 import { listActiveDriversForDate } from '@/lib/drivers/shift-actions';
+import { listHotelsLookup } from '@/lib/hotels/hotel-lookup-actions';
 import { toZonedTime, format } from 'date-fns-tz';
 import DispatchBoardClient from './DispatchBoardClient';
 
@@ -25,16 +26,18 @@ export default async function DispatchBoardPage({
       ? params.date
       : todayISO;
 
-  const [result, legsResult, driversResult, sendHomeResult] = await Promise.all([
+  const [result, legsResult, driversResult, sendHomeResult, hotelsResult] = await Promise.all([
     getDispatchBoard(dateISO),
     getDispatchLegs(dateISO, true),
     listActiveDriversForDate(dateISO),
     getSendHomeLegs(dateISO, true),
+    listHotelsLookup(),
   ]);
   const items = result.ok ? (result.data ?? []) : [];
   const legs = legsResult.ok ? (legsResult.data ?? []) : [];
   const activeDrivers = driversResult.ok ? (driversResult.data ?? []) : [];
   const sendHomeLegs = sendHomeResult.ok ? (sendHomeResult.data ?? []) : [];
+  const hotels = hotelsResult.ok ? (hotelsResult.data ?? []) : [];
   const error = result.ok ? undefined : result.error;
 
   return (
@@ -60,6 +63,7 @@ export default async function DispatchBoardPage({
         initialLegs={legs}
         initialActiveDrivers={activeDrivers}
         initialSendHomeLegs={sendHomeLegs}
+        hotels={hotels}
       />
     </div>
   );

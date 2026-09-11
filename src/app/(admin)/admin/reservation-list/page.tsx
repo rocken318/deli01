@@ -9,6 +9,7 @@ import { listAnnaiBoardCore } from "@/lib/annai/queries";
 import { operatingDayISO, APP_TIME_ZONE } from "@/domain/availability";
 import { buildBoard } from "@/domain/annai";
 import { getReservationList } from "@/lib/reservations/list-actions";
+import { listHotelsLookup } from "@/lib/hotels/hotel-lookup-actions";
 import ReservationListClient from "./ReservationListClient";
 
 export const metadata: Metadata = { title: "予約一覧" };
@@ -77,7 +78,7 @@ export default async function ReservationListPage({
 
   const sql = getClient();
 
-  const [reservations, therapists, courses, options, areas, boardRows] =
+  const [reservations, therapists, courses, options, areas, boardRows, hotelsResult] =
     await Promise.all([
       getReservationList(dateISO),
       sql<TherapistRow[]>`
@@ -100,7 +101,9 @@ export default async function ReservationListPage({
       `,
       sql<AreaRow[]>`select id, name from areas where is_active = true order by sort_order asc`,
       withUser(sql, session, (tx) => listAnnaiBoardCore(tx, nowMs)),
+      listHotelsLookup(),
     ]);
+  const hotels = hotelsResult.ok ? (hotelsResult.data ?? []) : [];
 
   // 案内表と同じロジックでセラピスト別の次案内可能ウィンドウを算出
   const { active, retired } = buildBoard(boardRows, nowMs);
@@ -144,6 +147,7 @@ export default async function ReservationListPage({
       options={options}
       areas={areas}
       availWindows={availWindows}
+      hotels={hotels}
     />
   );
 }

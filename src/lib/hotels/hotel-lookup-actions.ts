@@ -15,6 +15,10 @@ export interface HotelLookupRow {
   entryNote: string | null; cardKeyRequired: boolean;
   guestChargeNote: string | null; accessNote: string | null;
   mapsUrl: string | null; isBlocked: boolean; record: HotelRecord;
+  /** ホテル個別の交通費（null = ホテル固有の設定なし → エリア既定を使う） */
+  transportFee: number | null;
+  /** エリア既定の交通費（参考表示用） */
+  areaTransportFee: number | null;
 }
 
 export async function listHotelsLookup(): Promise<ActionResult<HotelLookupRow[]>> {
@@ -29,9 +33,11 @@ export async function listHotelsLookup(): Promise<ActionResult<HotelLookupRow[]>
         entry_note: string | null; card_key_required: boolean;
         guest_charge_note: string | null; access_note: string | null;
         maps_url: string | null; is_blocked: boolean;
+        transport_fee: number | null; area_transport_fee: number | null;
       }[]>`
         select h.id, h.name, ar.name as area_name, h.address, h.entry_note,
-               h.card_key_required, h.guest_charge_note, h.access_note, h.maps_url, h.is_blocked
+               h.card_key_required, h.guest_charge_note, h.access_note, h.maps_url, h.is_blocked,
+               h.transport_fee, ar.transport_fee as area_transport_fee
         from hotels h
         left join areas ar on ar.id = h.area_id
         order by h.name asc`;
@@ -42,6 +48,8 @@ export async function listHotelsLookup(): Promise<ActionResult<HotelLookupRow[]>
       guestChargeNote: r.guest_charge_note, accessNote: r.access_note,
       mapsUrl: r.maps_url, isBlocked: r.is_blocked,
       record: deriveHotelRecord(r.is_blocked, r.entry_note),
+      transportFee: r.transport_fee !== null ? Number(r.transport_fee) : null,
+      areaTransportFee: r.area_transport_fee !== null ? Number(r.area_transport_fee) : null,
     })) };
   } catch (e) {
     console.error('listHotelsLookup failed:', e);
