@@ -276,89 +276,148 @@ export default function ReservationListClient({
             {sorted.map((item, index) => {
               const s = statusStyle(item.status);
               const isDragOver = dragOver === index;
+              const hasBreakdown =
+                item.totalAmount > 0 ||
+                item.transportFee > 0 ||
+                item.nominationFee > 0 ||
+                item.options.length > 0;
               return (
-                <div
-                  key={item.id}
-                  draggable={sortMode === "manual"}
-                  onDragStart={() => handleDragStart(index)}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragEnd={handleDragEnd}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "24px 1fr 1.2fr 1.5fr 80px 80px 80px",
-                    gap: 0,
-                    padding: "8px 10px",
-                    borderBottom: "1px solid #DFE3DE",
-                    alignItems: "center",
-                    cursor: sortMode === "manual" ? "grab" : "default",
-                    background: isDragOver ? "#EAF3EF" : "#fff",
-                    transition: "background 0.1s",
-                  }}
-                >
-                  {/* Drag handle */}
-                  <div style={{ color: "#9BA5AF", fontSize: 14, userSelect: "none" }}>
-                    {sortMode === "manual" ? "⠿" : ""}
-                  </div>
-                  {/* Therapist / Customer */}
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1C2321" }}>
-                      {item.therapistName}
+                <div key={item.id}>
+                  <div
+                    draggable={sortMode === "manual"}
+                    onDragStart={() => handleDragStart(index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "24px 1fr 1.2fr 1.5fr 80px 80px 80px",
+                      gap: 0,
+                      padding: "8px 10px",
+                      borderBottom: hasBreakdown ? "none" : "1px solid #DFE3DE",
+                      alignItems: "center",
+                      cursor: sortMode === "manual" ? "grab" : "default",
+                      background: isDragOver ? "#EAF3EF" : "#fff",
+                      transition: "background 0.1s",
+                    }}
+                  >
+                    {/* Drag handle */}
+                    <div style={{ color: "#9BA5AF", fontSize: 14, userSelect: "none" }}>
+                      {sortMode === "manual" ? "⠿" : ""}
                     </div>
-                    {item.customerName && (
-                      <div style={{ fontSize: 11, color: "#9BA5AF" }}>{item.customerName}</div>
-                    )}
-                  </div>
-                  {/* Course */}
-                  <div style={{ fontSize: 12, color: "#1C2321" }}>
-                    {item.courseName}
-                    <span style={{ color: "#9BA5AF", fontSize: 11 }}> {item.courseDurationMin}分</span>
-                  </div>
-                  {/* Location */}
-                  <div style={{ fontSize: 12, color: "#1C2321" }}>
-                    {item.hotelName ?? item.areaName ?? "—"}
-                  </div>
-                  {/* IN */}
-                  <div
-                    style={{
-                      textAlign: "center",
-                      fontSize: 13,
-                      fontFamily: "'IBM Plex Mono', monospace",
-                      color: "#3F7A6B",
-                      fontWeight: 700,
-                    }}
-                  >
-                    {fmtISO(item.startAtISO)}
-                  </div>
-                  {/* OUT */}
-                  <div
-                    style={{
-                      textAlign: "center",
-                      fontSize: 13,
-                      fontFamily: "'IBM Plex Mono', monospace",
-                      color: "#5b625f",
-                    }}
-                  >
-                    {fmtISO(item.endAtISO)}
-                  </div>
-                  {/* Status + Detail link */}
-                  <div style={{ textAlign: "center" }}>
-                    <Link
-                      href={`/admin/reservations/${item.id}`}
+                    {/* Therapist / Customer */}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1C2321" }}>
+                        {item.therapistName}
+                      </div>
+                      {item.customerName && (
+                        <div style={{ fontSize: 11, color: "#9BA5AF" }}>{item.customerName}</div>
+                      )}
+                    </div>
+                    {/* Course */}
+                    <div style={{ fontSize: 12, color: "#1C2321" }}>
+                      {item.courseName}
+                      <span style={{ color: "#9BA5AF", fontSize: 11 }}> {item.courseDurationMin}分</span>
+                    </div>
+                    {/* Location */}
+                    <div style={{ fontSize: 12, color: "#1C2321" }}>
+                      {item.hotelName ?? item.areaName ?? "—"}
+                    </div>
+                    {/* IN */}
+                    <div
                       style={{
-                        display: "inline-block",
-                        background: s.bg,
-                        color: s.color,
-                        borderRadius: 3,
-                        padding: "2px 7px",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        textDecoration: "none",
+                        textAlign: "center",
+                        fontSize: 13,
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        color: "#3F7A6B",
+                        fontWeight: 700,
                       }}
                     >
-                      {s.label}
-                    </Link>
+                      {fmtISO(item.startAtISO)}
+                    </div>
+                    {/* OUT */}
+                    <div
+                      style={{
+                        textAlign: "center",
+                        fontSize: 13,
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        color: "#5b625f",
+                      }}
+                    >
+                      {fmtISO(item.endAtISO)}
+                    </div>
+                    {/* Status + Detail link */}
+                    <div style={{ textAlign: "center" }}>
+                      <Link
+                        href={`/admin/reservations/${item.id}`}
+                        style={{
+                          display: "inline-block",
+                          background: s.bg,
+                          color: s.color,
+                          borderRadius: 3,
+                          padding: "2px 7px",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          textDecoration: "none",
+                        }}
+                      >
+                        {s.label}
+                      </Link>
+                    </div>
                   </div>
+                  {/* 金額内訳 */}
+                  {hasBreakdown && (
+                    <div
+                      style={{
+                        padding: "4px 10px 8px 34px",
+                        borderBottom: "1px solid #DFE3DE",
+                        background: isDragOver ? "#EAF3EF" : "#FAFAFA",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "4px 16px",
+                        alignItems: "center",
+                      }}
+                    >
+                      {/* コース */}
+                      {item.coursePrice > 0 && (
+                        <span style={{ fontSize: 11, color: "#5b625f" }}>
+                          コース ¥{item.coursePrice.toLocaleString()}
+                        </span>
+                      )}
+                      {/* 指名料 */}
+                      {item.nominationFee > 0 && (
+                        <span style={{ fontSize: 11, color: "#5b625f" }}>
+                          指名 ¥{item.nominationFee.toLocaleString()}
+                        </span>
+                      )}
+                      {/* オプション個々 */}
+                      {item.options.map((opt, i) => (
+                        <span key={i} style={{ fontSize: 11, color: "#5b625f" }}>
+                          {opt.name} ¥{opt.price.toLocaleString()}
+                        </span>
+                      ))}
+                      {/* 交通費 */}
+                      {item.transportFee > 0 && (
+                        <span style={{ fontSize: 11, color: "#5b625f" }}>
+                          交通費 ¥{item.transportFee.toLocaleString()}
+                        </span>
+                      )}
+                      {/* 合計 */}
+                      {item.totalAmount > 0 && (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#1C2321",
+                            fontFamily: "'IBM Plex Mono', monospace",
+                            marginLeft: "auto",
+                          }}
+                        >
+                          合計 ¥{item.totalAmount.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

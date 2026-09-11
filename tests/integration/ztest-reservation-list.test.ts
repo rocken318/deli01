@@ -22,6 +22,8 @@ let addressId: string;
 let resId1: string;
 let resId2: string;
 let resDate: string;
+let resId3: string;
+let testOptionId: string;
 
 const TEST_PHONE = "0907777" + String(Date.now()).slice(-4);
 
@@ -71,10 +73,49 @@ beforeAll(async () => {
   resDate = formatInTimeZone(
     (await sql<{ start_at: Date }[]>`select start_at from reservations where id=${resId1}::uuid`)[0]!.start_at,
     TZ, "yyyy-MM-dd");
+
+  // Create a test option and a reservation with that option attached
+  const optionName = `テスト内訳オプション_${Date.now()}`;
+  testOptionId = (await sql<{ id: string }[]>`
+    insert into options (name, price, duration_min, back_type, back_value)
+    values (${optionName}, 2000, 15, 'rate'::option_back_type, 30)
+    returning id`)[0]!.id;
+
+  // resId3: at 19:00 JST, with transport_fee=1500, nomination_fee=500, total_amount=18000
+  const now3 = new Date();
+  const todayJST = formatInTimeZone(now3, TZ, "yyyy-MM-dd");
+  const start3 = new Date(`${todayJST}T19:00:00+09:00`);
+  const end3 = new Date(start3.getTime() + 3_600_000);
+  const depart3 = new Date(start3.getTime() - 900_000);
+  const free3 = new Date(end3.getTime() + 2_700_000);
+  resId3 = randomUUID();
+  await sql`
+    insert into reservations (
+      id, therapist_id, customer_id, address_id, area_id, course_id,
+      start_at, end_at, depart_at, free_at,
+      travel_in_min, travel_out_min, buffer_min, status,
+      total_amount, transport_fee, nomination_fee
+    ) values (
+      ${resId3}::uuid, ${aoiId}::uuid, ${customerId}::uuid, ${addressId}::uuid,
+      (select id from areas limit 1), (select id from courses limit 1),
+      ${start3}, ${end3}, ${depart3}, ${free3}, 15, 30, 5, 'confirmed'::reservation_status,
+      18000, 1500, 500
+    ) on conflict (id) do nothing`;
+
+  await sql`
+    insert into reservation_options (reservation_id, option_id, price_snapshot, duration_snapshot, back_type_snapshot, back_value_snapshot)
+    values (${resId3}::uuid, ${testOptionId}::uuid, 2000, 15, 'rate'::option_back_type, 30)`;
 });
 
 afterAll(async () => {
   await sql`update reservations set manual_sort_order = null where id in (${resId1}::uuid, ${resId2}::uuid)`;
+  if (resId3) {
+    await sql`delete from reservation_options where reservation_id = ${resId3}::uuid`;
+    await sql`delete from reservations where id = ${resId3}::uuid`;
+  }
+  if (testOptionId) {
+    await sql`delete from options where id = ${testOptionId}::uuid`;
+  }
   await sql`delete from reservations where id in (${resId1}::uuid, ${resId2}::uuid)`;
   await sql`delete from addresses where id = ${addressId}::uuid`;
   await sql`delete from customers where id = ${customerId}::uuid`;
@@ -102,6 +143,35 @@ describe("getReservationList", () => {
     expect(typeof r.endAtISO).toBe("string");
     expect(r.status).toBe("confirmed");
     expect(r.manualSortOrder).toBeNull();
+  });
+
+  it("金額内訳フィールドが返る（totalAmount/transportFee/nominationFee/coursePrice）", async () => {
+    const result = await getReservationList(resDate);
+    const r = result.find((x) => x.id === resId3);
+    expect(r).toBeDefined();
+    expect(r!.totalAmount).toBe(18000);
+    expect(r!.transportFee).toBe(1500);
+    expect(r!.nominationFee).toBe(500);
+    expect(typeof r!.coursePrice).toBe("number");
+    expect(r!.coursePrice).toBeGreaterThanOrEqual(0);
+  });
+
+  it("オプション付き予約のオプション一覧が返る", async () => {
+    const result = await getReservationList(resDate);
+    const r = result.find((x) => x.id === resId3);
+    expect(r).toBeDefined();
+    expect(Array.isArray(r!.options)).toBe(true);
+    expect(r!.options).toHaveLength(1);
+    expect(r!.options[0]!.price).toBe(2000);
+    expect(typeof r!.options[0]!.name).toBe("string");
+  });
+
+  it("オプション無し予約は options が空配列", async () => {
+    const result = await getReservationList(resDate);
+    const r = result.find((x) => x.id === resId1);
+    expect(r).toBeDefined();
+    expect(Array.isArray(r!.options)).toBe(true);
+    expect(r!.options).toHaveLength(0);
   });
 
   it("cancelled ステータスの予約は返さない", async () => {
