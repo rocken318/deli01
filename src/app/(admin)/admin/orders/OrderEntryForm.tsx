@@ -47,6 +47,8 @@ interface Props {
   courses: Course[];
   options: Option[];
   areas: Area[];
+  /** CTI 遷移時のプリフィル電話番号（`/admin/orders?phone=090...` 経由）。省略時は動作不変 */
+  initialPhone?: string;
 }
 
 type LostReason = 'time' | 'area' | 'nomination' | 'price' | 'other';
@@ -59,9 +61,9 @@ const LOST_REASON_LABELS: Record<LostReason, string> = {
   other: 'その他',
 };
 
-export default function OrderEntryForm({ therapists, courses, options, areas }: Props) {
+export default function OrderEntryForm({ therapists, courses, options, areas, initialPhone }: Props) {
   // Form state
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(initialPhone ?? '');
   const [customerName, setCustomerName] = useState('');
   const [destinationType, setDestinationType] = useState<'home' | 'hotel'>('home');
   const [addressDetail, setAddressDetail] = useState('');
