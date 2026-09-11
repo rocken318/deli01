@@ -131,7 +131,9 @@ function Row({ r, booking, rowOptions, postedIds, opDay }: { r: BoardRow; bookin
           </div>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#C98A2B", fontFamily: "'IBM Plex Mono',monospace" }}>{c.sub}</div>
           {r.window.gapMin !== null && r.window.gapMin > 0 && (
-            <div style={{ fontSize: 10, color: "#5b625f" }}>空き{r.window.gapMin}分</div>
+            <div style={{ fontSize: 10, color: r.window.tooShort ? "#B4453C" : "#5b625f", fontWeight: r.window.tooShort ? 700 : 400 }}>
+              空き{r.window.gapMin}分{r.window.tooShort ? "・短め要確認" : ""}
+            </div>
           )}
         </div>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-start", overflowX: "auto" }}>

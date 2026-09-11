@@ -98,9 +98,10 @@ describe("computeAvailableWindow", () => {
     expect(w.fromMs!).toBeGreaterThanOrEqual(at(18, 40).getTime());
   });
 
-  it("minBookableMin: 短すぎる隙間はスキップして次予約の後ろを返す", () => {
-    // 次予約が 12:00（出発11:35）→ 11:00〜11:35=35分の隙間は 60分コース+バッファ(50分)に満たない
-    // minBookableMin=60 なら次予約の後ろへずれる
+  it("短すぎる隙間もスキップせず『今から』を出す＋tooShort 警告（発注者 2026-09-11）", () => {
+    // 次予約が 12:00（出発11:35）→ 11:00〜11:35=35分の隙間は 60分コース+バッファに満たない。
+    // 以前は次予約の後ろへ飛ばしていた（＝今行けるのに2時間後バグ）。
+    // 新仕様: 今すぐ空いていれば正直に now を出し、短い時は tooShort=true で警告に回す。
     const row: BoardInput = {
       ...base,
       upcoming: [
@@ -109,13 +110,14 @@ describe("computeAvailableWindow", () => {
     };
     // now=11:00（出勤中、まだ接客なし）
     const w = computeAvailableWindow(row, at(11).getTime(), DEFAULT_BUFFERS, 60);
-    // 11:00〜11:35 の35分隙間はスキップ → 次予約終了後 freeAt=13:10 から
-    expect(w.fromMs).not.toBeNull();
-    expect(w.fromMs!).toBeGreaterThanOrEqual(at(13, 10).getTime());
-    expect(w.kind).toBe("from");
+    expect(w.kind).toBe("now");
+    expect(w.fromMs).toBeNull(); // 今すぐ
+    expect(w.untilMs).toBe(at(11, 35).getTime());
+    expect(w.gapMin).toBe(35);
+    expect(w.tooShort).toBe(true); // 35 < 60 → 警告
   });
 
-  it("minBookableMin: 十分な隙間はそのまま通す", () => {
+  it("十分な隙間は tooShort=false", () => {
     // 次予約が 14:00（出発13:35）→ 11:00〜13:35=155分の隙間は 60分コースに十分
     const row: BoardInput = {
       ...base,
@@ -124,9 +126,10 @@ describe("computeAvailableWindow", () => {
       ],
     };
     const w = computeAvailableWindow(row, at(11).getTime(), DEFAULT_BUFFERS, 60);
-    // 隙間は十分 → 今すぐ(now)、上限は 13:35（次予約の出発）
+    // 隙間は十分 → 今すぐ(now)、上限は 13:35（次予約の出発）、警告なし
     expect(w.kind).toBe("now");
     expect(w.untilMs).toBe(at(13, 35).getTime());
+    expect(w.tooShort).toBe(false);
   });
 
   it("minBookableMin: 予約なし・シフト残り時間がゼロ扱い → minBookableMin=0 と同じ（予約なしは常に案内可能）", () => {
