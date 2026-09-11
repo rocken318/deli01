@@ -151,6 +151,232 @@ export async function finishReservation(input: { reservationId: string }): Promi
   }
 }
 
+// ---- send_home (退勤送り) ----
+
+export interface SendHomeLegView {
+  id: string;
+  therapistId: string;
+  therapistName: string;
+  destinationText: string;
+  roundTripMin: number | null;
+  departAtISO: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  vehicleColorHex: string | null;
+  vehicleColorName: string | null;
+  vehicleNumber: string | null;
+  state: string;
+  memo: string | null;
+  isFinished: boolean;
+}
+
+export async function addSendHomeLeg(input: {
+  therapistId: string;
+  dateISO: string;
+  departAtISO?: string;
+  destinationText: string;
+  roundTripMin?: number | null;
+  memo?: string;
+}): Promise<ActionResult<{ legId: string }>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  if (!can(toActor(session), 'manage_reservations')) return { ok: false, error: '運営権限が必要です' };
+  const parsed = z.object({
+    therapistId: z.string().uuid(),
+    dateISO: DATE,
+    departAtISO: z.string().optional(),
+    destinationText: z.string().min(1).max(500),
+    roundTripMin: z.number().int().min(0).nullable().optional(),
+    memo: z.string().max(2000).optional(),
+  }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: '入力が不正です' };
+  const { therapistId, dateISO, departAtISO, destinationText, roundTripMin, memo } = parsed.data;
+  const sql = getClient();
+  try {
+    const rows = await withUser(sql, session, async (tx) => {
+      const departAt = departAtISO ? new Date(departAtISO) : null;
+      return tx<{ id: string }[]>`
+        insert into dispatch_legs (
+          kind, therapist_id, work_date, state,
+          destination_text, round_trip_min, depart_at, memo
+        )
+        values (
+          'send_home'::dispatch_leg_kind,
+          ${therapistId}::uuid,
+          ${dateISO}::date,
+          '予定',
+          ${destinationText},
+          ${roundTripMin ?? null},
+          ${departAt},
+          ${memo ?? null}
+        )
+        returning id
+      `;
+    });
+    if (!rows[0]) return { ok: false, error: '追加に失敗しました' };
+    revalidate();
+    return { ok: true, data: { legId: rows[0].id } };
+  } catch (e) {
+    console.error('addSendHomeLeg failed:', e);
+    return { ok: false, error: '退勤送りの追加に失敗しました' };
+  }
+}
+
+export async function assignSendHomeDriver(input: {
+  legId: string;
+  driverId: string;
+}): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  if (!can(toActor(session), 'manage_reservations')) return { ok: false, error: '運営権限が必要です' };
+  const parsed = z.object({
+    legId: z.string().uuid(),
+    driverId: z.string().uuid(),
+  }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: '入力が不正です' };
+  const sql = getClient();
+  try {
+    const rows = await withUser(sql, session, async (tx) => {
+      return tx<{ id: string }[]>`
+        update dispatch_legs
+        set driver_id = ${parsed.data.driverId}::uuid, state = '予定'
+        where id = ${parsed.data.legId}::uuid and kind = 'send_home'
+        returning id
+      `;
+    });
+    if (!rows[0]) return { ok: false, error: '脚が見つかりません' };
+    revalidate();
+    return { ok: true };
+  } catch (e) {
+    console.error('assignSendHomeDriver failed:', e);
+    return { ok: false, error: 'ドライバー割当に失敗しました' };
+  }
+}
+
+export async function getSendHomeLegs(
+  dateISO: string,
+  includeFinished = false,
+): Promise<ActionResult<SendHomeLegView[]>> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  if (!can(toActor(session), 'manage_reservations')) return { ok: false, error: '運営権限が必要です' };
+  if (!DATE.safeParse(dateISO).success) return { ok: false, error: '日付が不正です' };
+  const sql = getClient();
+  try {
+    const rows = await withUser(sql, session, async (tx) => {
+      return tx<{
+        id: string;
+        therapist_id: string;
+        therapist_name: string | null;
+        destination_text: string | null;
+        round_trip_min: number | null;
+        depart_at: Date | null;
+        driver_id: string | null;
+        driver_name: string | null;
+        vehicle_color_hex: string | null;
+        vehicle_color_name: string | null;
+        vehicle_number: string | null;
+        state: string;
+        memo: string | null;
+        is_finished: boolean;
+      }[]>`
+        select
+          l.id,
+          l.therapist_id,
+          coalesce(er.published->>'name', t.slug) as therapist_name,
+          l.destination_text,
+          l.round_trip_min,
+          l.depart_at,
+          l.driver_id,
+          dr.name as driver_name,
+          dr.vehicle_color_hex,
+          dr.vehicle_color_name,
+          dr.vehicle_number,
+          l.state,
+          l.memo,
+          l.is_finished
+        from dispatch_legs l
+        join therapists t on t.id = l.therapist_id
+        left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
+        left join drivers dr on dr.id = l.driver_id
+        where l.work_date = ${dateISO}::date
+          and l.kind = 'send_home'
+          ${includeFinished ? sql`` : sql`and l.is_finished = false`}
+        order by l.created_at asc
+      `;
+    });
+    return {
+      ok: true,
+      data: rows.map((r) => ({
+        id: r.id,
+        therapistId: r.therapist_id,
+        therapistName: r.therapist_name ?? r.therapist_id,
+        destinationText: r.destination_text ?? '',
+        roundTripMin: r.round_trip_min,
+        departAtISO: r.depart_at ? r.depart_at.toISOString() : null,
+        driverId: r.driver_id,
+        driverName: r.driver_name,
+        vehicleColorHex: r.vehicle_color_hex,
+        vehicleColorName: r.vehicle_color_name,
+        vehicleNumber: r.vehicle_number,
+        state: r.state,
+        memo: r.memo,
+        isFinished: r.is_finished,
+      })),
+    };
+  } catch (e) {
+    console.error('getSendHomeLegs failed:', e);
+    return { ok: false, error: '退勤送り脚の取得に失敗しました' };
+  }
+}
+
+export async function finishSendHomeLeg(input: { legId: string }): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  if (!can(toActor(session), 'manage_reservations')) return { ok: false, error: '運営権限が必要です' };
+  if (!z.string().uuid().safeParse(input.legId).success) return { ok: false, error: 'IDが不正です' };
+  const sql = getClient();
+  try {
+    const rows = await withUser(sql, session, async (tx) => {
+      return tx<{ id: string }[]>`
+        update dispatch_legs
+        set is_finished = true, finished_at = now()
+        where id = ${input.legId}::uuid and kind = 'send_home' and state = '完了'
+        returning id
+      `;
+    });
+    if (!rows[0]) return { ok: false, error: '脚が見つかりません（状態が完了でない可能性があります）' };
+    revalidate();
+    return { ok: true };
+  } catch (e) {
+    console.error('finishSendHomeLeg failed:', e);
+    return { ok: false, error: '終了処理に失敗しました' };
+  }
+}
+
+export async function deleteSendHomeLeg(input: { legId: string }): Promise<ActionResult> {
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  if (!can(toActor(session), 'manage_reservations')) return { ok: false, error: '運営権限が必要です' };
+  if (!z.string().uuid().safeParse(input.legId).success) return { ok: false, error: 'IDが不正です' };
+  const sql = getClient();
+  try {
+    const rows = await withUser(sql, session, async (tx) => {
+      return tx<{ id: string }[]>`
+        delete from dispatch_legs
+        where id = ${input.legId}::uuid and kind = 'send_home'
+        returning id
+      `;
+    });
+    if (!rows[0]) return { ok: false, error: '脚が見つかりません' };
+    revalidate();
+    return { ok: true };
+  } catch (e) {
+    console.error('deleteSendHomeLeg failed:', e);
+    return { ok: false, error: '退勤送りの削除に失敗しました' };
+  }
+}
+
 export async function getDispatchLegs(
   dateISO: string, includeFinished = false,
 ): Promise<ActionResult<ReservationLegs[]>> {
