@@ -1,8 +1,7 @@
 /**
  * 管理サイドバーのナビ定義（設計 2章）とアクティブ判定（純関数）。
  * 既存の全ページをグループへ分類する（リンク欠落を作らない）。
- * 「主要」は電話受付/案内表/配車ボード/予約管理をピン留め。
- * ※ 当日給料（フェーズ8）・ホテルリスト参照（フェーズ7）は各フェーズで主要へ追加する。
+ * 「主要」は電話受付/案内表/配車ボード/予約管理/当日給料をピン留め。
  */
 export interface AdminNavItem {
   href: string;
@@ -22,6 +21,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/admin/annai", label: "案内表" },
       { href: "/admin/dispatch-board", label: "配車ボード" },
       { href: "/admin/reservations", label: "予約管理" },
+      { href: "/admin/todays-pay", label: "当日給料" },
     ],
   },
   {

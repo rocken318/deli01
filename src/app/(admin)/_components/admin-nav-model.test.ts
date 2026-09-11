@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ADMIN_NAV_GROUPS, findActiveNavItem } from "./admin-nav-model";
 
 describe("ADMIN_NAV_GROUPS", () => {
-  it("主要グループが先頭で、4項目をピン留めする", () => {
+  it("主要グループが先頭で、5項目をピン留めする", () => {
     const primary = ADMIN_NAV_GROUPS[0];
     expect(primary?.label).toBe("主要");
     expect(primary?.items.map((i) => i.href)).toEqual([
@@ -10,6 +10,7 @@ describe("ADMIN_NAV_GROUPS", () => {
       "/admin/annai",
       "/admin/dispatch-board",
       "/admin/reservations",
+      "/admin/todays-pay",
     ]);
   });
 
