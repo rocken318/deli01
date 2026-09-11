@@ -45,6 +45,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { href: "/admin/accounting", label: "会計" },
       { href: "/admin/daily-books", label: "日次会計" },
       { href: "/admin/payouts", label: "報酬" },
+      { href: "/admin/back-prices", label: "バック単価表" },
       { href: "/admin/analytics", label: "集計" },
       { href: "/admin/points", label: "ポイント" },
     ],
