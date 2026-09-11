@@ -123,6 +123,23 @@ describe("getDailyBooksCore（G 日次会計・営業日境界）", () => {
     );
   });
 
+  it("清算金額 = バック − floor(バック × 10%) で store/個人別に計算される", async () => {
+    const range = businessDayRange(D, "day");
+    const r = await getDailyBooksCore(sql, OWNER, range);
+    const row = r.byTherapist.find((t) => t.therapistId === therapistId);
+    expect(row).toBeTruthy();
+    // このセラピストのバックは5000（IN_RANGE予約のみ）
+    // misc = floor(5000 × 10 / 100) = 500、settlement = 5000 - 500 = 4500
+    expect(row!.misc).toBe(500);
+    expect(row!.settlement).toBe(4500);
+    // 粗利の既存定義は変わらない（売上 − バック − 経費 で計算）
+    expect(r.storeTotal.grossProfit).toBe(
+      r.storeTotal.revenue - r.storeTotal.payout - r.storeTotal.expenses,
+    );
+    // storeTotal の settlement = storeTotal.payout - storeTotal.misc
+    expect(r.storeTotal.settlement).toBe(r.storeTotal.payout - r.storeTotal.misc);
+  });
+
   it("交通費は売上に含めず transportPassthrough に別出しする（発注者決定 2026-09-04）", async () => {
     const tid = "b00c0000-0000-4000-8000-000000000003";
     // IN_RANGE(09-03 02:00 JST) と重ならない同営業日の別時刻（09-02 19:00 JST）
