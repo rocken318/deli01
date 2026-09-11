@@ -30,44 +30,52 @@ export async function listAssignableTherapists(
 
   const sql = getClient();
 
-  const data = await withUser(sql, session, async (tx) => {
-    // Get the reservation's time window
-    const resRows = await tx<{ depart_at: Date; free_at: Date }[]>`
-      select depart_at, free_at from reservations
-      where id = ${idParsed.data}::uuid
-      limit 1
-    `;
-    const res = resRows[0];
-    if (!res) throw new Error('not_found');
-
-    // Get all active therapists
-    const therapists = await tx<{ id: string; slug: string; name: string | null }[]>`
-      select t.id, t.slug,
-             coalesce(er.published->>'name', er.draft->>'name', t.slug) as name
-      from therapists t
-      left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
-      where t.status = 'active'
-      order by t.display_order asc
-    `;
-
-    // For each therapist, check if they have an overlapping reservation (excluding the current one)
-    const result: AssignableTherapist[] = [];
-    for (const t of therapists) {
-      const overlapRows = await tx<{ n: number }[]>`
-        select count(*)::int as n from reservations
-        where therapist_id = ${t.id}::uuid
-          and id <> ${idParsed.data}::uuid
-          and status not in ('cancelled', 'noshow')
-          and depart_at < ${res.free_at}
-          and free_at > ${res.depart_at}
+  try {
+    const data = await withUser(sql, session, async (tx) => {
+      // Get the reservation's time window
+      const resRows = await tx<{ depart_at: Date; free_at: Date }[]>`
+        select depart_at, free_at from reservations
+        where id = ${idParsed.data}::uuid
+        limit 1
       `;
-      const busy = (overlapRows[0]?.n ?? 0) > 0;
-      result.push({ id: t.id, slug: t.slug, name: t.name ?? t.slug, busy });
-    }
-    return result;
-  });
+      const res = resRows[0];
+      if (!res) throw new Error('not_found');
 
-  return { ok: true, data };
+      // Get all active therapists
+      const therapists = await tx<{ id: string; slug: string; name: string | null }[]>`
+        select t.id, t.slug,
+               coalesce(er.published->>'name', er.draft->>'name', t.slug) as name
+        from therapists t
+        left join entity_records er on er.entity = 'therapist' and er.slug = t.slug
+        where t.status = 'active'
+        order by t.display_order asc
+      `;
+
+      // For each therapist, check if they have an overlapping reservation (excluding the current one)
+      const result: AssignableTherapist[] = [];
+      for (const t of therapists) {
+        const overlapRows = await tx<{ n: number }[]>`
+          select count(*)::int as n from reservations
+          where therapist_id = ${t.id}::uuid
+            and id <> ${idParsed.data}::uuid
+            and status not in ('cancelled', 'noshow')
+            and depart_at < ${res.free_at}
+            and free_at > ${res.depart_at}
+        `;
+        const busy = (overlapRows[0]?.n ?? 0) > 0;
+        result.push({ id: t.id, slug: t.slug, name: t.name ?? t.slug, busy });
+      }
+      return result;
+    });
+
+    return { ok: true, data };
+  } catch (e) {
+    if (e instanceof Error && e.message === 'not_found') {
+      return { ok: false, error: '予約が見つかりません' };
+    }
+    console.error('listAssignableTherapists failed:', e);
+    return { ok: false, error: 'セラピスト一覧の取得に失敗しました' };
+  }
 }
 
 export async function changeReservationTherapist(params: {
