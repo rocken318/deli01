@@ -762,8 +762,27 @@ export interface MyEarnings {
     total: number;
     byCategory: Record<PayoutCategory, number>;
   };
+  /**
+   * その日（asOf）の**1本ごとの明細**（本数・コース・内訳が分かる / 発注者 2026-09-11）。
+   * 「なぜその金額なのか」をセラピスト本人が確認できるようにするための内訳。
+   * 予約に紐づかない調整行は reservationId=null・courseName=null で末尾に入る。
+   */
+  todayJobs: MyEarningJob[];
   /** 過去の支払履歴 */
   payouts: PayoutSummaryItem[];
+}
+
+/** マイページの当日明細1件（1予約＝1本、またはの調整行） */
+export interface MyEarningJob {
+  reservationId: string | null;
+  /** 施術開始（ISO。調整行は null） */
+  startAtISO: string | null;
+  courseName: string | null;
+  courseDurationMin: number | null;
+  /** この本のバック合計（カテゴリ内訳の総和） */
+  total: number;
+  /** カテゴリ別（course/option/nomination/transport/late_night/cancel_fee/adjustment） */
+  lines: { category: PayoutCategory; amount: number }[];
 }
 
 export type MyEarningsOutcome =
@@ -833,6 +852,47 @@ export async function getMyEarningsCore(
     for (const row of catRows) byCategory[row.category] = row.total;
     const rangeTotal = PAYOUT_CATEGORIES.reduce((s, c) => s + byCategory[c], 0);
 
+    // その日の1本ごとの明細（本数・コース・内訳。「なぜこの金額か」を本人が確認できる）
+    const jobRows = await tx<
+      {
+        reservation_id: string | null;
+        start_at: Date | null;
+        course_name: string | null;
+        course_duration_min: number | null;
+        category: PayoutCategory;
+        amount: number;
+      }[]
+    >`
+      select pl.reservation_id, r.start_at,
+             co.name as course_name, co.duration_min as course_duration_min,
+             pl.category::text as category, pl.amount
+      from payout_lines pl
+      left join reservations r on r.id = pl.reservation_id
+      left join courses co on co.id = r.course_id
+      where pl.therapist_id = ${therapistId}::uuid
+        and pl.business_date = ${today}::date
+      order by r.start_at asc nulls last, pl.id asc
+    `;
+    const jobMap = new Map<string, MyEarningJob>();
+    for (const row of jobRows) {
+      const key = row.reservation_id ?? `adj-${row.category}`;
+      const existing = jobMap.get(key);
+      if (existing) {
+        existing.lines.push({ category: row.category, amount: row.amount });
+        existing.total += row.amount;
+        continue;
+      }
+      jobMap.set(key, {
+        reservationId: row.reservation_id,
+        startAtISO: row.start_at ? row.start_at.toISOString() : null,
+        courseName: row.course_name,
+        courseDurationMin: row.course_duration_min,
+        total: row.amount,
+        lines: [{ category: row.category, amount: row.amount }],
+      });
+    }
+    const todayJobs = [...jobMap.values()];
+
     const payoutRows = await tx<
       {
         id: string;
@@ -872,6 +932,7 @@ export async function getMyEarningsCore(
           total: rangeTotal,
           byCategory,
         },
+        todayJobs,
         payouts: payoutRows.map((p) => ({
           id: p.id,
           periodStart: p.period_start,
