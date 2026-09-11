@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { TodaysPayRow } from '@/lib/payout/todays-pay-actions';
-import { settleTodaysPay } from '@/lib/payout/todays-pay-actions';
+import { settleTodaysPay, unsettleTodaysPay } from '@/lib/payout/todays-pay-actions';
 
 interface Props {
   initialRows: TodaysPayRow[];
@@ -81,6 +81,27 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
         ),
       );
       showToast('精算を記録しました', true);
+    });
+  }
+
+  function handleUnsettle() {
+    if (!selected) return;
+    const therapistId = selected.therapistId;
+    startTransition(async () => {
+      const result = await unsettleTodaysPay({ therapistId, dateISO });
+      if (!result.ok) {
+        showToast(result.error ?? '精算取消に失敗しました', false);
+        return;
+      }
+      // Update rows in state to mark as unsettled
+      setRows((prev) =>
+        prev.map((r) =>
+          r.therapistId === therapistId
+            ? { ...r, settled: false, paidAt: null }
+            : r,
+        ),
+      );
+      showToast('精算を取消しました', true);
     });
   }
 
@@ -253,12 +274,20 @@ export default function TodaysPayClient({ initialRows, dateISO, todayISO }: Prop
                 className="flex items-center gap-3 bg-[#EAF3EF] border border-adm-primary px-4 py-3"
                 style={{ borderRadius: '8px' }}
               >
-                <span className="text-sm font-bold text-[#173a30]">
+                <span className="flex-1 text-sm font-bold text-[#173a30]">
                   精算済み
                   {selected.paidAt && (
                     <span className="ml-2 font-normal text-[#6B7776]">（{selected.paidAt}）</span>
                   )}
                 </span>
+                <button
+                  onClick={handleUnsettle}
+                  disabled={isPending}
+                  className="px-3 py-1.5 border border-adm-border bg-adm-surface text-adm-text text-xs rounded hover:bg-adm-bg disabled:opacity-50"
+                  style={{ borderRadius: '6px' }}
+                >
+                  {isPending ? '処理中…' : '精算取消'}
+                </button>
               </div>
             ) : (
               <div

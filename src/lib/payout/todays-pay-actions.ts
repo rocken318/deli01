@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { revalidatePath } from 'next/cache';
 import { getClient } from '@/lib/db-client';
 import { getDevSession } from '@/lib/cms/dev-session';
 import { withUser } from '@/lib/auth/with-user';
@@ -192,5 +193,52 @@ export async function settleTodaysPay(
   } catch (e) {
     console.error('settleTodaysPay failed:', e);
     return { ok: false, error: '精算の記録に失敗しました' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 3. unsettleTodaysPay: 精算取消（daily_payouts 行削除 / 再精算を可能にする）
+// ---------------------------------------------------------------------------
+
+const unsettleSchema = z.object({
+  therapistId: z.string().uuid(),
+  dateISO: dateSchema,
+});
+
+/**
+ * 精算取消: daily_payouts から指定セラピスト・業務日の行を削除する。
+ * 0行削除（未精算）の場合は error='未精算です' を返す。
+ * 再精算は settleTodaysPay を再度呼ぶことで可能。
+ */
+export async function unsettleTodaysPay(
+  input: z.infer<typeof unsettleSchema>,
+): Promise<ActionResult> {
+  const parsed = unsettleSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: '入力が不正です' };
+
+  const session = await getDevSession();
+  if (!session) return { ok: false, error: '認証が必要です' };
+  if (!can(toActor(session), 'manage_reservations')) {
+    return { ok: false, error: '権限がありません' };
+  }
+
+  try {
+    const sql = getClient();
+    const deleted = await sql<{ id: string }[]>`
+      delete from daily_payouts
+      where therapist_id = ${parsed.data.therapistId}::uuid
+        and business_date = ${parsed.data.dateISO}::date
+      returning id
+    `;
+
+    if (deleted.length === 0) {
+      return { ok: false, error: '未精算です' };
+    }
+
+    revalidatePath('/admin/todays-pay');
+    return { ok: true };
+  } catch (e) {
+    console.error('unsettleTodaysPay failed:', e);
+    return { ok: false, error: '精算取消に失敗しました' };
   }
 }
