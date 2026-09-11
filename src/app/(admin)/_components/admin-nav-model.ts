@@ -18,15 +18,16 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     label: "主要",
     items: [
       { href: "/admin/orders", label: "電話受付" },
+      { href: "/admin/reservation-list", label: "予約一覧" },
       { href: "/admin/annai", label: "案内表" },
       { href: "/admin/dispatch-board", label: "配車ボード" },
-      { href: "/admin/reservations", label: "予約管理" },
       { href: "/admin/todays-pay", label: "当日給料" },
     ],
   },
   {
     label: "受付・配車",
     items: [
+      { href: "/admin/reservations", label: "予約管理" },
       { href: "/admin/cti", label: "着信" },
       { href: "/admin/phone-confirm", label: "電話確認" },
       { href: "/admin/waitlists", label: "キャンセル待ち" },
