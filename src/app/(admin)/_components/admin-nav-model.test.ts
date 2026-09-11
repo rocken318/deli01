@@ -7,9 +7,9 @@ describe("ADMIN_NAV_GROUPS", () => {
     expect(primary?.label).toBe("主要");
     expect(primary?.items.map((i) => i.href)).toEqual([
       "/admin/orders",
+      "/admin/reservation-list",
       "/admin/annai",
       "/admin/dispatch-board",
-      "/admin/reservations",
       "/admin/todays-pay",
     ]);
   });
