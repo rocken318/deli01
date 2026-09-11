@@ -21,6 +21,7 @@ interface ResRow {
   therapist_id: string;
   slug: string;
   name: string | null;
+  ng_note: string | null;
   clock_in_at: Date | null;
   clock_out_at: Date | null;
   shift_start: Date | null;
@@ -49,6 +50,7 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
     select
       t.id as therapist_id, t.slug as slug,
       coalesce(er.published ->> 'name', er.draft ->> 'name') as name,
+      t.ng_note,
       a.clock_in_at, a.clock_out_at,
       s.start_at as shift_start, s.end_at as shift_end,
       r.id as res_id, r.status::text as status,
@@ -79,6 +81,7 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
         therapistId: row.therapist_id,
         slug: row.slug,
         name: row.name ?? row.slug,
+        ngNote: row.ng_note,
         attendanceState: "off",
         shiftStart: row.shift_start,
         shiftEnd: row.shift_end,
@@ -124,6 +127,7 @@ export async function listAnnaiBoardCore(tx: TransactionSql, nowMs: number): Pro
       therapistId: b.therapistId,
       slug: b.slug,
       name: b.name,
+      ngNote: b.ngNote,
       attendanceState: state,
       shiftStart: b.shiftStart,
       shiftEnd: b.shiftEnd,

@@ -309,6 +309,7 @@ export interface DispatchBoardItem {
   version: number;
   therapistId: string;
   therapistName: string;
+  therapistNgNote: string | null;
   /** 派遣先ホテルID（ホテル情報パネルの表示・変更に使う） */
   hotelId: string | null;
   departAtISO: string;
@@ -353,6 +354,7 @@ interface BoardRow extends Omit<TimelineRow, "customer_name" | "customer_note"> 
   therapist_id: string;
   therapist_name: string | null;
   therapist_slug: string;
+  therapist_ng_note: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   first_visit: boolean;
@@ -387,6 +389,7 @@ export async function getDispatchBoardCore(
         r.id, r.status::text, r.version, r.therapist_id,
         er.published->>'name' as therapist_name,
         t.slug                as therapist_slug,
+        t.ng_note             as therapist_ng_note,
         r.depart_at, r.start_at, r.end_at, r.free_at,
         r.travel_in_min, r.travel_out_min,
         co.name          as course_name,
@@ -431,6 +434,7 @@ export async function getDispatchBoardCore(
       version: r.version,
       therapistId: r.therapist_id,
       therapistName: r.therapist_name ?? r.therapist_slug,
+      therapistNgNote: r.therapist_ng_note,
       hotelId: r.hotel_id_direct,
       departAtISO: r.depart_at.toISOString(),
       startAtISO: r.start_at.toISOString(),
