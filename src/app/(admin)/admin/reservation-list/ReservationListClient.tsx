@@ -8,6 +8,9 @@ import {
   reorderReservations,
   type ReservationListItem,
 } from "@/lib/reservations/list-actions";
+import { setReservationRoomNumber } from "@/lib/reservations/room-actions";
+import { addSameDayExtension } from "@/lib/booking/extension-actions";
+import { buildTherapistNotice } from "@/domain/reservation/therapist-notice";
 import type { TherapistAvailWindow } from "./page";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +53,9 @@ interface Props {
 
 type SortMode = "manual" | "in" | "out";
 
+// Statuses where card operations (OP add, room edit) are enabled
+const OPERABLE_STATUSES = new Set(["confirmed", "enroute", "in_service"]);
+
 // ---------------------------------------------------------------------------
 // Status label helper
 // ---------------------------------------------------------------------------
@@ -67,7 +73,6 @@ function statusStyle(status: string) {
 }
 
 function fmtISO(iso: string): string {
-  // Format ISO string to HH:MM in JST
   const d = new Date(iso);
   return d.toLocaleTimeString("ja-JP", {
     timeZone: "Asia/Tokyo",
@@ -75,6 +80,218 @@ function fmtISO(iso: string): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Toast helper (simple inline toast state)
+// ---------------------------------------------------------------------------
+
+interface ToastMsg {
+  id: number;
+  text: string;
+  kind: "ok" | "error" | "warn";
+}
+
+let _toastCounter = 0;
+
+// ---------------------------------------------------------------------------
+// OP追加パネル (per-card)
+// ---------------------------------------------------------------------------
+
+interface OpAddPanelProps {
+  reservationId: string;
+  options: Option[];
+  onDone: (updatedId: string) => void;
+  onToast: (text: string, kind: ToastMsg["kind"]) => void;
+}
+
+function OpAddPanel({ reservationId, options, onDone, onToast }: OpAddPanelProps) {
+  const [selectedOptionId, setSelectedOptionId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [conflictError, setConflictError] = useState<string | null>(null);
+
+  const doAdd = useCallback(
+    async (overrideReason?: string) => {
+      if (!selectedOptionId) return;
+      setBusy(true);
+      setConflictError(null);
+
+      const result = await addSameDayExtension(
+        reservationId,
+        selectedOptionId,
+        overrideReason ? { overrideReason } : undefined,
+      );
+
+      setBusy(false);
+
+      if (result.ok) {
+        onToast("オプションを追加しました", "ok");
+        setSelectedOptionId("");
+        onDone(reservationId);
+      } else {
+        // If there's a conflict-like error, offer override
+        const isConflict =
+          result.error?.includes("後続") || result.error?.includes("間に合わない");
+        if (isConflict) {
+          setConflictError(result.error ?? "後続予約と競合しています");
+        } else {
+          onToast(result.error ?? "追加に失敗しました", "error");
+        }
+      }
+    },
+    [reservationId, selectedOptionId, onDone, onToast],
+  );
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <select
+        value={selectedOptionId}
+        onChange={(e) => {
+          setSelectedOptionId(e.target.value);
+          setConflictError(null);
+        }}
+        disabled={busy}
+        style={{
+          fontSize: 12,
+          border: "1px solid #DFE3DE",
+          borderRadius: 3,
+          padding: "2px 6px",
+          background: "#fff",
+          color: "#1C2321",
+          maxWidth: 160,
+        }}
+      >
+        <option value="">OP選択…</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name} ¥{o.price.toLocaleString()} +{o.duration_min}分
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={() => doAdd()}
+        disabled={!selectedOptionId || busy}
+        style={{
+          fontSize: 11,
+          border: "1px solid #3F7A6B",
+          background: selectedOptionId && !busy ? "#EAF3EF" : "#F6F7F5",
+          color: selectedOptionId && !busy ? "#3F7A6B" : "#9BA5AF",
+          borderRadius: 3,
+          padding: "2px 8px",
+          cursor: selectedOptionId && !busy ? "pointer" : "default",
+        }}
+      >
+        {busy ? "追加中…" : "追加"}
+      </button>
+      {conflictError && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: "#FBF3E6",
+            border: "1px solid #C98A2B",
+            borderRadius: 3,
+            padding: "3px 8px",
+            fontSize: 11,
+            color: "#8a5d16",
+            flexWrap: "wrap",
+          }}
+        >
+          <span>⚠ {conflictError}</span>
+          <button
+            onClick={() => doAdd("管理者による強制追加（後続確認済み）")}
+            disabled={busy}
+            style={{
+              fontSize: 11,
+              border: "1px solid #C98A2B",
+              background: "#fff",
+              color: "#8a5d16",
+              borderRadius: 3,
+              padding: "2px 8px",
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            それでも追加
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 部屋番号インライン入力
+// ---------------------------------------------------------------------------
+
+interface RoomNumberInputProps {
+  reservationId: string;
+  initial: string | null;
+  onToast: (text: string, kind: ToastMsg["kind"]) => void;
+}
+
+function RoomNumberInput({ reservationId, initial, onToast }: RoomNumberInputProps) {
+  const [value, setValue] = useState(initial ?? "");
+  const [saved, setSaved] = useState(initial ?? "");
+  const [busy, setBusy] = useState(false);
+
+  const isDirty = value !== saved;
+
+  const save = useCallback(async () => {
+    setBusy(true);
+    const result = await setReservationRoomNumber({ reservationId, roomNumber: value });
+    setBusy(false);
+    if (result.ok) {
+      setSaved(value);
+      onToast("部屋番号を保存しました", "ok");
+    } else {
+      onToast(result.error ?? "保存に失敗しました", "error");
+    }
+  }, [reservationId, value, onToast]);
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span style={{ fontSize: 11, color: "#9BA5AF", whiteSpace: "nowrap" }}>部屋:</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="例: 302"
+        maxLength={50}
+        disabled={busy}
+        style={{
+          fontSize: 12,
+          border: `1px solid ${isDirty ? "#C98A2B" : "#DFE3DE"}`,
+          borderRadius: 3,
+          padding: "2px 6px",
+          width: 70,
+          background: "#fff",
+          color: "#1C2321",
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+        }}
+      />
+      {isDirty && (
+        <button
+          onClick={save}
+          disabled={busy}
+          style={{
+            fontSize: 11,
+            border: "1px solid #3F7A6B",
+            background: "#EAF3EF",
+            color: "#3F7A6B",
+            borderRadius: 3,
+            padding: "2px 6px",
+            cursor: "pointer",
+          }}
+        >
+          {busy ? "…" : "保存"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -96,10 +313,28 @@ export default function ReservationListClient({
   const [sortMode, setSortMode] = useState<SortMode>("manual");
   const [showForm, setShowForm] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [toasts, setToasts] = useState<ToastMsg[]>([]);
 
   // D&D state
   const dragIndexRef = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+
+  // Track which cards have the OP panel open
+  const [opOpenIds, setOpOpenIds] = useState<Set<string>>(new Set());
+
+  const showToast = useCallback((text: string, kind: ToastMsg["kind"]) => {
+    const id = ++_toastCounter;
+    setToasts((prev) => [...prev, { id, text, kind }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000);
+  }, []);
+
+  // Reload a single reservation's data by refreshing the full list via router
+  const refreshList = useCallback(
+    (_updatedId: string) => {
+      router.refresh();
+    },
+    [router],
+  );
 
   // Navigate to a different date
   const gotoDate = useCallback(
@@ -183,8 +418,68 @@ export default function ReservationListClient({
     setDragOver(null);
   };
 
+  const handleCopyNotice = useCallback(
+    (item: ReservationListItem) => {
+      if (!item.roomNumber) {
+        showToast("部屋番号が未入力ですがコピーします", "warn");
+      }
+      const text = buildTherapistNotice({
+        therapistName: item.therapistName,
+        startText: fmtISO(item.startAtISO),
+        courseName: item.courseName,
+        courseDurationMin: item.courseDurationMin,
+        destination: item.hotelName ?? item.areaName ?? "—",
+        roomNumber: item.roomNumber ?? null,
+        optionNames: item.options.map((o) => o.name),
+        totalAmount: item.totalAmount,
+      });
+      navigator.clipboard.writeText(text).then(
+        () => {
+          if (item.roomNumber) showToast("セラピスト連絡文をコピーしました", "ok");
+        },
+        () => showToast("クリップボードへのコピーに失敗しました", "error"),
+      );
+    },
+    [showToast],
+  );
+
   return (
     <div style={{ display: "flex", gap: 16, padding: 24, background: "#F6F7F5", minHeight: "100vh" }}>
+      {/* ─── Toast overlay ─── */}
+      {toasts.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            zIndex: 9999,
+          }}
+        >
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 4,
+                fontSize: 13,
+                fontWeight: 600,
+                background:
+                  t.kind === "ok" ? "#EAF3EF" : t.kind === "warn" ? "#FBF3E6" : "#FDECEA",
+                color:
+                  t.kind === "ok" ? "#2c6152" : t.kind === "warn" ? "#8a5d16" : "#B4453C",
+                border: `1px solid ${t.kind === "ok" ? "#3F7A6B" : t.kind === "warn" ? "#C98A2B" : "#B4453C"}`,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.10)",
+              }}
+            >
+              {t.text}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ─── Main panel ─── */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Header */}
@@ -281,8 +576,12 @@ export default function ReservationListClient({
                 item.transportFee > 0 ||
                 item.nominationFee > 0 ||
                 item.options.length > 0;
+              const canOperate = OPERABLE_STATUSES.has(item.status);
+              const opOpen = opOpenIds.has(item.id);
+
               return (
                 <div key={item.id}>
+                  {/* Main row */}
                   <div
                     draggable={sortMode === "manual"}
                     onDragStart={() => handleDragStart(index)}
@@ -365,12 +664,13 @@ export default function ReservationListClient({
                       </Link>
                     </div>
                   </div>
+
                   {/* 金額内訳 */}
                   {hasBreakdown && (
                     <div
                       style={{
                         padding: "4px 10px 8px 34px",
-                        borderBottom: "1px solid #DFE3DE",
+                        borderBottom: canOperate ? "none" : "1px solid #DFE3DE",
                         background: isDragOver ? "#EAF3EF" : "#FAFAFA",
                         display: "flex",
                         flexWrap: "wrap",
@@ -416,6 +716,81 @@ export default function ReservationListClient({
                           合計 ¥{item.totalAmount.toLocaleString()}
                         </span>
                       )}
+                    </div>
+                  )}
+
+                  {/* カード操作行（confirmed/enroute/in_service のみ） */}
+                  {canOperate && (
+                    <div
+                      style={{
+                        padding: "6px 10px 8px 34px",
+                        borderBottom: "1px solid #DFE3DE",
+                        background: isDragOver ? "#EAF3EF" : "#F6F7F5",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "6px 16px",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      {/* OP追加ボタン */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                        <button
+                          onClick={() =>
+                            setOpOpenIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) {
+                                next.delete(item.id);
+                              } else {
+                                next.add(item.id);
+                              }
+                              return next;
+                            })
+                          }
+                          style={{
+                            fontSize: 11,
+                            border: "1px solid #DFE3DE",
+                            background: opOpen ? "#EAF3EF" : "#fff",
+                            color: opOpen ? "#3F7A6B" : "#5b625f",
+                            borderRadius: 3,
+                            padding: "2px 8px",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          ＋OP
+                        </button>
+                        {opOpen && (
+                          <OpAddPanel
+                            reservationId={item.id}
+                            options={options}
+                            onDone={refreshList}
+                            onToast={showToast}
+                          />
+                        )}
+                      </div>
+
+                      {/* 部屋番号入力 */}
+                      <RoomNumberInput
+                        reservationId={item.id}
+                        initial={item.roomNumber}
+                        onToast={showToast}
+                      />
+
+                      {/* セラピストへ送る */}
+                      <button
+                        onClick={() => handleCopyNotice(item)}
+                        style={{
+                          fontSize: 11,
+                          border: "1px solid #DFE3DE",
+                          background: "#fff",
+                          color: "#5b625f",
+                          borderRadius: 3,
+                          padding: "2px 8px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        📋 セラピストへ送る
+                      </button>
                     </div>
                   )}
                 </div>
