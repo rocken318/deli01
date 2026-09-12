@@ -9,14 +9,16 @@ import { listAnnaiBoardCore } from "@/lib/annai/queries";
 import { operatingDayISO } from "@/domain/availability";
 import {
   buildBoard,
+  buildDayTimeline,
   indexOptionAvailability,
   filterOptionsForTherapist,
   DEFAULT_BUFFERS,
   type BoardRow,
   type AvailWindow,
   type JobItem,
+  type TimelineSegment,
 } from "@/domain/annai";
-import BookingLauncher from "./BookingLauncher";
+import RowBookingArea from "./RowBookingArea";
 import type { CourseOpt, OptionOpt, AreaOpt } from "./BookingPopup";
 import ConsoleTabs from "./ConsoleTabs";
 import PostAccountingLauncher from "./PostAccountingLauncher";
@@ -110,7 +112,7 @@ function JobCard({ job, side, opDay }: { job: JobItem; side: "done" | "up"; opDa
   );
 }
 
-function Row({ r, booking, rowOptions, postedIds, opDay }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[]; postedIds?: Set<string>; opDay: string }) {
+function Row({ r, booking, rowOptions, postedIds, opDay, timeline }: { r: BoardRow; booking?: Booking; rowOptions?: OptionOpt[]; postedIds?: Set<string>; opDay: string; timeline?: TimelineSegment[] }) {
   const chip = chipOf(r);
   const c = centerText(r.window, opDay);
   // 清算/計上は done のみが対象（左列には進行中の過去分も含まれるため status で絞る）
@@ -172,7 +174,9 @@ function Row({ r, booking, rowOptions, postedIds, opDay }: { r: BoardRow; bookin
         )}
       </div>
       {booking && (
-        <BookingLauncher
+        <RowBookingArea
+          segments={timeline ?? []}
+          opDay={opDay}
           therapistId={r.therapistId}
           therapistSlug={r.slug}
           courses={booking.courses}
@@ -251,7 +255,15 @@ export default async function AnnaiPage() {
         <div style={{ paddingLeft: 4 }}>これからの仕事 →</div>
       </div>
       {active.map((r) => (
-        <Row key={r.therapistId} r={r} booking={booking} rowOptions={optionsForTherapist(r.therapistId)} postedIds={postedIds} opDay={opDay} />
+        <Row
+          key={r.therapistId}
+          r={r}
+          booking={booking}
+          rowOptions={optionsForTherapist(r.therapistId)}
+          postedIds={postedIds}
+          opDay={opDay}
+          timeline={buildDayTimeline(r, nowMs, DEFAULT_BUFFERS, minBookableMin > 0 ? minBookableMin : 0)}
+        />
       ))}
       {retired.length > 0 && (
         <>
