@@ -183,19 +183,19 @@ describe("buildDayTimeline", () => {
     // trailing gap [17:45, 23:00] = 315min
     const segs = buildDayTimeline(row, now1400, DEFAULT_BUFFERS, 0);
     expect(segs.map((s) => s.kind)).toEqual(["gap", "job", "gap"]);
-    expect(segs[0].minutes).toBe(95);
-    expect(segs[1].minutes).toBe(130);
-    expect(segs[2].minutes).toBe(315);
+    expect(segs[0]!.minutes).toBe(95);
+    expect(segs[1]!.minutes).toBe(130);
+    expect(segs[2]!.minutes).toBe(315);
   });
 
   it("予約なし → gap 1本（範囲まるごと）", () => {
     const segs = buildDayTimeline(base, at(14).getTime(), DEFAULT_BUFFERS, 0);
     expect(segs).toHaveLength(1);
-    expect(segs[0].kind).toBe("gap");
+    expect(segs[0]!.kind).toBe("gap");
     // rangeStart = max(14:00, 11:15) = 14:00, rangeEnd = 23:00 → 540min
-    expect(segs[0].minutes).toBe(540);
-    expect(segs[0].startMs).toBe(at(14).getTime());
-    expect(segs[0].endMs).toBe(at(23).getTime());
+    expect(segs[0]!.minutes).toBe(540);
+    expect(segs[0]!.startMs).toBe(at(14).getTime());
+    expect(segs[0]!.endMs).toBe(at(23).getTime());
   });
 
   it("上がり(done) → 空配列", () => {
@@ -221,8 +221,8 @@ describe("buildDayTimeline", () => {
   it("今より前に始まる gap は isNow=true", () => {
     // now=14:00, rangeStart=14:00 (working), 最初の gap は rangeStart=14:00=now → isNow
     const segs = buildDayTimeline(base, at(14).getTime(), DEFAULT_BUFFERS, 0);
-    expect(segs[0].kind).toBe("gap");
-    expect(segs[0].isNow).toBe(true);
+    expect(segs[0]!.kind).toBe("gap");
+    expect(segs[0]!.isNow).toBe(true);
   });
 
   it("重なる予約は1つの job に統合される", () => {

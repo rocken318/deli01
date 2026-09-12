@@ -162,21 +162,20 @@ export function buildDayTimeline(
   // 統合: 重なる区間をマージし、代表 job（最初のもの）を保持
   const merged: { startMs: number; endMs: number; job: JobItem }[] = [];
   for (const [s, e, j] of rawIntervals) {
-    if (merged.length === 0) {
+    const last = merged[merged.length - 1];
+    if (!last) {
       merged.push({ startMs: s, endMs: e, job: j });
+    } else if (s <= last.endMs) {
+      // 重なりあり → 統合（endMs を延ばす）
+      last.endMs = Math.max(last.endMs, e);
     } else {
-      const last = merged[merged.length - 1];
-      if (s <= last.endMs) {
-        // 重なりあり → 統合（endMs を延ばす）
-        last.endMs = Math.max(last.endMs, e);
-      } else {
-        merged.push({ startMs: s, endMs: e, job: j });
-      }
+      merged.push({ startMs: s, endMs: e, job: j });
     }
   }
 
   // 範囲終了: shiftEnd || 最後の占有の終わり || rangeStart（フォールバック）
-  const lastEnd = merged.length > 0 ? merged[merged.length - 1].endMs : rangeStart;
+  const lastMerged = merged[merged.length - 1];
+  const lastEnd = lastMerged ? lastMerged.endMs : rangeStart;
   const rangeEnd = row.shiftEnd ? row.shiftEnd.getTime() : lastEnd;
 
   const segments: TimelineSegment[] = [];
