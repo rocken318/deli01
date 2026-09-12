@@ -60,6 +60,7 @@ export default function BookingPopup({
   courses,
   options,
   areas,
+  initialStartMs,
   onCreated,
 }: {
   therapistId: string;
@@ -67,6 +68,8 @@ export default function BookingPopup({
   courses: CourseOpt[];
   options: OptionOpt[];
   areas: AreaOpt[];
+  /** タイムライン gap クリック時の希望開始時刻（ms）。実枠の中から最近傍を初期選択する。 */
+  initialStartMs?: number;
   onCreated: () => void;
 }) {
   const [phone, setPhone] = useState("");
@@ -159,7 +162,24 @@ export default function BookingPopup({
       if (r.ok) {
         setSlots(r.data.slots);
         setSlotsDateISO(r.data.dateISO);
-        setSelectedISO((prev) => (r.data.slots.some((s) => s.startAtISO === prev) ? prev : (r.data.slots[0]?.startAtISO ?? "")));
+        setSelectedISO((prev) => {
+          // 既に有効な選択があればそのまま
+          if (r.data.slots.some((s) => s.startAtISO === prev)) return prev;
+          // initialStartMs が指定されている場合は最近傍の実枠を初期選択（エンジン枠以外は作らない）
+          if (initialStartMs !== undefined && r.data.slots.length > 0) {
+            let nearest = r.data.slots[0]!;
+            let minDiff = Math.abs(new Date(nearest.startAtISO).getTime() - initialStartMs);
+            for (const slot of r.data.slots) {
+              const diff = Math.abs(new Date(slot.startAtISO).getTime() - initialStartMs);
+              if (diff < minDiff) {
+                minDiff = diff;
+                nearest = slot;
+              }
+            }
+            return nearest.startAtISO;
+          }
+          return r.data.slots[0]?.startAtISO ?? "";
+        });
       } else {
         setSlots([]);
         setSlotsDateISO("");

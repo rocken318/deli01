@@ -102,6 +102,142 @@ export function computeAvailableWindow(
   return { kind, fromMs: kind === "now" ? null : availableFrom, untilMs, gapMin, busyNow, tooShort };
 }
 
+// ---------------------------------------------------------------------------
+// buildDayTimeline: その日の帯（予約→空き→予約→…）を返す純関数
+// ---------------------------------------------------------------------------
+
+export type TimelineSegmentKind = "job" | "gap" | "off";
+export interface TimelineSegment {
+  kind: TimelineSegmentKind;
+  startMs: number;
+  endMs: number;
+  minutes: number;
+  /** kind==='job' のとき元の予約 */
+  job?: JobItem;
+  /** kind==='gap' のとき、最短コースが入らない短い隙間なら true */
+  tooShort?: boolean;
+  /** kind==='gap' のとき、現在時刻より前に始まる（＝今すぐ案内できる）なら true */
+  isNow?: boolean;
+}
+
+/**
+ * その日の帯（予約→空き→予約→…）を返す純関数。
+ * 範囲は [max(now, shiftStart+travel), shiftEnd]。占有区間は computeAvailableWindow と同じ定義。
+ * 重なる予約は統合してひとつの job セグメントにまとめる（表示が壊れないように）。
+ */
+export function buildDayTimeline(
+  row: BoardInput,
+  nowMs: number,
+  buffers: { afterBufferMin: number; travelMin: number } = DEFAULT_BUFFERS,
+  minBookableMin = 0,
+): TimelineSegment[] {
+  if (row.attendanceState === "done") return [];
+  if (row.attendanceState === "off" && !row.shiftStart) return [];
+
+  const extraMs = (buffers.afterBufferMin + buffers.travelMin) * MIN;
+
+  // 範囲の開始
+  let rangeStart: number;
+  if (row.attendanceState === "off") {
+    // shiftStart は null でないことを上で確認済み
+    rangeStart = row.shiftStart!.getTime() + buffers.travelMin * MIN;
+  } else {
+    // working: max(now, shiftStart+travel)
+    const shiftWithTravel = row.shiftStart ? row.shiftStart.getTime() + buffers.travelMin * MIN : nowMs;
+    rangeStart = Math.max(nowMs, shiftWithTravel);
+  }
+
+  // 範囲の終了: shiftEnd があればそれ、なければ最後の占有区間の終わり
+  const allJobs = [...row.done, ...row.upcoming];
+
+  // 占有区間 [departAt, max(freeAt, endAt+extra)] を構築・ソート・統合
+  const rawIntervals = allJobs
+    .map((j): [number, number, JobItem] => [
+      j.departAt.getTime(),
+      Math.max(j.freeAt.getTime(), j.endAt.getTime() + extraMs),
+      j,
+    ])
+    .sort((a, b) => a[0] - b[0]);
+
+  // 統合: 重なる区間をマージし、代表 job（最初のもの）を保持
+  const merged: { startMs: number; endMs: number; job: JobItem }[] = [];
+  for (const [s, e, j] of rawIntervals) {
+    const last = merged[merged.length - 1];
+    if (!last) {
+      merged.push({ startMs: s, endMs: e, job: j });
+    } else if (s <= last.endMs) {
+      // 重なりあり → 統合（endMs を延ばす）
+      last.endMs = Math.max(last.endMs, e);
+    } else {
+      merged.push({ startMs: s, endMs: e, job: j });
+    }
+  }
+
+  // 範囲終了: shiftEnd || 最後の占有の終わり || rangeStart（フォールバック）
+  const lastMerged = merged[merged.length - 1];
+  const lastEnd = lastMerged ? lastMerged.endMs : rangeStart;
+  const rangeEnd = row.shiftEnd ? row.shiftEnd.getTime() : lastEnd;
+
+  const segments: TimelineSegment[] = [];
+
+  let cursor = rangeStart;
+  for (const occ of merged) {
+    // 範囲より後ろの占有はスキップ
+    if (occ.startMs >= rangeEnd) break;
+    // 範囲より前に完全に終わる占有はスキップ
+    if (occ.endMs <= rangeStart) continue;
+
+    // 占有開始より前に gap がある場合
+    const gapStart = cursor;
+    const gapEnd = Math.max(cursor, occ.startMs);
+    if (gapEnd > gapStart) {
+      const minutes = Math.round((gapEnd - gapStart) / MIN);
+      if (minutes > 0) {
+        segments.push({
+          kind: "gap",
+          startMs: gapStart,
+          endMs: gapEnd,
+          minutes,
+          tooShort: minBookableMin > 0 && minutes < minBookableMin,
+          isNow: gapStart <= nowMs,
+        });
+      }
+    }
+
+    // job セグメント（範囲にクリップ）
+    const jobStart = Math.max(occ.startMs, rangeStart);
+    const jobEnd = Math.min(occ.endMs, rangeEnd);
+    if (jobEnd > jobStart) {
+      const minutes = Math.round((jobEnd - jobStart) / MIN);
+      segments.push({
+        kind: "job",
+        startMs: jobStart,
+        endMs: jobEnd,
+        minutes,
+        job: occ.job,
+      });
+    }
+    cursor = Math.max(cursor, occ.endMs);
+  }
+
+  // 最後の占有の後〜rangeEnd の gap
+  if (cursor < rangeEnd) {
+    const minutes = Math.round((rangeEnd - cursor) / MIN);
+    if (minutes > 0) {
+      segments.push({
+        kind: "gap",
+        startMs: cursor,
+        endMs: rangeEnd,
+        minutes,
+        tooShort: minBookableMin > 0 && minutes < minBookableMin,
+        isNow: cursor <= nowMs,
+      });
+    }
+  }
+
+  return segments;
+}
+
 /** ウィンドウ計算＋「次案内可能が早い順」ソート。done は retired に分離。 */
 export function buildBoard(
   rows: BoardInput[],
